@@ -156,6 +156,7 @@ struct GameScreenView<Placeholder: View>: View {
 /// Dải phụ đề dưới hình: chỉ hiện bản dịch.
 struct SubtitleStrip: View {
     @ObservedObject var pipeline = Pipeline.shared
+    @ObservedObject var analyzer: ScreenAnalyzer = Pipeline.shared.analyzer
     @ObservedObject var router: TranslationRouter = Pipeline.shared.router
     let idleHint: String
 
@@ -163,6 +164,13 @@ struct SubtitleStrip: View {
         VStack(alignment: .center, spacing: 4) {
             if let e = router.lastError {
                 Label(e, systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(Theme.danger).lineLimit(2)
+            }
+            // Luồng chụp / nhận dạng chữ hỏng (ví dụ Vision treo) và lỗi của lần Dịch màn hình gần nhất.
+            ForEach(Array(pipeline.workerErrors.values.sorted()), id: \.self) { e in
+                Label(e, systemImage: "exclamationmark.octagon.fill").font(.caption).foregroundStyle(Theme.danger).lineLimit(2)
+            }
+            if let e = analyzer.lastError, !analyzer.isRunning {
+                Label("Dịch màn hình: \(e)", systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(Theme.danger).lineLimit(2)
             }
             if let skipped = pipeline.skippedUI.values.first {
                 Label("Đang bỏ qua chữ giao diện (menu/cài đặt): \(skipped.prefix(70))", systemImage: "pause.circle")

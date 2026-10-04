@@ -20,6 +20,21 @@ final class ScreenAnalyzer: ObservableObject {
     }
 
     /// `present`: mở ảnh đã dịch ngay trên cửa sổ app (bấm từ điện thoại thì không, vì người bấm xem trên điện thoại).
+    private static func recognizeBlocks(_ ocr: VisionOCR, _ img: CGImage, timeout: Double) async -> [VisionOCR.Block]? {
+        await withCheckedContinuation { cont in
+            let lock = NSLock()
+            var done = false
+            func finish(_ r: [VisionOCR.Block]?) {
+                lock.lock(); defer { lock.unlock() }
+                guard !done else { return }
+                done = true
+                cont.resume(returning: r)
+            }
+            Task.detached(priority: .userInitiated) { finish(ocr.recognizeBlocks(img)) }
+            DispatchQueue.global().asyncAfter(deadline: .now() + max(5, timeout)) { finish(nil) }
+        }
+    }
+
     func analyze(regions: [Region], present: Bool = true) async -> ScreenAnalysis? {
         guard !isRunning else { return nil }
         guard !regions.isEmpty else { lastError = "Chưa có vùng dịch thủ công"; return nil }
@@ -38,7 +53,13 @@ final class ScreenAnalyzer: ObservableObject {
                 let scale = min(2.0, 3000.0 / max(1, r.width))
                 let img = try await ScreenshotService.capture(region: r, scale: scale)
                 progress = "Đang nhận dạng chữ…"
-                let blocks = await Task.detached(priority: .userInitiated) { [ocr] in ocr.recognizeBlocks(img) }.value
+                // Vision có lúc treo hẳn bên trong (không bao giờ trả về): chờ tối đa `analyzeTimeout` giây rồi báo lỗi,
+                // để nút Dịch màn hình không kẹt ở "Đang nhận dạng chữ…" mãi.
+                guard let blocks = await Self.recognizeBlocks(ocr, img, timeout: settings.analyzeTimeout) else {
+                    lastError = "Bộ nhận dạng chữ của macOS bị treo. Thoát hẳn app (⌘Q) rồi mở lại."
+                    Log.error("Analyze OCR[\(r.name)] quá \(Int(settings.analyzeTimeout)) s không xong → Vision treo")
+                    return nil
+                }
                 Log.info("Analyze OCR[\(r.name)] \(blocks.count) khối chữ")
                 if placed == nil { placed = (img, blocks, lines.count) }
                 lines += blocks.map(\.text)

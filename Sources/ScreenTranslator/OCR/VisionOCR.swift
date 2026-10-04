@@ -33,6 +33,14 @@ final class VisionOCR {
     /// để loại chữ nhỏ trong cảnh game (đồng hồ "mph" trên bảng điều khiển xe…). Chỉ áp dụng cho `recognize`.
     var minRowHeight: CGFloat = 0
 
+    /// Mọi lượt nhận dạng chữ trong app chạy lần lượt, không song song: đã gặp Vision treo hẳn (chờ Neural Engine mãi)
+    /// khi OCR phụ đề và "Dịch màn hình" chạy cùng lúc.
+    private static let visionLock = NSLock()
+    private static func perform(_ handler: VNImageRequestHandler, _ req: VNRequest) throws {
+        visionLock.lock(); defer { visionLock.unlock() }
+        try handler.perform([req])
+    }
+
     /// Cho phụ đề (frame từ SCStream).
     func recognize(_ pb: CVPixelBuffer) -> Result? {
         let t0 = CFAbsoluteTimeGetCurrent()
@@ -56,6 +64,8 @@ final class VisionOCR {
         var text: String
         var box: CGRect
         var lines: Int
+        /// Chiều cao chữ trung bình của các dòng (không tính khoảng trống giữa dòng), để so cỡ chữ khi gộp đoạn.
+        var textH: CGFloat = 0
     }
 
     /// Cho "dịch đè lên màn hình": trả về từng khối chữ. Các dòng liền nhau của cùng một đoạn văn được gộp lại để dịch trọn ý.
@@ -64,7 +74,7 @@ final class VisionOCR {
         req.recognitionLevel = .accurate
         req.recognitionLanguages = languages
         req.usesLanguageCorrection = true
-        do { try VNImageRequestHandler(cgImage: cg, orientation: .up, options: [:]).perform([req]) } catch {
+        do { try Self.perform(VNImageRequestHandler(cgImage: cg, orientation: .up, options: [:]), req) } catch {
             Log.error("OCR failed: \(error.localizedDescription)")
             return []
         }
@@ -73,23 +83,28 @@ final class VisionOCR {
             let text = TextUtils.normalize(TextUtils.stripJunkTokens(c.string))
             guard TextUtils.letterCount(text) >= 2 else { return nil }
             let b = o.boundingBox
-            return Block(text: text, box: CGRect(x: b.minX, y: 1 - b.maxY, width: b.width, height: b.height), lines: 1)
+            return Block(text: text, box: CGRect(x: b.minX, y: 1 - b.maxY, width: b.width, height: b.height), lines: 1, textH: b.height)
         }
         items.sort { abs($0.box.minY - $1.box.minY) > 0.01 ? $0.box.minY < $1.box.minY : $0.box.minX < $1.box.minX }
         // Gộp đoạn văn: dòng dưới nằm sát dòng trên, cùng lề trái, cỡ chữ tương đương.
         var out: [Block] = []
         for it in items {
             if let i = out.lastIndex(where: { prev in
-                let lineH = prev.box.height / CGFloat(prev.lines)
+                let lineH = prev.textH
                 let gap = it.box.minY - prev.box.maxY
-                let sameLeft = abs(it.box.minX - prev.box.minX) < 0.012
-                let sameSize = max(lineH, it.box.height) / max(0.0001, min(lineH, it.box.height)) < 1.3
+                // Cùng lề trái, hoặc cùng tâm (đoạn chữ canh giữa như hướng dẫn, thông báo).
+                let sameLeft = abs(it.box.minX - prev.box.minX) < 0.012 || abs(it.box.midX - prev.box.midX) < 0.012
+                // Dòng không có chữ cao/thấp (dòng cuối ngắn "no amount of money can buy.") có khung thấp hơn ~30 %.
+                let sameSize = max(lineH, it.box.height) / max(0.0001, min(lineH, it.box.height)) < 1.5
                 // Mục menu xếp dọc cũng cùng lề nhưng cách nhau xa hơn và thường chỉ 1–2 từ → không gộp.
                 let wordy = prev.text.split(separator: " ").count >= 3
-                return sameLeft && sameSize && wordy && gap > -lineH * 0.3 && gap < lineH * 0.45 && prev.lines < 8
+                // Khoảng cách dòng của đoạn văn trong game thường bằng 0,5–0,8 lần chiều cao chữ (ngưỡng cũ 0,45 tách nhầm
+                // dòng đầu của đoạn ra riêng); dưới 1 lần chiều cao chữ coi là cùng đoạn.
+                return sameLeft && sameSize && wordy && gap > -lineH * 0.3 && gap < lineH * 1.0 && prev.lines < 12
             }) {
                 out[i].text += " " + it.text
                 out[i].box = out[i].box.union(it.box)
+                out[i].textH = (out[i].textH * CGFloat(out[i].lines) + it.box.height) / CGFloat(out[i].lines + 1)
                 out[i].lines += 1
             } else {
                 out.append(it)
@@ -117,7 +132,7 @@ final class VisionOCR {
         req.recognitionLanguages = languages
         req.usesLanguageCorrection = (level == .accurate)
         req.minimumTextHeight = minTextHeight
-        do { try handler.perform([req]) } catch {
+        do { try Self.perform(handler, req) } catch {
             Log.error("OCR failed: \(error.localizedDescription)")
             return nil
         }

@@ -13,6 +13,8 @@ final class RegionWorker {
     private let ocrQueue = DispatchQueue(label: "ocr", qos: .userInitiated, autoreleaseFrequency: .workItem)
     private let gateQueue = DispatchQueue(label: "gate", qos: .userInitiated, autoreleaseFrequency: .workItem)
     private var ocrBusy = false                   // chỉ đọc/ghi trên gateQueue
+    private var ocrStartedAt = Date()             // chỉ đọc/ghi trên gateQueue
+    private var reportedHang = false              // chỉ đọc/ghi trên gateQueue
     private var stopped = false                   // chỉ đọc/ghi trên gateQueue
     private var restarting = false                // chỉ đọc/ghi trên gateQueue
     private var lastText = ""
@@ -113,6 +115,12 @@ final class RegionWorker {
         t.setEventHandler { [weak self] in
             guard let self else { return }
             Log.info("STATS[\(self.region.name)] frames/10s=\(self.frameCount) ocr/10s=\(self.ocrRuns) nghỉ/10s=\(self.heldFrames)")
+            // Một lượt OCR (bình thường dưới 0,2 s) quá 10 s chưa xong: Vision đã treo, chỉ mở lại app mới hết.
+            if self.ocrBusy, Date().timeIntervalSince(self.ocrStartedAt) > 10, !self.reportedHang {
+                self.reportedHang = true
+                Log.error("OCR[\(self.region.name)] treo \(Int(Date().timeIntervalSince(self.ocrStartedAt))) s trong Vision")
+                self.onCaptureError?("Nhận dạng chữ của macOS bị treo, phụ đề không được dịch. Thoát hẳn app (⌘Q) rồi mở lại.")
+            }
             self.frameCount = 0; self.ocrRuns = 0; self.heldFrames = 0
         }
         t.resume()
@@ -199,6 +207,7 @@ final class RegionWorker {
     private func runOCR(_ pb: CVPixelBuffer) {
         guard !ocrBusy else { pendingPB = pb; return }
         ocrBusy = true
+        ocrStartedAt = Date()
         ocrRuns += 1
         ocrQueue.async { [self] in
             // Xong OCR: nếu trong lúc bận có khung mới đang chờ (và không có timer chờ ổn định) thì OCR luôn,

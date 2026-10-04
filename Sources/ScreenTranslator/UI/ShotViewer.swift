@@ -124,9 +124,14 @@ struct ShotModal: View {
                     TranslatedShotView(image: image, items: shot.items, showSource: showSource)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     if !shot.summary.isEmpty {
-                        Text(shot.summary).font(.callout).foregroundStyle(.white.opacity(0.85)).lineLimit(3)
-                            .multilineTextAlignment(.center).textSelection(.enabled)
-                            .padding(.horizontal, 24).padding(.vertical, 10)
+                        // Tóm tắt cốt truyện / nhân vật có thể dài: hiện đủ, cuộn được khi vượt quá chiều cao.
+                        ScrollView {
+                            Text(shot.summary).font(.callout).foregroundStyle(.white.opacity(0.85)).lineSpacing(3)
+                                .multilineTextAlignment(.leading).textSelection(.enabled)
+                                .frame(maxWidth: 900, alignment: .leading).frame(maxWidth: .infinity)
+                        }
+                        .frame(maxHeight: 150)
+                        .padding(.horizontal, 24).padding(.vertical, 10)
                     }
                 }
             } else {

@@ -79,7 +79,7 @@ final class TranslationRouter: ObservableObject {
         ai.instructions = { [gemini] in gemini.subtitleSystemPrompt }
         ai.summaryInstructions = { [gemini] in
             "You are helping a player understand a video game screen. The user gives numbered lines of English text extracted by OCR from one screenshot. " +
-            "Reply with 2-4 sentences in \(gemini.targetName) explaining what is on screen and what the player should do or know now. Output only that summary."
+            "Reply in \(gemini.targetName) with a summary of the screen. " + GeminiBackend.summaryGuide + " Output only that summary."
         }
         monitor.pathUpdateHandler = { [weak self] path in
             Task { @MainActor in

@@ -132,6 +132,10 @@ nav button.active { color: var(--accent); }
 #vtip { position: absolute; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); padding: 10px 12px;
   border-radius: 10px; background: rgba(0, 0, 0, .85); color: var(--text); font-size: 15px; text-align: center; }
 #vtip:empty { display: none; }
+#vsumBox { position: absolute; left: 12px; right: 12px; top: calc(52px + env(safe-area-inset-top)); max-height: 55%;
+  overflow-y: auto; padding: 12px 14px; border-radius: 12px; background: rgba(10, 10, 12, .92); color: var(--text);
+  font-size: 15px; line-height: 1.5; display: none; }
+#viewer.sum #vsumBox { display: block; }
 </style>
 </head>
 <body>
@@ -172,10 +176,11 @@ nav button.active { color: var(--accent); }
 </div>
 <div id="viewer">
   <div id="stage"><img id="shot" alt=""></div>
-  <div id="vbar"><span id="vcount"></span><button class="pill" id="vorig">Xem bản gốc</button><button class="pill" id="vclose">Đóng</button></div>
+  <div id="vbar"><span id="vcount"></span><button class="pill" id="vsum">Tóm tắt</button><button class="pill" id="vorig">Xem bản gốc</button><button class="pill" id="vclose">Đóng</button></div>
   <button class="pill vnav" id="vprev"><svg viewBox="0 0 12 12"><path d="M8.5 1L3 6l5.5 5 1-1.2L5.4 6l4.1-3.8z"/></svg></button>
   <button class="pill vnav" id="vnext"><svg viewBox="0 0 12 12"><path d="M3.5 1L9 6l-5.5 5-1-1.2L6.6 6 2.5 2.2z"/></svg></button>
   <div id="vtip"></div>
+  <div id="vsumBox"></div>
 </div>
 <script>
 const $ = id => document.getElementById(id);
@@ -429,6 +434,8 @@ function openViewer(id) {
   $('vprev').disabled = i === list.length - 1;
   $('vnext').disabled = i === 0;
   $('vtip').textContent = '';
+  $('vsumBox').textContent = shot.summary || '';
+  $('vsum').style.display = shot.summary ? '' : 'none';
   $('viewer').classList.add('show');
   layoutViewer();
 }
@@ -439,6 +446,7 @@ function stepViewer(d) {      // d = -1: ảnh chụp trước đó (cũ hơn), 
 }
 function closeViewer() { $('viewer').classList.remove('show'); shot = null; }
 $('vclose').onclick = closeViewer;
+$('vsum').onclick = () => { $('viewer').classList.toggle('sum'); };
 $('vprev').onclick = () => stepViewer(-1);
 $('vnext').onclick = () => stepViewer(1);
 $('vorig').onclick = () => {

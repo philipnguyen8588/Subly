@@ -100,12 +100,23 @@ final class GeminiBackend: TranslationBackend {
         """
     }
 
+    /// Cách viết phần tóm tắt của "Dịch màn hình", dùng chung cho Gemini và Apple Intelligence.
+    static let summaryGuide = """
+    How long the summary is depends on the screen. \
+    If the screen only has menus, buttons, settings or stats, write one short sentence saying what the screen is. \
+    If it contains story, quest, journal, codex or character text, retell ALL of that text's content in your own words, \
+    not just the gist: keep every person, relationship, trait, past event, motive, goal, place, faction, item and number it mentions, \
+    in the original order, in as many sentences as needed (usually 4–10). Do not add facts that are not on screen. \
+    Write natural flowing prose. Never list categories, never comment on what the text contains, and never give advice; \
+    mention the player's next step only when the screen states an objective.
+    """
+
     var analysisSystemPrompt: String {
         """
         You are helping a player understand a video game screen. The user gives you numbered lines of English text \
         extracted by OCR from one screenshot (UI labels, dialog, quest text, stats). OCR may contain small errors; infer the intent.
         Return JSON with:
-        - "summary": 2–4 sentences in \(targetName) explaining what is on screen and what the player should do or know now.
+        - "summary": in \(targetName). \(Self.summaryGuide)
         - "lines": an array of {"i": line number, "t": \(targetName) translation}. Translate every line; keep names, numbers, keys and game terms as-is unless the glossary says otherwise.
         \(glossaryBlock)
         """
