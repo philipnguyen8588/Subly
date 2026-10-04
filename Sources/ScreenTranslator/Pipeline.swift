@@ -16,7 +16,9 @@ final class RegionWorker {
     private var stopped = false                   // chỉ đọc/ghi trên gateQueue
     private var restarting = false                // chỉ đọc/ghi trên gateQueue
     private var lastText = ""
-    private var recent: [(text: String, at: Date)] = []   // các câu đã chấp nhận gần đây, để lọc trùng
+    /// Các câu đã nhận còn đang được nhớ (để lọc trùng). `missingSince`: lần OCR đầu tiên không còn thấy câu này
+    /// (nil = vẫn đang trên màn hình). Màn hình đứng yên thì không OCR nên không ai đánh dấu → câu vẫn được nhớ.
+    private var recent: [(text: String, missingSince: Date?)] = []
     private let dedup: Double
     private let skipUI: Bool
     private let skipInterjections: Bool
@@ -174,6 +176,10 @@ final class RegionWorker {
     /// TRỪ ĐI `lag` = khoảng app không nhìn màn hình trước khi thấy câu này (câu có thể đã hiện từ lúc đó).
     /// Nhờ vậy lúc hết nghỉ câu vẫn còn trên màn hình, câu ngắn hiện ngay sau đó không bị lọt.
     /// Câu 3 từ nghỉ 0,3–0,5 s, câu 10 từ trở lên tối đa 1,2 s. Hết nghỉ thì khung kế tiếp được OCR ngay.
+    /// Câu đã đọc mà không còn thấy trên màn hình quá chừng này thì quên (đủ để bỏ qua vài khung OCR đọc trượt
+    /// hoặc phụ đề nháy tắt rồi hiện lại cùng một câu).
+    static let forgetAfter: TimeInterval = 4
+
     static func holdAfterSubtitle(_ text: String, lag: TimeInterval = 0) -> TimeInterval {
         let words = Double(text.split { $0 == " " || $0 == "\n" }.count)
         let display = max(1.0, words / 3.2)
@@ -212,6 +218,9 @@ final class RegionWorker {
             if text.isEmpty || TextUtils.letterCount(text) < 2 {
                 RegionPreviewProvider.shared.reportOCR(regionID: region.id, ms: r.ms, text: text)
                 if !lastText.isEmpty { lastText = ""; onEmpty?(region) }
+                // Phụ đề đã biến mất: bắt đầu đếm thời gian vắng mặt của mọi câu đang nhớ.
+                let now = Date()
+                for i in recent.indices where recent[i].missingSince == nil { recent[i].missingSince = now }
                 return
             }
             // Chữ giao diện (menu, cài đặt, danh sách) → không dịch, không đọc.
@@ -232,11 +241,15 @@ final class RegionWorker {
             // Tách thành từng câu thoại và lọc trùng theo từng câu (so với 6 câu gần nhất trong 20 s).
             // Nhờ vậy: câu cũ còn nằm trên màn hình không bị đọc lại, hai người nói cùng lúc thành hai câu riêng.
             let now = Date()
-            // Câu đã đọc còn nằm trên màn hình thì được nhớ tiếp: mỗi lần OCR còn thấy nó, mốc thời gian được làm mới.
-            // Nếu không, chữ đứng yên lâu ("PRESS • TO CONTINUE") quá 20 s bị quên và đọc lại như câu mới.
+            // Chỉ nhớ những câu ĐANG nằm trên màn hình: câu còn hiện liên tục thì không đọc lại, dù đứng yên bao lâu.
+            // Câu OCR không còn thấy quá `Self.forgetAfter` giây, hoặc đã bị câu mới thay thế (xem dưới), thì quên:
+            // A → B → A đọc lại A. Thời gian vắng mặt chỉ tính từ lần OCR thấy câu đã biến mất, không theo đồng hồ.
             let onScreen = SubtitleSplitter.utterances(rows: r.lines, speakers: speakerNames(), useNames: usesNames())
-            for i in recent.indices where SubtitleSplitter.score(recent[i].text, recent: onScreen) >= dedup { recent[i].at = now }
-            recent.removeAll { now.timeIntervalSince($0.at) > 20 }
+            recent.removeAll { $0.missingSince.map { now.timeIntervalSince($0) > Self.forgetAfter } ?? false }
+            for i in recent.indices {
+                if SubtitleSplitter.score(recent[i].text, recent: onScreen) >= dedup { recent[i].missingSince = nil }
+                else if recent[i].missingSince == nil { recent[i].missingSince = now }
+            }
             var fresh = SubtitleSplitter.fresh(rows: r.lines, speakers: speakerNames(), useNames: usesNames(),
                                                recent: recent.map(\.text), threshold: dedup)
             let changed = text != lastText
@@ -246,7 +259,7 @@ final class RegionWorker {
                 let dropped = fresh.filter(SubtitleSplitter.isInterjectionOnly)
                 if !dropped.isEmpty {
                     fresh.removeAll(where: SubtitleSplitter.isInterjectionOnly)
-                    for d in dropped { recent.append((d, now)) }
+                    for d in dropped { recent.append((d, nil)) }
                     if recent.count > 6 { recent.removeFirst(recent.count - 6) }
                     Log.info("CẢM THÁN[\(region.name)] bỏ qua: \(dropped.joined(separator: " ⏎ "))")
                     if fresh.isEmpty { return }
@@ -257,7 +270,7 @@ final class RegionWorker {
                 let stray = fresh.filter(SubtitleSplitter.isStrayFragment)
                 if !stray.isEmpty {
                     fresh.removeAll(where: SubtitleSplitter.isStrayFragment)
-                    for d in stray { recent.append((d, now)) }
+                    for d in stray { recent.append((d, nil)) }
                     if recent.count > 6 { recent.removeFirst(recent.count - 6) }
                     Log.info("LẠC[\(region.name)] bỏ qua: \(stray.joined(separator: " ⏎ "))")
                     if fresh.isEmpty { hold(0.6); return }
@@ -269,7 +282,7 @@ final class RegionWorker {
                 let simple = fresh.filter(SubtitleSplitter.isSimple)
                 if !simple.isEmpty {
                     fresh.removeAll(where: SubtitleSplitter.isSimple)
-                    for d in simple { recent.append((d, now)) }
+                    for d in simple { recent.append((d, nil)) }
                     if recent.count > 6 { recent.removeFirst(recent.count - 6) }
                     let real = simple.filter(SubtitleSplitter.hasEnglishWord)
                     let junk = simple.filter { !SubtitleSplitter.hasEnglishWord($0) }
@@ -289,7 +302,9 @@ final class RegionWorker {
                 return
             }
             dupStreak = 0
-            for f in fresh { recent.append((f, now)) }
+            // Có câu mới thật: câu cũ nào không còn trên màn hình là đã được thay thế → quên ngay.
+            recent.removeAll { $0.missingSince != nil }
+            for f in fresh { recent.append((f, nil)) }
             if recent.count > 6 { recent.removeFirst(recent.count - 6) }
             let dropped = fresh.joined(separator: " ").count < text.count - 3
             Log.info("OCR[\(region.name)] \(String(format: "%.0f", r.ms))ms conf=\(String(format: "%.2f", r.confidence)) \(r.level == .fast ? "fast" : "acc")\(fresh.count > 1 ? " [\(fresh.count) câu]" : "")\(dropped ? " [bỏ câu cũ]" : ""): \(fresh.joined(separator: " ⏎ "))")
