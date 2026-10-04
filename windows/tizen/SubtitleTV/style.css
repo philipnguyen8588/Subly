@@ -76,3 +76,9 @@ html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; backgro
 #hist .row.new { background: rgba(97,111,250,.12); }
 #hist .mark { text-align: center; font-size: 22px; opacity: .5; margin: 22px 0 6px; }
 #hist .empty { text-align: center; font-size: 30px; opacity: .6; margin-top: 300px; }
+
+/* Chế độ "tóm tắt" khi xem ảnh dịch màn hình: ảnh mờ đi, đoạn tóm tắt chữ to ở giữa. */
+#shot.dimimg img { opacity: .25; }
+#shot .sumpanel { position: absolute; left: 240px; right: 240px; top: 50%; transform: translateY(-50%); padding: 40px 56px; border-radius: 22px;
+                  background: rgba(10,12,20,.88); font-size: 38px; line-height: 1.5; text-align: center; }
+#shot .sumtitle { font-size: 26px; opacity: .6; margin-bottom: 16px; letter-spacing: 1px; }

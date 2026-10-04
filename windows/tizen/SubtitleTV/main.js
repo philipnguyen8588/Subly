@@ -319,7 +319,9 @@
   }
 
   // ---------- Xem ảnh "dịch màn hình" ----------
-  var shots = [], shotIdx = 0, shotSource = false;
+  var shots = [], shotIdx = 0;
+  // Nút OK xoay vòng: bản dịch → bản gốc → tóm tắt → bản dịch.
+  var SHOT_MODES = ['trans', 'orig', 'sum'], SHOT_LABEL = { trans: 'bản dịch', orig: 'bản gốc', sum: 'tóm tắt' }, shotMode = 'trans';
 
   function loadShots(focusId) {
     api('GET', '/api/analyses', 15000, function (list, err) {
@@ -337,7 +339,7 @@
     rt.shotOpen = true;
     hideVideo();
     shotEl.className = '';
-    shotSource = false;
+    shotMode = 'trans';
     shotEl.innerHTML = '<div class="wait">' + (focusId === null ? 'Đang chụp và dịch màn hình…' : 'Đang tải ảnh…') + '</div>';
     if (focusId !== null) loadShots(focusId);
   }
@@ -357,7 +359,7 @@
     var scale = Math.min(1920 / a.width, 1080 / a.height);
     var fw = a.width * scale, fh = a.height * scale, ox = (1920 - fw) / 2, oy = (1080 - fh) / 2;
     var html = '<img src="' + s.url + '/api/shot/' + a.id + '.jpg" style="left:' + ox + 'px;top:' + oy + 'px;width:' + fw + 'px;height:' + fh + 'px">';
-    if (!shotSource) {
+    if (shotMode === 'trans') {
       (a.items || []).forEach(function (it) {
         var w = it.w * fw, h = it.h * fh;
         // Tiếng Việt thường dài hơn tiếng Anh: hộp rộng thêm một chút, chữ tự co cho vừa (như app máy tính).
@@ -369,9 +371,15 @@
     }
     var when = new Date(a.at * 1000);
     var hh = ('0' + when.getHours()).slice(-2) + ':' + ('0' + when.getMinutes()).slice(-2) + ':' + ('0' + when.getSeconds()).slice(-2);
-    html += '<div class="bar"><span>Dịch màn hình · ' + (shotIdx + 1) + '/' + shots.length + ' · ' + hh + ' · ' + (a.items || []).length + ' khối chữ</span>' +
-            '<span class="dim">◀▶ ảnh trước/sau · OK: ' + (shotSource ? 'xem bản dịch' : 'xem bản gốc') + ' · Back: về game</span></div>';
+    if (shotMode === 'sum') {
+      html += '<div class="sumpanel"><div class="sumtitle">Tóm tắt</div>' +
+              (a.summary ? esc(a.summary) : '<span class="dim">Không có tóm tắt cho lần dịch này (cần Gemini trên máy tính).</span>') + '</div>';
+    }
+    var nextMode = SHOT_MODES[(SHOT_MODES.indexOf(shotMode) + 1) % SHOT_MODES.length];
+    html += '<div class="bar"><span>Dịch màn hình · ' + (shotIdx + 1) + '/' + shots.length + ' · ' + hh + ' · đang xem: <b>' + SHOT_LABEL[shotMode] + '</b></span>' +
+            '<span class="dim">◀▶ ảnh trước/sau · OK: xem ' + SHOT_LABEL[nextMode] + ' · Back: về game</span></div>';
     shotEl.innerHTML = html;
+    shotEl.className = shotMode === 'sum' ? 'dimimg' : '';
     // Co chữ từng khối cho vừa hộp (tối thiểu 45 % cỡ ban đầu).
     var blks = shotEl.querySelectorAll('.blk');
     for (var b = 0; b < blks.length; b++) {
@@ -387,7 +395,7 @@
     switch (code) {
       case 37: if (shotIdx < shots.length - 1) { shotIdx++; renderShot(); } break;   // ◀ ảnh cũ hơn
       case 39: if (shotIdx > 0) { shotIdx--; renderShot(); } break;                   // ▶ ảnh mới hơn
-      case 13: shotSource = !shotSource; renderShot(); break;                           // OK: bản gốc / bản dịch
+      case 13: shotMode = SHOT_MODES[(SHOT_MODES.indexOf(shotMode) + 1) % SHOT_MODES.length]; renderShot(); break;   // OK: bản dịch → bản gốc → tóm tắt
       case 10252: case 415: case 19: toggleTranslate(); break;
       case 10009: if (!rt.analyzing || shots.length) closeShot(); break;                 // Back: về game
     }
