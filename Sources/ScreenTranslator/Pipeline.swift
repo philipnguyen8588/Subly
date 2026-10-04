@@ -232,6 +232,10 @@ final class RegionWorker {
             // Tách thành từng câu thoại và lọc trùng theo từng câu (so với 6 câu gần nhất trong 20 s).
             // Nhờ vậy: câu cũ còn nằm trên màn hình không bị đọc lại, hai người nói cùng lúc thành hai câu riêng.
             let now = Date()
+            // Câu đã đọc còn nằm trên màn hình thì được nhớ tiếp: mỗi lần OCR còn thấy nó, mốc thời gian được làm mới.
+            // Nếu không, chữ đứng yên lâu ("PRESS • TO CONTINUE") quá 20 s bị quên và đọc lại như câu mới.
+            let onScreen = SubtitleSplitter.utterances(rows: r.lines, speakers: speakerNames(), useNames: usesNames())
+            for i in recent.indices where SubtitleSplitter.score(recent[i].text, recent: onScreen) >= dedup { recent[i].at = now }
             recent.removeAll { now.timeIntervalSince($0.at) > 20 }
             var fresh = SubtitleSplitter.fresh(rows: r.lines, speakers: speakerNames(), useNames: usesNames(),
                                                recent: recent.map(\.text), threshold: dedup)

@@ -183,7 +183,7 @@
     var s = cfg.servers[cfg.server];
     if (!s) { rt.sse = 'chưa chọn máy'; return; }
     rt.sse = 'đang kết nối…';
-    try { es = new EventSource(s.url + '/events'); } catch (e) { rt.sse = 'lỗi: ' + e.message; return; }
+    try { es = new EventSource(s.url + '/events?audio=1'); } catch (e) { rt.sse = 'lỗi: ' + e.message; return; }
     var first = true;
     es.onopen = function () {
       rt.sse = 'đã kết nối';

@@ -15,6 +15,10 @@ final class WebServer: ObservableObject, @unchecked Sendable {
     }
     @Published private(set) var status: Status = .off
     @Published private(set) var clientCount = 0
+    /// Số máy đang xem PHÁT ĐƯỢC giọng đọc (app Subtitle TV). Trang web trên điện thoại không phát âm thanh
+    /// nên không tính, để giọng đọc không bị chuyển đi mất khi chỉ có điện thoại đang xem.
+    @Published private(set) var audioClientCount = 0
+    private var audioStreams: Set<ObjectIdentifier> = []            // chỉ dùng trên `queue`
 
     private let queue = DispatchQueue(label: "web")
     private var listener: NWListener?                              // chỉ dùng trên main
@@ -108,6 +112,7 @@ final class WebServer: ObservableObject, @unchecked Sendable {
         queue.async { [self] in
             for c in streams.values { c.cancel() }
             streams.removeAll()
+            audioStreams.removeAll()
             heartbeat?.cancel(); heartbeat = nil
             reportClients()
         }
@@ -173,12 +178,13 @@ final class WebServer: ObservableObject, @unchecked Sendable {
             clipSeq += 1
             clips[clipSeq] = (data, mime)
             if clips.count > 30 { clips = clips.filter { $0.key > clipSeq - 30 } }
-            send("audio", Self.json(AudioDTO(id: clipSeq, mime: mime, flush: flush, text: text)), to: Array(streams.values))
+            let targets = streams.filter { audioStreams.contains($0.key) }.map(\.value)
+            send("audio", Self.json(AudioDTO(id: clipSeq, mime: mime, flush: flush, text: text)), to: targets)
         }
     }
 
-    /// Có máy nào (TV, điện thoại) đang mở trang / app xem phụ đề không.
-    var hasViewers: Bool { clientCount > 0 }
+    /// Có máy nào đang xem mà phát được giọng đọc (app Subtitle TV) không.
+    var hasViewers: Bool { audioClientCount > 0 }
 
     private func broadcast(_ event: String, _ data: Data) {
         queue.async { [self] in send(event, data, to: Array(streams.values)) }
@@ -206,6 +212,7 @@ final class WebServer: ObservableObject, @unchecked Sendable {
             switch state {
             case .failed, .cancelled:
                 guard let self, self.streams.removeValue(forKey: ObjectIdentifier(c)) != nil else { return }
+                self.audioStreams.remove(ObjectIdentifier(c))
                 self.reportClients()
             default: break
             }
@@ -242,7 +249,9 @@ final class WebServer: ObservableObject, @unchecked Sendable {
         case ("GET", "/"), ("GET", "/index.html"):
             respond(c, type: "text/html; charset=utf-8", body: Data(WebPage.html.utf8))
         case ("GET", "/events"):
-            openStream(c)
+            // App TV xin nhận giọng đọc bằng ?audio=1; bản app TV cũ chưa có tham số này thì nhận ra qua User-Agent Tizen.
+            let ua = lines.first { $0.lowercased().hasPrefix("user-agent:") }?.lowercased() ?? ""
+            openStream(c, audio: query.contains("audio=1") || ua.contains("tizen"))
         case ("GET", "/icon.png"):
             if let icon { respond(c, type: "image/png", body: icon, cache: true); return }
             Task { @MainActor in
@@ -331,10 +340,11 @@ final class WebServer: ObservableObject, @unchecked Sendable {
         c.send(content: out, completion: .contentProcessed { _ in c.cancel() })
     }
 
-    private func openStream(_ c: NWConnection) {
+    private func openStream(_ c: NWConnection, audio: Bool = false) {
         let head = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-store\r\nConnection: keep-alive\r\n\r\nretry: 2000\n\n"
         c.send(content: Data(head.utf8), completion: .contentProcessed { err in if err != nil { c.cancel() } })
         streams[ObjectIdentifier(c)] = c
+        if audio { audioStreams.insert(ObjectIdentifier(c)) }
         // Máy vừa mở trang thấy ngay trạng thái và câu phụ đề gần nhất.
         if let lastState { send("state", lastState, to: [c]) }
         if let lastSubtitle { send("subtitle", lastSubtitle, to: [c]) }
@@ -355,8 +365,8 @@ final class WebServer: ObservableObject, @unchecked Sendable {
     }
 
     private func reportClients() {
-        let n = streams.count
-        DispatchQueue.main.async { self.clientCount = n }
+        let n = streams.count, a = audioStreams.count
+        DispatchQueue.main.async { self.clientCount = n; self.audioClientCount = a }
     }
 
     // MARK: địa chỉ

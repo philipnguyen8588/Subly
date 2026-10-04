@@ -43,9 +43,9 @@ final class Speaker: NSObject, AVAudioPlayerDelegate {
     /// (âm thanh, kiểu MIME, ngắt câu đang đọc?, câu) → máy chủ web.
     var onRemoteAudio: ((Data, String, Bool, String) -> Void)?
     private var remoteChain: Task<Void, Never>?
-    private var remoteGeneration = 0
-    /// Bộ tổng hợp riêng để ghi giọng Apple ra bộ nhớ (không phát ra loa).
-    private let writer = AVSpeechSynthesizer()
+    /// Tăng khi dừng hoặc khi câu mới cắt câu cũ: mọi câu tạo trước mốc đó bị bỏ, kể cả câu đang chờ trong chuỗi.
+    /// Chỉ đọc/ghi trên main thread (speak/stop được gọi từ Pipeline).
+    private var remoteEpoch = 0
 
     /// Mã ngôn ngữ đích → BCP-47 của voice hệ thống.
     static func bcp47(_ code: String) -> String {
@@ -260,7 +260,7 @@ final class Speaker: NSObject, AVAudioPlayerDelegate {
         pcmPlayer.stop()
         player?.stop(); player = nil
         remoteChain?.cancel(); remoteChain = nil
-        remoteGeneration += 1
+        remoteEpoch += 1
     }
 
     /// Gọi khi pipeline dừng hẳn: trả lại RAM của model giọng offline (lần chạy sau `preloadLocal` nạp lại)
@@ -279,9 +279,8 @@ extension Speaker {
     fileprivate func speakRemote(_ text: String) {
         let flush = interrupt
         let prev = remoteChain
-        if flush { prev?.cancel() }
-        remoteGeneration += 1
-        let gen = remoteGeneration
+        if flush { prev?.cancel(); remoteEpoch += 1 }
+        let epoch = remoteEpoch
         let useEngine: Engine = (engine == .edge && edgeFailures < 3) ? .edge : (engine == .local && language == "vi" ? .local : .apple)
         // Câu trước còn đang chờ gửi → câu này đọc nhanh hơn chút để bắt kịp (giống khi đọc ra loa).
         let backlog = !flush && prev != nil
@@ -291,12 +290,18 @@ extension Speaker {
             guard let self else { return }
             let audio = await self.renderAudio(text, engine: useEngine, backlog: backlog, edgePercent: edgePct)
             if !flush { await prev?.value }
-            if Task.isCancelled || (flush && gen != self.remoteGeneration) { return }
+            guard !Task.isCancelled else { return }
             guard let (data, mime) = audio else {
                 Log.warn("Không tạo được âm thanh để gửi lên TV: \(text.prefix(40))")
                 return
             }
-            await MainActor.run { self.onRemoteAudio?(data, mime, flush, text) }
+            // Đã Dừng hoặc có câu mới cắt ngang trong lúc tạo âm thanh → bỏ câu này.
+            let sent = await MainActor.run { () -> Bool in
+                guard epoch == self.remoteEpoch else { return false }
+                self.onRemoteAudio?(data, mime, flush, text)
+                return true
+            }
+            guard sent else { return }
             Log.info("SPEAK→TV \(useEngine.rawValue) \(data.count / 1024)KB \(Int(Date().timeIntervalSince(t0) * 1000))ms: \(text.prefix(40))")
         }
     }
@@ -344,19 +349,31 @@ extension Speaker {
         if backlog { r *= Float(1 + catchUpBoost) }
         u.rate = min(r, AVSpeechUtteranceMaximumSpeechRate)
         u.prefersAssistiveTechnologySettings = false
-        let writer = self.writer
+        // Mỗi câu một bộ tổng hợp riêng: các câu được tạo song song, dùng chung một bộ thì câu sau có thể cắt câu trước.
+        // Bộ tổng hợp được giữ sống tới khi xong (closure tham chiếu nó). Không có buffer kết thúc sau 15 s → bỏ, để
+        // chuỗi gửi lên TV không bị kẹt mãi ở câu này.
+        let writer = AVSpeechSynthesizer()
         let result: ([Float], Double)? = await withCheckedContinuation { cont in
             var samples: [Float] = []
             var sampleRate = 22_050.0
             var done = false
-            writer.write(u) { buffer in
+            let lock = NSLock()
+            func finish(_ r: ([Float], Double)?) {
+                lock.lock(); defer { lock.unlock() }
                 guard !done else { return }
+                done = true
+                cont.resume(returning: r)
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + 15) { _ = writer; finish(nil) }
+            writer.write(u) { buffer in
                 guard let pcm = buffer as? AVAudioPCMBuffer, pcm.frameLength > 0 else {
                     // Buffer rỗng = đã tổng hợp xong câu.
-                    done = true
-                    cont.resume(returning: samples.isEmpty ? nil : (samples, sampleRate))
+                    lock.lock(); let s = samples, sr = sampleRate; lock.unlock()
+                    finish(s.isEmpty ? nil : (s, sr))
                     return
                 }
+                lock.lock(); defer { lock.unlock() }
+                guard !done else { return }
                 sampleRate = pcm.format.sampleRate
                 let n = Int(pcm.frameLength)
                 if let f = pcm.floatChannelData {
