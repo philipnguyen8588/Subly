@@ -37,6 +37,10 @@ final class GeminiBackend: TranslationBackend {
     var targetName: String = "Vietnamese"
     var glossary: [GlossaryEntry] = []
     var speakers: [String] = []
+    /// Tên game đang chơi (tên profile) để model dùng hiểu biết về thế giới của game đó.
+    var gameName: String = ""
+    /// Bối cảnh cốt truyện: tóm tắt "Dịch màn hình" gần nhất có nội dung (Journal, tiểu sử nhân vật…).
+    var storyContext: String = ""
     /// Model đang thực sự dùng (có thể là model dự phòng) + hạn "dính" 5 phút.
     private(set) var activeModel: String?
     private var activeUntil = Date.distantPast
@@ -92,13 +96,30 @@ final class GeminiBackend: TranslationBackend {
     }
 
     var subtitleSystemPrompt: String {
-        """
-        You translate English subtitles from movies and video games into natural, concise \(targetName).
-        Keep the tone of the speaker (casual, rude, formal). Keep character names and game terms as-is unless the glossary says otherwise.
-        Output ONLY the \(targetName) translation, with no quotes, notes or explanations.
-        \(glossaryBlock)
+        let source = gameName.isEmpty ? "movies and video games" : "the video game \"\(gameName)\""
+        let story = storyContext.isEmpty ? "" : "\nStory so far (background only, never translate it): \(storyContext)\n"
+        return """
+        You write \(targetName) subtitles for \(source). Translate the meaning and the feeling, never word by word, \
+        like a professional film subtitler. Turn slang, idioms and swearing into natural spoken \(targetName) of the same strength; \
+        never translate them literally. Keep lines short and spoken, like real people talking. \
+        Keep character names and game terms as written unless the glossary says otherwise. \
+        Output ONLY the \(targetName) line, keeping the "Name: " prefix if the input has it, with no quotes, notes or explanations.
+        \(targetName == "Vietnamese" ? Self.vietnameseStyle : "")\(story)\(glossaryBlock)
         """
     }
+
+    /// Hướng dẫn riêng cho tiếng Việt: xưng hô là chỗ dịch máy hay sai nhất.
+    static let vietnameseStyle = """
+    Pronouns: by default the speaker says "tôi" and calls teammates and friends "cậu" or "anh"/"cô", strangers and officials \
+    "anh"/"cô"/"ông". Use "tao/mày" only when the speaker is openly hostile or insulting. Machines and announcements say "quý khách". \
+    Keep the same pronouns as the previous lines between the same people. Never use "ngươi" unless the setting is ancient. \
+    "jack in" = "kết nối vào".
+    Examples of the style:
+    V: About to find out. → V: Sắp biết ngay đây.
+    Jackie: Locked an' ready, hermano. Do your thing. → Jackie: Sẵn sàng rồi, hermano. Làm đi.
+    Sheriff (hostile): Ain't buyin' it. → Sheriff: Đừng hòng tao tin.
+
+    """
 
     /// Cách viết phần tóm tắt của "Dịch màn hình", dùng chung cho Gemini và Apple Intelligence.
     static let summaryGuide = """

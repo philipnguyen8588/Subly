@@ -104,6 +104,8 @@ final class TranslationRouter: ObservableObject {
         gemini.targetName = settings.target.englishName
         gemini.glossary = settings.glossary
         gemini.speakers = settings.showsSpeakerNames ? settings.speakers : []
+        gemini.gameName = settings.activeProfile.name
+        refreshStory()
         ai.timeout = settings.aiTimeout
     }
 
@@ -127,6 +129,17 @@ final class TranslationRouter: ObservableObject {
     }
 
     func resetContext() { context.removeAll() }
+
+    /// Bắt đầu lại sau khi Dừng: lấy các câu vừa dịch trong 10 phút gần nhất của game đang chơi (nhật ký chỉ chứa game đó)
+    /// làm ngữ cảnh, để những câu đầu sau khi tiếp tục vẫn giữ mạch hội thoại và cách xưng hô.
+    func seedContextFromHistory() {
+        let recent = HistoryStore.shared.entries
+            .prefix { Date().timeIntervalSince($0.timestamp) < 600 }
+            .filter { $0.backend != BackendKind.skipped.rawValue && $0.kind == .subtitle && $0.targetLang == settings.targetLanguage }
+            .prefix(10)
+        context = recent.reversed().map { TranslationPair(source: $0.source, target: $0.translated) }
+        if !context.isEmpty { Log.info("Ngữ cảnh dịch: nạp lại \(context.count) câu gần đây từ nhật ký") }
+    }
 
     private func refreshUsage() async { usedToday = await limiter.usedToday }
 
@@ -180,8 +193,16 @@ final class TranslationRouter: ObservableObject {
 
     // MARK: subtitle
 
+    /// Bối cảnh cốt truyện = tóm tắt "Dịch màn hình" gần nhất có nội dung của game đang chơi (bỏ tóm tắt menu, vốn chỉ
+    /// một câu ngắn). Gọi trước mỗi câu vì lần dịch màn hình mới không làm đổi cài đặt.
+    private func refreshStory() {
+        let story = HistoryStore.shared.analyses.first { $0.summary.count >= 80 && !$0.summary.hasPrefix("(") }?.summary ?? ""
+        gemini.storyContext = String(story.prefix(500))
+    }
+
     func translate(_ text: String) async -> Output? {
         let t0 = Date()
+        refreshStory()
         if await acquireGemini() {
             do {
                 let out = try await gemini.translate(text, context: Array(context.suffix(settings.contextPairs)))

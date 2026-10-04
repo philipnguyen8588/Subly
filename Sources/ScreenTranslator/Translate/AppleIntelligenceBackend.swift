@@ -60,13 +60,14 @@ final class AppleIntelligenceBackend: TranslationBackend {
 
     func translate(_ text: String, context: [TranslationPair]) async throws -> String {
         var prompt = ""
-        let ctx = context.suffix(3)
+        // Model nhỏ (cửa sổ 4096 token): tối đa 8 câu trước, đủ để giữ xưng hô và mạch hội thoại.
+        let ctx = context.suffix(8)
         if !ctx.isEmpty {
-            prompt += "Previous lines (context only, do not repeat them):\n"
+            prompt += "Previous lines of this conversation (context only, do not repeat them):\n"
             for p in ctx { prompt += "EN: \(p.source)\nTranslated: \(p.target)\n" }
-            prompt += "\nTranslate this new line:\n"
+            prompt += "\n"
         }
-        prompt += text
+        prompt += "Translate this new line:\n" + text
         let out = try await respond(system: instructions(), prompt: prompt, timeout: timeout)
         // Model nhỏ đôi khi lặp lại nhãn → cắt.
         var cleaned = TextUtils.normalize(out)

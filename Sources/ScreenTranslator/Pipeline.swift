@@ -382,7 +382,7 @@ final class Pipeline: ObservableObject {
         }
         resetQueue()
         applyVoiceSettings()
-        router.resetContext()
+        router.seedContextFromHistory()
         router.prewarm()
         workerErrors = [:]
         inactiveRegions = [:]
