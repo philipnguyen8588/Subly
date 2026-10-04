@@ -1,0 +1,32 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Build app",
+      "type": "shell",
+      "command": "make app",
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "Run app",
+      "type": "shell",
+      "command": "make run",
+      "group": { "kind": "test", "isDefault": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "Run app (xem log trong terminal)",
+      "type": "shell",
+      "command": "make debug",
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "Stop app",
+      "type": "shell",
+      "command": "pkill -x ScreenTranslator || true",
+      "problemMatcher": []
+    }
+  ]
+}

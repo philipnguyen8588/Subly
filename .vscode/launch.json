@@ -1,0 +1,14 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug ScreenTranslator (cần extension Swift hoặc CodeLLDB)",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/ScreenTranslator.app/Contents/MacOS/ScreenTranslator",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "Build app"
+    }
+  ]
+}
