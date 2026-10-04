@@ -4,7 +4,7 @@
 //
 // Phím theo Samsung Smart Remote (chỉ có vòng điều hướng, OK, Back, ⏯, kênh ∧∨; nút 123 mở bàn phím số ảo):
 //   ⏯ = tạm dừng / tiếp tục dịch, OK = dịch toàn màn hình, Back = menu, ◀ ▶ = dải mỏng / dày, ▲ ▼ = cỡ chữ,
-//   Kênh ∧ = hiện / ẩn câu gốc, Kênh ∨ = xem lại ảnh đã dịch.
+//   Kênh ∧ = lịch sử phụ đề đã dịch, Kênh ∨ = xem lại ảnh đã dịch.
 (function () {
   'use strict';
 
@@ -38,7 +38,8 @@
   var sub = document.getElementById('sub');
   var menu = document.getElementById('menu');
   var toastEl = document.getElementById('toast');
-  var rt = { hdmi: 0, sources: [], sse: 'chưa kết nối', game: '', running: false, analyzing: false, names: true, speakers: [], last: null, menuOpen: false, shotOpen: false };
+  var rt = { hdmi: 0, sources: [], sse: 'chưa kết nối', game: '', running: false, analyzing: false, names: true, speakers: [], last: null, menuOpen: false, shotOpen: false, histOpen: false };
+  var histEl = document.getElementById('hist');
   var shotEl = document.getElementById('shot');
   var stEl = document.getElementById('st');
 
@@ -48,10 +49,17 @@
   function host(url) { return url.replace(/^https?:\/\//, ''); }
 
   var toastTimer = null;
-  function toast(msg) {
+  /// Chỉ báo lỗi (mất kết nối, không dịch được…): chữ nhỏ sát icon trạng thái ở góc trái dải, tự tắt sau 3 giây.
+  /// Thao tác thường (dải, cỡ chữ, tạm dừng / tiếp tục) không hiện thông báo để không che phụ đề; icon ● / ⏸ đã cho biết trạng thái.
+  function toast(msg, isError) {
+    if (!isError) return;
     toastEl.textContent = msg;
     toastEl.className = cfg.position === 'top' ? 'top' : '';
-    toastEl.style.height = Math.min(cfg.band, 40) + 'px';
+    var h = Math.max(14, Math.min(cfg.band, 34));
+    toastEl.style.height = h + 'px';
+    toastEl.style.lineHeight = h + 'px';
+    toastEl.style.fontSize = Math.max(11, Math.min(18, cfg.band * 0.45)) + 'px';
+    toastEl.style.left = (Math.max(12, Math.min(34, cfg.band * 0.55)) + 28) + 'px';
     clearTimeout(toastTimer);
     toastTimer = setTimeout(function () { toastEl.className = 'hidden'; }, 3000);
   }
@@ -71,28 +79,28 @@
   }
   function showVideo() {
     if (!rt.hdmi || rt.menuOpen) return;
-    try { tizen.tvwindow.show(function () {}, function (e) { toast('Lỗi hiện hình: ' + e.message); }, videoRect(), 'MAIN'); } catch (e) {}
+    try { tizen.tvwindow.show(function () {}, function (e) { toast('Lỗi hiện hình: ' + e.message, true); }, videoRect(), 'MAIN'); } catch (e) {}
   }
   function hideVideo() { try { tizen.tvwindow.hide(function () {}, function () {}, 'MAIN'); } catch (e) {} }
 
   function useHdmi(n, quiet) {
     var src = null;
     rt.sources.forEach(function (s) { if (s.type === 'HDMI' && s.number === n) src = s; });
-    if (!src) { if (!quiet) toast('HDMI ' + n + ' không có tín hiệu'); return; }
+    if (!src) { if (!quiet) toast('HDMI ' + n + ' không có tín hiệu', true); return; }
     try {
       tizen.tvwindow.setSource(src, function () {
         rt.hdmi = n; cfg.hdmi = n; save();
         showVideo();
         if (!quiet) toast('Đang xem HDMI ' + n);
         if (rt.menuOpen) renderMenu();
-      }, function (e) { toast('Không chọn được HDMI ' + n + ': ' + e.message); }, 'MAIN');
-    } catch (e) { toast('Lỗi tvwindow: ' + e.message); }
+      }, function (e) { toast('Không chọn được HDMI ' + n + ': ' + e.message, true); }, 'MAIN');
+    } catch (e) { toast('Lỗi tvwindow: ' + e.message, true); }
   }
   function startVideo() {
     withSources(function () {
       var ports = hdmiPorts();
       var pick = ports.indexOf(cfg.hdmi) >= 0 ? cfg.hdmi : ports[0];
-      if (pick) useHdmi(pick, true); else toast('Không có cổng HDMI nào có tín hiệu. Bật PS5 lên.');
+      if (pick) useHdmi(pick, true); else toast('Không có cổng HDMI nào có tín hiệu. Bật PS5 lên.', true);
     });
   }
 
@@ -151,29 +159,64 @@
   }
 
   // ---------- Giọng đọc (máy tính tạo âm thanh, TV phát) ----------
-  var voiceQueue = [], voiceEl = null;
+  // Phát bằng Web Audio: trên TV Samsung, thẻ <audio> làm TV tắt tiếng nguồn HDMI (game), còn Web Audio được trộn chung với tiếng game.
+  var actx = null, gain = null, voiceQueue = [], voiceSrc = null, voiceGen = 0;
+  function audioCtx() {
+    if (!actx) {
+      var Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return null;
+      actx = new Ctx();
+      gain = actx.createGain();
+      gain.connect(actx.destination);
+    }
+    if (actx.state !== 'running') { try { actx.resume(); } catch (e) {} }
+    gain.gain.value = Math.max(0, Math.min(1, cfg.voiceVolume / 100));
+    return actx;
+  }
+  /// Tải + giải mã ngay khi máy tính báo có câu (song song với câu đang đọc) để lúc tới lượt phát được ngay.
+  function loadClip(clip) {
+    var s = cfg.servers[cfg.server], ctx = audioCtx();
+    clip.state = 'loading';
+    if (!s || !ctx) { clip.state = 'error'; return; }
+    var x = new XMLHttpRequest();
+    x.open('GET', s.url + '/api/audio/' + clip.id + (clip.mime === 'audio/mpeg' ? '.mp3' : '.wav'));
+    x.responseType = 'arraybuffer';
+    x.timeout = 15000;
+    var fail = function () { clip.state = 'error'; playNext(); };
+    x.onload = function () {
+      if (x.status !== 200) { fail(); return; }
+      ctx.decodeAudioData(x.response, function (buf) { clip.buf = buf; clip.state = 'ready'; playNext(); }, fail);
+    };
+    x.onerror = x.ontimeout = fail;
+    x.send();
+  }
   function playNext() {
-    if (voiceEl || !voiceQueue.length) return;
-    var clip = voiceQueue.shift();
-    var s = cfg.servers[cfg.server];
-    if (!s) { voiceQueue = []; return; }
-    var a = new Audio(s.url + '/api/audio/' + clip.id + (clip.mime === 'audio/mpeg' ? '.mp3' : '.wav'));
-    a.volume = Math.max(0, Math.min(1, cfg.voiceVolume / 100));
-    voiceEl = a;
-    var next = function () { if (voiceEl === a) { voiceEl = null; playNext(); } };
-    a.onended = next;
-    a.onerror = next;
-    a.play().catch(next);
+    if (voiceSrc) return;
+    while (voiceQueue.length && voiceQueue[0].state === 'error') voiceQueue.shift();
+    var clip = voiceQueue[0];
+    if (!clip || clip.state !== 'ready') return;   // câu đầu hàng chưa tải xong → đợi
+    voiceQueue.shift();
+    var ctx = audioCtx(), gen = voiceGen;
+    var src = ctx.createBufferSource();
+    src.buffer = clip.buf;
+    src.connect(gain);
+    src.onended = function () { if (gen === voiceGen && voiceSrc === src) { voiceSrc = null; playNext(); } };
+    voiceSrc = src;
+    src.start(0);
   }
   function onAudio(clip) {
     if (!cfg.voice) return;
     // flush = câu mới cắt câu đang đọc (máy tính đang bật "ngắt câu đang đọc").
-    if (clip.flush) { voiceQueue = []; if (voiceEl) { try { voiceEl.pause(); } catch (e) {} voiceEl = null; } }
+    if (clip.flush) stopVoice();
     voiceQueue.push(clip);
     if (voiceQueue.length > 8) voiceQueue.shift();   // tồn quá nhiều (mạng chậm) → bỏ câu cũ nhất
-    playNext();
+    loadClip(clip);
   }
-  function stopVoice() { voiceQueue = []; if (voiceEl) { try { voiceEl.pause(); } catch (e) {} voiceEl = null; } }
+  function stopVoice() {
+    voiceGen++;
+    voiceQueue = [];
+    if (voiceSrc) { try { voiceSrc.stop(0); } catch (e) {} voiceSrc = null; }
+  }
 
   // ---------- Kết nối máy tính ----------
   var es = null, retryTimer = null;
@@ -192,7 +235,7 @@
       if (rt.menuOpen) renderMenu();
     };
     es.onerror = function () {
-      if (rt.sse === 'đã kết nối') toast('Mất kết nối ' + s.name + ', đang thử lại…');
+      if (rt.sse === 'đã kết nối') toast('Mất kết nối ' + s.name + ', đang thử lại…', true);
       rt.sse = 'không kết nối được';
       updateStatus();
       if (rt.menuOpen) renderMenu();
@@ -205,6 +248,10 @@
     es.addEventListener('subtitle', function (ev) {
       try { showSubtitle(JSON.parse(ev.data)); } catch (e) {}
     });
+    es.addEventListener('entry', function (ev) {
+      try { onEntry(JSON.parse(ev.data)); } catch (e) {}
+    });
+    es.addEventListener('cleared', function () { if (rt.histOpen) { hist = []; renderHistory(true); } });
     es.addEventListener('audio', function (ev) {
       try { onAudio(JSON.parse(ev.data)); } catch (e) {}
     });
@@ -248,8 +295,8 @@
   function toggleTranslate() {
     toast(rt.running ? 'Đang tạm dừng dịch…' : 'Đang bật dịch…');
     api('POST', '/api/toggle', 15000, function (j, err) {
-      if (err || !j) { toast('Lỗi: ' + err); return; }
-      if (!j.ok) { toast(j.error || 'Không bật được dịch'); return; }
+      if (err || !j) { toast('Lỗi: ' + err, true); return; }
+      if (!j.ok) { toast(j.error || 'Không bật được dịch', true); return; }
       // Trạng thái chính xác tới qua sự kiện "state"; báo ngay theo dự đoán.
       rt.running = !rt.running;
       updateStatus();
@@ -260,25 +307,25 @@
 
   /// Dịch toàn màn hình: máy tính chụp hình game, OCR, dịch; xong thì mở ảnh với bản dịch đặt đè lên chữ gốc.
   function analyzeScreen() {
-    if (rt.analyzing) { toast('Đang dịch màn hình, đợi chút…'); return; }
+    if (rt.analyzing) { toast('Đang dịch màn hình, đợi chút…', true); return; }
     rt.analyzing = true;
     if (rt.menuOpen) { rt.menuOpen = false; menu.className = 'hidden'; }
     openShot(null);
     api('POST', '/api/analyze', 90000, function (j, err) {
       rt.analyzing = false;
-      if (err || !j || !j.ok) { closeShot(); toast('Không dịch được màn hình: ' + (err || (j && j.error) || '?')); return; }
+      if (err || !j || !j.ok) { closeShot(); toast('Không dịch được màn hình: ' + (err || (j && j.error) || '?'), true); return; }
       loadShots(j.id);
     });
   }
 
   // ---------- Xem ảnh "dịch màn hình" ----------
-  var shots = [], shotIdx = 0, shotSource = false, shotNoSum = false;
+  var shots = [], shotIdx = 0, shotSource = false;
 
   function loadShots(focusId) {
     api('GET', '/api/analyses', 15000, function (list, err) {
-      if (err || !list) { closeShot(); toast('Không tải được ảnh: ' + err); return; }
+      if (err || !list) { closeShot(); toast('Không tải được ảnh: ' + err, true); return; }
       shots = list.filter(function (a) { return a.image; });   // mới nhất trước
-      if (!shots.length) { closeShot(); toast('Chưa có ảnh dịch màn hình nào'); return; }
+      if (!shots.length) { closeShot(); toast('Chưa có ảnh dịch màn hình nào', true); return; }
       shotIdx = 0;
       for (var i = 0; i < shots.length; i++) if (shots[i].id === focusId) shotIdx = i;
       renderShot();
@@ -323,8 +370,7 @@
     var when = new Date(a.at * 1000);
     var hh = ('0' + when.getHours()).slice(-2) + ':' + ('0' + when.getMinutes()).slice(-2) + ':' + ('0' + when.getSeconds()).slice(-2);
     html += '<div class="bar"><span>Dịch màn hình · ' + (shotIdx + 1) + '/' + shots.length + ' · ' + hh + ' · ' + (a.items || []).length + ' khối chữ</span>' +
-            '<span class="dim">◀▶ ảnh trước/sau · OK: ' + (shotSource ? 'xem bản dịch' : 'xem bản gốc') + ' · ▲▼ tóm tắt · Back: về game</span></div>';
-    if (a.summary && !shotNoSum) html += '<div class="sum">' + esc(a.summary) + '</div>';
+            '<span class="dim">◀▶ ảnh trước/sau · OK: ' + (shotSource ? 'xem bản dịch' : 'xem bản gốc') + ' · Back: về game</span></div>';
     shotEl.innerHTML = html;
     // Co chữ từng khối cho vừa hộp (tối thiểu 45 % cỡ ban đầu).
     var blks = shotEl.querySelectorAll('.blk');
@@ -342,20 +388,97 @@
       case 37: if (shotIdx < shots.length - 1) { shotIdx++; renderShot(); } break;   // ◀ ảnh cũ hơn
       case 39: if (shotIdx > 0) { shotIdx--; renderShot(); } break;                   // ▶ ảnh mới hơn
       case 13: shotSource = !shotSource; renderShot(); break;                           // OK: bản gốc / bản dịch
-      case 38: case 40: shotNoSum = !shotNoSum; renderShot(); break;                     // ▲▼: ẩn / hiện tóm tắt
       case 10252: case 415: case 19: toggleTranslate(); break;
       case 10009: if (!rt.analyzing || shots.length) closeShot(); break;                 // Back: về game
+    }
+  }
+
+  // ---------- Lịch sử phụ đề (Kênh ∧) ----------
+  var hist = [], histScroll = 0, histSource = true, histNewFrom = Infinity;
+
+  function openHistory() {
+    rt.histOpen = true;
+    hideVideo();
+    histEl.className = '';
+    histEl.innerHTML = '<div class="empty">Đang tải lịch sử…</div>';
+    api('GET', '/api/log?limit=300', 15000, function (list, err) {
+      if (!rt.histOpen) return;
+      if (err || !list) { histEl.innerHTML = '<div class="empty">Không tải được lịch sử: ' + esc(err || '?') + '<br><br>Back để quay lại</div>'; return; }
+      hist = list.slice().reverse();          // máy chủ trả mới nhất trước → đảo lại: cũ ở trên, mới ở dưới
+      histNewFrom = Infinity;
+      renderHistory(true);
+    });
+  }
+
+  function closeHistory() {
+    rt.histOpen = false;
+    histEl.className = 'hidden';
+    histEl.innerHTML = '';
+    if (!rt.menuOpen && !rt.shotOpen) showVideo();
+  }
+
+  function renderHistory(toBottom) {
+    var s = cfg.servers[cfg.server];
+    var rows = '', prevAt = 0;
+    hist.forEach(function (e, i) {
+      // Cách nhau > 45 giây: sang đoạn hội thoại khác → mốc giờ.
+      if (!prevAt || e.at - prevAt > 45) {
+        var d = new Date(e.at * 1000);
+        rows += '<div class="mark">— ' + ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2) + ' —</div>';
+      }
+      prevAt = e.at;
+      var cls = 'row' + (e.skipped ? ' skip' : '') + (i >= histNewFrom ? ' new' : '');
+      rows += '<div class="' + cls + '"><div class="tr">' + (e.skipped ? styled(e.source) : styled(e.translated)) + '</div>' +
+              (histSource && !e.skipped ? '<div class="src">' + esc(e.source) + '</div>' : '') + '</div>';
+    });
+    histEl.innerHTML = '<div class="head"><span class="title">Lịch sử phụ đề' + (rt.game ? ' · ' + esc(rt.game) : '') + '</span>' +
+      '<span class="dim">' + hist.length + ' câu · ▲▼ cuộn · ◀▶ lật trang · OK: ' + (histSource ? 'ẩn' : 'hiện') + ' câu gốc · Back: về game</span></div>' +
+      '<div class="view"><div class="list">' + (rows || '<div class="empty">Chưa có câu nào được dịch trong game này.</div>') + '</div></div>';
+    if (toBottom) histScroll = Infinity;
+    scrollHistory(0);
+  }
+
+  function scrollHistory(dy) {
+    var view = histEl.querySelector('.view'), list = histEl.querySelector('.list');
+    if (!view || !list) return;
+    var max = Math.max(0, list.scrollHeight - view.clientHeight);
+    histScroll = Math.max(0, Math.min(max, (histScroll === Infinity ? max : histScroll) + dy));
+    list.style.transform = 'translateY(' + (-histScroll) + 'px)';
+  }
+
+  /// Câu mới trong lúc đang xem lịch sử: thêm vào cuối; đang ở cuối thì cuộn theo.
+  function onEntry(e) {
+    if (!rt.histOpen || !hist) return;
+    var view = histEl.querySelector('.view'), list = histEl.querySelector('.list');
+    var atBottom = !view || !list || histScroll >= list.scrollHeight - view.clientHeight - 10;
+    if (histNewFrom === Infinity) histNewFrom = hist.length;
+    hist.push(e);
+    if (hist.length > 600) { hist.shift(); histNewFrom--; }
+    renderHistory(false);
+    if (atBottom) { histScroll = Infinity; scrollHistory(0); }
+  }
+
+  function histKey(code) {
+    switch (code) {
+      case 38: scrollHistory(-160); break;
+      case 40: scrollHistory(160); break;
+      case 37: scrollHistory(-800); break;
+      case 39: scrollHistory(800); break;
+      case 13: histSource = !histSource; var keep = histScroll; renderHistory(false); histScroll = keep; scrollHistory(0); break;
+      case 427: case 10009: closeHistory(); break;
+      case 10252: case 415: case 19: toggleTranslate(); break;
     }
   }
 
   // ---------- Menu ----------
   var screen = 'connect';   // connect | settings | ip
   var delMark = -1;        // máy đang chờ xác nhận xoá
+  var menuScroll = 0;      // vị trí cuộn của danh sách (giữ qua các lần vẽ lại)
   var sel = 0;
   var ipEdit = { oct: [192, 168, 8, 0], idx: 3, typed: '' };
 
   function openMenu(which) {
-    screen = which; sel = 0;
+    screen = which; sel = 0; menuScroll = 0;
     rt.menuOpen = true;
     hideVideo();
     menu.className = '';
@@ -381,6 +504,8 @@
         sub: 'Khi đang xem: bấm ⏯ trên remote', ok: function () { toggleTranslate(); } },
       { label: 'Dịch toàn màn hình', val: rt.analyzing ? 'đang dịch…' : '', action: true,
         sub: 'Khi đang xem: bấm OK. Chụp hình game, dịch mọi chữ và hiện bản dịch đè lên đúng chỗ', ok: analyzeScreen },
+      { label: 'Lịch sử phụ đề đã dịch', val: '', action: true, sub: 'Khi đang xem: bấm Kênh ∧',
+        ok: function () { rt.menuOpen = false; menu.className = 'hidden'; openHistory(); } },
       { label: 'Xem lại ảnh đã dịch', val: '', action: true, sub: 'Khi đang xem: bấm Kênh ∨',
         ok: function () { rt.menuOpen = false; menu.className = 'hidden'; openShot(-1); } },
       { label: 'Máy tính', val: s ? s.name + ' · ' + host(s.url) : 'chưa chọn', sub: rt.sse + (rt.game ? ' · game: ' + rt.game + (rt.running ? ' (đang dịch)' : ' (đã dừng)') : ''),
@@ -394,8 +519,8 @@
       { label: 'Giọng đọc trên TV', val: onOff(cfg.voice), sub: 'Cần bật "Phát giọng đọc trên TV / điện thoại" trong Cài đặt → Voice của app máy tính',
         lr: function () { cfg.voice = !cfg.voice; if (!cfg.voice) stopVoice(); save(); }, ok: function () { cfg.voice = !cfg.voice; if (!cfg.voice) stopVoice(); save(); } },
       { label: 'Âm lượng giọng đọc', val: cfg.voiceVolume + '%', sub: 'So với tiếng game (âm lượng chung vẫn chỉnh bằng nút + − trên remote)',
-        lr: function (d) { cfg.voiceVolume = Math.max(10, Math.min(100, cfg.voiceVolume + d * 10)); if (voiceEl) voiceEl.volume = cfg.voiceVolume / 100; save(); } },
-      { label: 'Hiện câu gốc tiếng Anh', val: onOff(cfg.showSource), sub: 'Khi đang xem: bấm Kênh ∧',
+        lr: function (d) { cfg.voiceVolume = Math.max(10, Math.min(100, cfg.voiceVolume + d * 10)); if (gain) gain.gain.value = cfg.voiceVolume / 100; save(); } },
+      { label: 'Hiện câu gốc tiếng Anh', val: onOff(cfg.showSource), sub: 'Dưới bản dịch trong dải phụ đề',
         lr: function () { cfg.showSource = !cfg.showSource; save(); }, ok: function () { cfg.showSource = !cfg.showSource; save(); } },
       { label: 'Vị trí dải phụ đề', val: cfg.position === 'top' ? 'Trên cùng' : 'Dưới cùng', sub: '',
         lr: function () { cfg.position = cfg.position === 'top' ? 'bottom' : 'top'; save(); }, ok: function () { cfg.position = cfg.position === 'top' ? 'bottom' : 'top'; save(); } },
@@ -440,7 +565,7 @@
     var s = cfg.servers[cfg.server];
     var side = '<div class="side"><div class="logo"><span>Subtitle</span> TV</div>' +
       '<div class="hint">▲▼ chọn · OK xác nhận<br>◀▶ đổi giá trị<br>Back ' + (screen === 'settings' ? 'quay lại xem' : 'quay lại') +
-      '<br><br>Khi đang xem game:<br>⏯ tạm dừng / tiếp tục dịch<br>OK dịch toàn màn hình<br>◀▶ dải phụ đề · ▲▼ cỡ chữ<br>Kênh ∧ câu gốc · Kênh ∨ ảnh đã dịch<br>Back mở menu này</div>' +
+      '<br><br>Khi đang xem game:<br>⏯ tạm dừng / tiếp tục dịch<br>OK dịch toàn màn hình<br>◀▶ dải phụ đề · ▲▼ cỡ chữ<br>Kênh ∧ lịch sử phụ đề<br>Kênh ∨ ảnh đã dịch<br>Back mở menu này</div>' +
       '<div class="status">' +
       'Máy tính: ' + (s ? esc(s.name) : '<span class="dim">chưa chọn</span>') + '<br>' +
       'Kết nối: ' + esc(rt.sse) + '<br>' +
@@ -464,7 +589,26 @@
         }).join('') +
         (screen === 'connect' && cfg.servers.length > 2 ? '<div class="hint">Máy tự thêm: bấm ◀ hoặc ▶ rồi OK để xoá</div>' : '');
     }
-    menu.innerHTML = side + '<div class="main">' + main + '</div>';
+    menu.innerHTML = side + '<div class="main"><div class="list">' + main + '</div><div class="more up">▲</div><div class="more down">▼</div></div>';
+    keepSelectedVisible();
+  }
+
+  /// Danh sách dài hơn màn hình: cuộn để mục đang chọn luôn nằm trong khung, kèm mũi tên báo còn mục phía trên / dưới.
+  function keepSelectedVisible() {
+    var box = menu.querySelector('.main'), list = menu.querySelector('.list');
+    if (!box || !list) return;
+    var it = list.querySelector('.item.sel');
+    var view = box.clientHeight - 40;
+    if (it) {
+      var top = it.offsetTop, bottom = top + it.offsetHeight;
+      if (top - 60 < menuScroll) menuScroll = Math.max(0, top - 60);
+      if (bottom + 40 > menuScroll + view) menuScroll = bottom + 40 - view;
+    }
+    var max = Math.max(0, list.scrollHeight - view);
+    menuScroll = Math.max(0, Math.min(max, menuScroll));
+    list.style.transform = 'translateY(' + (-menuScroll) + 'px)';
+    menu.querySelector('.more.up').style.visibility = menuScroll > 2 ? 'visible' : 'hidden';
+    menu.querySelector('.more.down').style.visibility = menuScroll < max - 2 ? 'visible' : 'hidden';
   }
 
   function menuKey(code) {
@@ -520,6 +664,26 @@
     ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'ColorF0Red', 'ColorF1Green', 'MediaPlayPause', 'MediaPlay', 'MediaPause', 'ChannelUp', 'ChannelDown'].forEach(function (k) { try { tizen.tvinputdevice.registerKey(k); } catch (e) {} });
   }
   document.addEventListener('keydown', function (e) {
+    try { handleKey(e); }
+    catch (err) {
+      try { console.error('Lỗi xử lý phím ' + e.keyCode + ': ' + (err && err.stack || err)); } catch (x) {}
+      recover();
+    }
+  });
+  /// Có lỗi ngoài ý muốn: đóng mọi màn hình phụ, quay lại hình game (không để app treo / thoát).
+  function recover() {
+    try { rt.histOpen = false; histEl.className = 'hidden'; histEl.innerHTML = ''; } catch (x) {}
+    try { rt.shotOpen = false; shotEl.className = 'hidden'; shotEl.innerHTML = ''; } catch (x) {}
+    try { rt.menuOpen = false; menu.className = 'hidden'; } catch (x) {}
+    try { if (rt.hdmi) showVideo(); else startVideo(); } catch (x) {}
+  }
+  window.onerror = function (msg, src, line) {
+    try { console.error('Lỗi: ' + msg + ' @' + line); } catch (x) {}
+    recover();
+    return true;
+  };
+  function handleKey(e) {
+    if (rt.histOpen) { e.preventDefault(); histKey(e.keyCode); return; }
     if (rt.shotOpen) { e.preventDefault(); shotKey(e.keyCode); return; }
     if (rt.menuOpen) { e.preventDefault(); menuKey(e.keyCode); return; }
     switch (e.keyCode) {
@@ -527,14 +691,15 @@
       case 39: cfg.band = Math.min(260, cfg.band + (cfg.band >= 60 ? 10 : 5)); save(); applyBand(); showVideo(); if (rt.last) showSubtitle(rt.last); toast('Dải phụ đề ' + cfg.band + ' px'); break;
       case 38: cfg.fontScale = Math.min(1.6, Math.round((cfg.fontScale + 0.1) * 10) / 10); save(); if (rt.last) showSubtitle(rt.last); break;
       case 40: cfg.fontScale = Math.max(0.5, Math.round((cfg.fontScale - 0.1) * 10) / 10); save(); if (rt.last) showSubtitle(rt.last); break;
-      case 427: case 403: cfg.showSource = !cfg.showSource; save(); if (rt.last) showSubtitle(rt.last); toast('Câu gốc: ' + (cfg.showSource ? 'hiện' : 'ẩn')); break;   // Kênh ∧
+      case 427: openHistory(); break;                                                                                                                         // Kênh ∧: lịch sử phụ đề
+      case 403: cfg.showSource = !cfg.showSource; save(); if (rt.last) showSubtitle(rt.last); toast('Câu gốc: ' + (cfg.showSource ? 'hiện' : 'ẩn')); break;
       case 428: openShot(-1); break;                                                                                                                            // Kênh ∨
       case 49: case 50: case 51: case 52: var n = e.keyCode - 48; withSources(function () { useHdmi(n); }); break;
       case 10009: e.preventDefault(); openMenu('settings'); break;            // Back: mở menu (không thoát app)
       case 10252: case 415: case 19: toggleTranslate(); break;                // ⏯: bật / tắt dịch
       case 13: case 404: case 48: analyzeScreen(); break;                     // OK (hoặc Xanh lá / 0): dịch toàn màn hình
     }
-  });
+  }
 
   window.onload = function () {
     registerKeys();
