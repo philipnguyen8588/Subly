@@ -38,6 +38,14 @@ final class Speaker: NSObject, AVAudioPlayerDelegate {
     /// Khi câu trước chưa đọc xong (đọc lần lượt, không ngắt): câu kế tiếp nhanh thêm chừng này để bắt kịp.
     var catchUpBoost: Double = 0.10
     var silent = false          // --mute: vẫn tổng hợp (để log/test) nhưng volume 0
+    /// Phát giọng đọc trên TV / điện thoại: tạo âm thanh của câu rồi gửi qua máy chủ web thay vì phát ra loa máy này.
+    var remote = false
+    /// (âm thanh, kiểu MIME, ngắt câu đang đọc?, câu) → máy chủ web.
+    var onRemoteAudio: ((Data, String, Bool, String) -> Void)?
+    private var remoteChain: Task<Void, Never>?
+    private var remoteGeneration = 0
+    /// Bộ tổng hợp riêng để ghi giọng Apple ra bộ nhớ (không phát ra loa).
+    private let writer = AVSpeechSynthesizer()
 
     /// Mã ngôn ngữ đích → BCP-47 của voice hệ thống.
     static func bcp47(_ code: String) -> String {
@@ -98,6 +106,10 @@ final class Speaker: NSObject, AVAudioPlayerDelegate {
         let savedInterrupt = interrupt
         if enqueue { interrupt = false }
         defer { interrupt = savedInterrupt }
+        if remote, onRemoteAudio != nil {
+            speakRemote(text)
+            return
+        }
         if engine == .edge, edgeFailures < 3 {
             speakEdge(text)
             return
@@ -247,6 +259,8 @@ final class Speaker: NSObject, AVAudioPlayerDelegate {
         localGeneration += 1
         pcmPlayer.stop()
         player?.stop(); player = nil
+        remoteChain?.cancel(); remoteChain = nil
+        remoteGeneration += 1
     }
 
     /// Gọi khi pipeline dừng hẳn: trả lại RAM của model giọng offline (lần chạy sau `preloadLocal` nạp lại)
@@ -254,5 +268,122 @@ final class Speaker: NSObject, AVAudioPlayerDelegate {
     func releaseResources() {
         voiceCache = nil
         local.queue.async { [local] in local.unload() }
+    }
+}
+
+// MARK: - Phát giọng đọc trên TV / điện thoại
+
+extension Speaker {
+    /// Tạo âm thanh của câu bằng đúng engine đang chọn (cùng giọng, cùng tốc độ như khi đọc ra loa) rồi gửi đi.
+    /// Các câu được tạo song song nhưng gửi đúng thứ tự; `interrupt` = bảo bên nhận bỏ câu đang đọc.
+    fileprivate func speakRemote(_ text: String) {
+        let flush = interrupt
+        let prev = remoteChain
+        if flush { prev?.cancel() }
+        remoteGeneration += 1
+        let gen = remoteGeneration
+        let useEngine: Engine = (engine == .edge && edgeFailures < 3) ? .edge : (engine == .local && language == "vi" ? .local : .apple)
+        // Câu trước còn đang chờ gửi → câu này đọc nhanh hơn chút để bắt kịp (giống khi đọc ra loa).
+        let backlog = !flush && prev != nil
+        let edgePct = edgeRate(for: text)
+        let t0 = Date()
+        remoteChain = Task { [weak self] in
+            guard let self else { return }
+            let audio = await self.renderAudio(text, engine: useEngine, backlog: backlog, edgePercent: edgePct)
+            if !flush { await prev?.value }
+            if Task.isCancelled || (flush && gen != self.remoteGeneration) { return }
+            guard let (data, mime) = audio else {
+                Log.warn("Không tạo được âm thanh để gửi lên TV: \(text.prefix(40))")
+                return
+            }
+            await MainActor.run { self.onRemoteAudio?(data, mime, flush, text) }
+            Log.info("SPEAK→TV \(useEngine.rawValue) \(data.count / 1024)KB \(Int(Date().timeIntervalSince(t0) * 1000))ms: \(text.prefix(40))")
+        }
+    }
+
+    private func renderAudio(_ text: String, engine: Engine, backlog: Bool, edgePercent: Int) async -> (Data, String)? {
+        switch engine {
+        case .edge:
+            do {
+                let mp3 = try await edge.synthesize(text, voice: edgeVoice, ratePercent: edgePercent)
+                return (mp3, "audio/mpeg")
+            } catch {
+                Log.warn("Edge TTS (gửi TV) lỗi: \(error.localizedDescription) → giọng Apple")
+                return await renderApple(text, backlog: backlog)
+            }
+        case .local:
+            var speed = Float(localSpeed)
+            if adaptiveRate {
+                let words = text.split(separator: " ").count
+                if words > 30 { speed *= 1.3 } else if words > 20 { speed *= 1.2 } else if words > 12 { speed *= 1.1 }
+            }
+            if backlog { speed *= Float(1 + catchUpBoost) }
+            let voiceID = localVoiceID, sp = speed
+            let result: ([Float], Double)? = await withCheckedContinuation { cont in
+                local.queue.async { [local] in
+                    guard local.load(voiceID: voiceID), let s = local.synthesize(text, speed: sp) else { cont.resume(returning: nil); return }
+                    cont.resume(returning: (s, local.sampleRate))
+                }
+            }
+            if let (samples, rate) = result { return (Self.wav(samples, sampleRate: Int(rate)), "audio/wav") }
+            return await renderApple(text, backlog: backlog)
+        case .apple:
+            return await renderApple(text, backlog: backlog)
+        }
+    }
+
+    /// Giọng Apple: AVSpeechSynthesizer.write ghi âm thanh vào bộ nhớ (không phát ra loa), cùng giọng và tốc độ như speakApple.
+    private func renderApple(_ text: String, backlog: Bool) async -> (Data, String)? {
+        let u = AVSpeechUtterance(string: text)
+        u.voice = voice
+        var r = rate
+        if adaptiveRate {
+            let words = text.split(separator: " ").count
+            if words > 30 { r *= 1.35 } else if words > 20 { r *= 1.25 } else if words > 12 { r *= 1.12 }
+        }
+        if backlog { r *= Float(1 + catchUpBoost) }
+        u.rate = min(r, AVSpeechUtteranceMaximumSpeechRate)
+        u.prefersAssistiveTechnologySettings = false
+        let writer = self.writer
+        let result: ([Float], Double)? = await withCheckedContinuation { cont in
+            var samples: [Float] = []
+            var sampleRate = 22_050.0
+            var done = false
+            writer.write(u) { buffer in
+                guard !done else { return }
+                guard let pcm = buffer as? AVAudioPCMBuffer, pcm.frameLength > 0 else {
+                    // Buffer rỗng = đã tổng hợp xong câu.
+                    done = true
+                    cont.resume(returning: samples.isEmpty ? nil : (samples, sampleRate))
+                    return
+                }
+                sampleRate = pcm.format.sampleRate
+                let n = Int(pcm.frameLength)
+                if let f = pcm.floatChannelData {
+                    samples.append(contentsOf: UnsafeBufferPointer(start: f[0], count: n))
+                } else if let i = pcm.int16ChannelData {
+                    samples.append(contentsOf: UnsafeBufferPointer(start: i[0], count: n).map { Float($0) / 32768 })
+                } else if let i = pcm.int32ChannelData {
+                    samples.append(contentsOf: UnsafeBufferPointer(start: i[0], count: n).map { Float($0) / 2_147_483_648 })
+                }
+            }
+        }
+        guard let (samples, rate) = result else { return nil }
+        return (Self.wav(samples, sampleRate: Int(rate)), "audio/wav")
+    }
+
+    /// WAV PCM 16-bit mono.
+    static func wav(_ samples: [Float], sampleRate: Int) -> Data {
+        var d = Data(capacity: 44 + samples.count * 2)
+        func u32(_ v: UInt32) { var x = v.littleEndian; d.append(Data(bytes: &x, count: 4)) }
+        func u16(_ v: UInt16) { var x = v.littleEndian; d.append(Data(bytes: &x, count: 2)) }
+        let dataSize = UInt32(samples.count * 2)
+        d.append(contentsOf: Array("RIFF".utf8)); u32(36 + dataSize); d.append(contentsOf: Array("WAVE".utf8))
+        d.append(contentsOf: Array("fmt ".utf8)); u32(16); u16(1); u16(1); u32(UInt32(sampleRate)); u32(UInt32(sampleRate * 2)); u16(2); u16(16)
+        d.append(contentsOf: Array("data".utf8)); u32(dataSize)
+        var pcm = [Int16](repeating: 0, count: samples.count)
+        for (i, s) in samples.enumerated() { pcm[i] = Int16(max(-1, min(1, s)) * 32767) }
+        pcm.withUnsafeBytes { d.append(contentsOf: $0) }
+        return d
     }
 }

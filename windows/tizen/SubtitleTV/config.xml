@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- App TV (Samsung Tizen 5.5+): hiện hình HDMI (PS5) toàn màn hình và vẽ phụ đề dịch từ app ScreenTranslator trên máy tính lên trên. -->
+<widget xmlns="http://www.w3.org/ns/widgets" xmlns:tizen="http://tizen.org/ns/widgets" id="http://lipnguyen/SubtitleTV" version="1.0.0" viewmodes="maximized">
+    <tizen:application id="StSubTV001.SubtitleTV" package="StSubTV001" required_version="5.5"/>
+    <content src="index.html"/>
+    <feature name="http://tizen.org/feature/screen.size.normal.1080.1920"/>
+    <icon src="icon.png"/>
+    <name>Subtitle TV</name>
+    <access origin="*" subdomains="true"/>
+    <tizen:allow-navigation>*</tizen:allow-navigation>
+    <tizen:privilege name="http://tizen.org/privilege/internet"/>
+    <tizen:privilege name="http://tizen.org/privilege/tv.window"/>
+    <tizen:privilege name="http://tizen.org/privilege/tv.inputdevice"/>
+    <tizen:privilege name="http://tizen.org/privilege/tv.audio"/>
+    <tizen:profile name="tv-samsung"/>
+    <!-- Cho phép style đặt bằng JS (cỡ chữ, màu tên nhân vật) và kết nối tới máy tính trong mạng nội bộ. -->
+    <tizen:content-security-policy>default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src *; img-src * data:; media-src * blob: data:</tizen:content-security-policy>
+    <tizen:setting screen-orientation="landscape" context-menu="disable" background-support="disable" encryption="disable" install-location="auto" hwkey-event="enable"/>
+</widget>

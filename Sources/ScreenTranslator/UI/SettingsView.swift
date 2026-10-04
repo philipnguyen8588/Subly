@@ -329,6 +329,9 @@ struct VoiceSettings: View {
                 }
                 Toggle("Không đọc tên người nói ở đầu câu (\"Kratos: …\")", isOn: $settings.voiceSkipSpeaker)
                 Toggle("Tự đọc nhanh hơn với câu dài (+10 % / +20 % / +30 %)", isOn: $settings.voiceAdaptiveRate)
+                Toggle("Phát giọng đọc trên TV / điện thoại thay vì loa Mac", isOn: $settings.voiceOnRemote)
+                Text("Gửi âm thanh (đúng giọng đang chọn ở trên) tới app Subtitle TV hoặc trang web đang mở qua máy chủ web. Không có máy nào đang xem thì đọc ra loa Mac như cũ.")
+                    .font(.caption).foregroundStyle(.secondary)
                 Button("Nghe thử") {
                     let s = Pipeline.shared.speaker
                     s.rate = Float(settings.voiceRate); s.voiceIdentifier = settings.voiceIdentifier; s.language = settings.targetLanguage

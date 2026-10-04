@@ -50,6 +50,9 @@ final class WebServer: ObservableObject, @unchecked Sendable {
         }
     }
     private struct ResultDTO: Encodable { let ok: Bool; let error: String?; var id: Int64? = nil }
+    private struct AudioDTO: Encodable { let id: Int; let mime: String; let flush: Bool; let text: String }
+    private var clips: [Int: (Data, String)] = [:]                 // giọng đọc gửi TV; chỉ dùng trên `queue`
+    private var clipSeq = 0                                        // chỉ dùng trên `queue`
     /// Trang web chỉ thấy nhật ký của game đang chọn trên app.
     private static var activeProfile: String { AppSettings.shared.activeProfile.id.uuidString }
 
@@ -163,6 +166,20 @@ final class WebServer: ObservableObject, @unchecked Sendable {
         }
     }
 
+    /// Giọng đọc phát trên TV / điện thoại: giữ tạm các đoạn âm thanh gần nhất (GET /api/audio/<id>) và báo cho máy đang xem.
+    /// `flush` = bỏ câu đang đọc dở để đọc câu này ngay.
+    func audio(_ data: Data, mime: String, flush: Bool, text: String) {
+        queue.async { [self] in
+            clipSeq += 1
+            clips[clipSeq] = (data, mime)
+            if clips.count > 30 { clips = clips.filter { $0.key > clipSeq - 30 } }
+            send("audio", Self.json(AudioDTO(id: clipSeq, mime: mime, flush: flush, text: text)), to: Array(streams.values))
+        }
+    }
+
+    /// Có máy nào (TV, điện thoại) đang mở trang / app xem phụ đề không.
+    var hasViewers: Bool { clientCount > 0 }
+
     private func broadcast(_ event: String, _ data: Data) {
         queue.async { [self] in send(event, data, to: Array(streams.values)) }
     }
@@ -254,6 +271,13 @@ final class WebServer: ObservableObject, @unchecked Sendable {
             let data = query.contains("thumb=1") ? ShotImages.thumbnailJPEG(id, maxPixel: 480) : try? Data(contentsOf: HistoryStore.shotURL(id))
             guard let data else { respond(c, status: "404 Not Found", type: "text/plain", body: Data()); return }
             respond(c, type: "image/jpeg", body: data, cache: true)
+        case ("GET", _) where path.hasPrefix("/api/audio/"):
+            // Giọng đọc của một câu (WAV hoặc MP3), TV / điện thoại tải về để phát.
+            let name = path.dropFirst("/api/audio/".count)
+            guard let id = Int(name.split(separator: ".").first ?? ""), let clip = clips[id] else {
+                respond(c, status: "404 Not Found", type: "text/plain", body: Data()); return
+            }
+            respond(c, type: clip.1, body: clip.0)
         case ("POST", _) where !lines.contains(where: { $0.lowercased().hasPrefix("x-screentranslator:") }):
             // Header riêng buộc trình duyệt phải hỏi trước (preflight) nếu trang web khác gọi tới → trang lạ không bấm hộ được.
             respond(c, status: "403 Forbidden", type: "text/plain", body: Data())

@@ -1,0 +1,8 @@
+bin/
+obj/
+dist/
+Vendor/
+*.user
+.vs/
+# Tải bằng Scripts/fetch-words.ps1
+ScreenTranslator/Resources/words.txt

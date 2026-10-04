@@ -216,6 +216,8 @@ final class AppSettings: ObservableObject {
     @Stored("localSpeed") var localSpeed: Double = 1.15
     @Stored("voiceSkipSpeaker") var voiceSkipSpeaker: Bool = true
     @Stored("voiceAdaptiveRate") var voiceAdaptiveRate: Bool = true
+    /// Phát giọng đọc trên TV / điện thoại đang mở trang hoặc app xem phụ đề (qua máy chủ web) thay vì loa máy này.
+    @Stored("voiceOnRemote") var voiceOnRemote: Bool = false
 
     // MARK: Overlay
     @Stored("overlayEnabled") var overlayEnabled: Bool = true

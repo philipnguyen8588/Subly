@@ -1,0 +1,159 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- Màu giống bản macOS (Theme.swift): accent #616FFA → #29C2B3 -->
+    <Color x:Key="AccentStartColor">#FF616FFA</Color>
+    <Color x:Key="AccentEndColor">#FF29C2B3</Color>
+    <SolidColorBrush x:Key="AccentStart" Color="{StaticResource AccentStartColor}" />
+    <SolidColorBrush x:Key="AccentEnd" Color="{StaticResource AccentEndColor}" />
+    <LinearGradientBrush x:Key="AccentGradient" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Color="{StaticResource AccentStartColor}" Offset="0" />
+        <GradientStop Color="{StaticResource AccentEndColor}" Offset="1" />
+    </LinearGradientBrush>
+    <SolidColorBrush x:Key="Gemini" Color="#FF29B8A8" />
+    <SolidColorBrush x:Key="Apple" Color="#FFFF9500" />
+    <SolidColorBrush x:Key="Danger" Color="#FFED544F" />
+    <SolidColorBrush x:Key="WindowBg" Color="#FFF5F5F7" />
+    <SolidColorBrush x:Key="CardFill" Color="#0B000000" />
+    <SolidColorBrush x:Key="CardStroke" Color="#15000000" />
+    <SolidColorBrush x:Key="Secondary" Color="#FF6E6E73" />
+    <SolidColorBrush x:Key="Tertiary" Color="#FFA1A1A6" />
+
+    <Style TargetType="{x:Type Window}">
+        <Setter Property="FontFamily" Value="Segoe UI" />
+        <Setter Property="FontSize" Value="13" />
+    </Style>
+
+    <!-- Nút thường: bo góc, viền mảnh -->
+    <Style x:Key="PlainButton" TargetType="{x:Type Button}">
+        <Setter Property="Background" Value="White" />
+        <Setter Property="Foreground" Value="#FF1D1D1F" />
+        <Setter Property="BorderBrush" Value="#26000000" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Padding" Value="10,4" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type Button}">
+                    <Border x:Name="bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="7" Padding="{TemplateBinding Padding}">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="bd" Property="Background" Value="#FFEFEFF4" />
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="bd" Property="Background" Value="#FFE2E2E8" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.45" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <Style TargetType="{x:Type Button}" BasedOn="{StaticResource PlainButton}" />
+
+    <!-- Nút chính: nền gradient -->
+    <Style x:Key="GradientButton" TargetType="{x:Type Button}" BasedOn="{StaticResource PlainButton}">
+        <Setter Property="Foreground" Value="White" />
+        <Setter Property="Background" Value="{StaticResource AccentGradient}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Padding" Value="12,5" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type Button}">
+                    <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="bd" Property="Opacity" Value="0.9" />
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="bd" Property="Opacity" Value="0.75" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.45" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Nút dạng chữ (link) -->
+    <Style x:Key="LinkButton" TargetType="{x:Type Button}">
+        <Setter Property="Foreground" Value="{StaticResource AccentStart}" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type Button}">
+                    <ContentPresenter />
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Toggle dạng nút -->
+    <Style TargetType="{x:Type ToggleButton}">
+        <Setter Property="Background" Value="White" />
+        <Setter Property="BorderBrush" Value="#26000000" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Padding" Value="10,4" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type ToggleButton}">
+                    <Border x:Name="bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="7" Padding="{TemplateBinding Padding}">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="bd" Property="Background" Value="#33616FFA" />
+                            <Setter TargetName="bd" Property="BorderBrush" Value="#99616FFA" />
+                        </Trigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="bd" Property="BorderBrush" Value="#99616FFA" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.45" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style TargetType="{x:Type TextBox}">
+        <Setter Property="Padding" Value="5,3" />
+        <Setter Property="BorderBrush" Value="#33000000" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style TargetType="{x:Type PasswordBox}">
+        <Setter Property="Padding" Value="5,3" />
+        <Setter Property="BorderBrush" Value="#33000000" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style TargetType="{x:Type ComboBox}">
+        <Setter Property="Padding" Value="6,3" />
+        <Setter Property="MinWidth" Value="120" />
+    </Style>
+    <Style TargetType="{x:Type CheckBox}">
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Margin" Value="0,3" />
+    </Style>
+    <Style TargetType="{x:Type ToolTip}">
+        <Setter Property="MaxWidth" Value="420" />
+        <Setter Property="ContentTemplate">
+            <Setter.Value>
+                <DataTemplate>
+                    <TextBlock Text="{Binding}" TextWrapping="Wrap" />
+                </DataTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+</ResourceDictionary>

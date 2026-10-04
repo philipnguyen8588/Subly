@@ -1,0 +1,56 @@
+/* Trang nền đen: phần không có video (dải phụ đề) là màu đen như viền phim. */
+html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; background: #000; color: #fff;
+             font-family: "SamsungOne", "Samsung Sans", sans-serif; }
+.hidden { display: none !important; }
+
+/* Dải phụ đề, ngay dưới (hoặc trên) hình HDMI. Lớp video của TV luôn nằm trên đồ hoạ nên chữ chỉ hiện được ở dải này. */
+#sub { position: absolute; left: 0; right: 0; bottom: 0; height: 110px; overflow: hidden;
+       display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 0 60px; box-sizing: border-box; }
+#sub.top { top: 0; bottom: auto; }
+#sub .tr { font-size: 44px; font-weight: 600; line-height: 1.15; }
+#sub .src { font-size: 24px; opacity: .65; line-height: 1.15; margin-top: 2px; }
+#sub .name { font-weight: 800; }
+
+/* Thông báo ngắn, nằm trong dải phụ đề. */
+#toast { position: absolute; left: 0; right: 0; bottom: 0; text-align: center; font-size: 20px; color: #ffd36b; padding: 2px; background: #000; }
+#toast.top { top: 0; bottom: auto; }
+
+/* Menu toàn màn hình (lúc mở menu, hình HDMI được tạm ẩn). */
+#menu { position: absolute; inset: 0; left: 0; top: 0; width: 1920px; height: 1080px;
+        background: linear-gradient(135deg, #12131c 0%, #1b2233 60%, #13302e 100%); display: flex; }
+#menu .side { width: 620px; padding: 80px 70px; box-sizing: border-box; }
+#menu .logo { font-size: 54px; font-weight: 800; letter-spacing: .5px; }
+#menu .logo span { background: linear-gradient(90deg, #616ffa, #29c2b3); -webkit-background-clip: text; color: transparent; }
+#menu .hint { margin-top: 26px; font-size: 24px; line-height: 1.6; opacity: .65; }
+#menu .status { margin-top: 40px; font-size: 24px; line-height: 1.7; }
+#menu .main { flex: 1; padding: 80px 90px 60px 20px; box-sizing: border-box; }
+#menu h2 { margin: 0 0 26px; font-size: 34px; font-weight: 700; opacity: .9; }
+.item { display: flex; align-items: center; justify-content: space-between; padding: 18px 30px; margin-bottom: 12px; border-radius: 16px;
+        background: rgba(255,255,255,.06); border: 3px solid transparent; font-size: 30px; }
+.item .val { opacity: .8; font-size: 28px; }
+.item .val .arrow { opacity: .5; padding: 0 12px; }
+.item .sub { font-size: 21px; opacity: .55; margin-top: 4px; }
+.item.sel { background: rgba(97,111,250,.28); border-color: #7c88ff; }
+.item.danger.sel { background: rgba(255,90,90,.25); border-color: #ff7b72; }
+.dot { display: inline-block; width: 14px; height: 14px; border-radius: 7px; margin-right: 12px; background: #666; }
+.dot.on { background: #4cd08a; } .dot.off { background: #ff6b5e; } .dot.wait { background: #e6c35a; }
+.ip { display: flex; gap: 14px; font-size: 44px; margin-top: 10px; }
+.ip .oct { min-width: 110px; text-align: center; padding: 8px 10px; border-radius: 10px; background: rgba(255,255,255,.08); border: 3px solid transparent; }
+.ip .oct.sel { border-color: #7c88ff; background: rgba(97,111,250,.25); }
+.ok { color: #6be38f; } .bad { color: #ff7b72; } .dim { opacity: .6; }
+
+/* Ảnh "dịch màn hình": ảnh chụp game toàn màn hình + bản dịch đặt đè đúng vị trí chữ gốc (hình HDMI tạm ẩn). */
+#shot { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; background: #000; }
+#shot img { position: absolute; }
+#shot .blk { position: absolute; background: rgba(0,0,0,.88); color: #fff; border-radius: 4px; padding: 0 4px; box-sizing: border-box;
+             overflow: hidden; font-weight: 500; line-height: 1.12; }
+#shot .bar { position: absolute; left: 0; right: 0; top: 0; padding: 14px 30px; font-size: 24px; background: rgba(0,0,0,.7); display: flex; justify-content: space-between; }
+#shot .sum { position: absolute; left: 0; right: 0; bottom: 0; padding: 16px 60px 20px; font-size: 28px; line-height: 1.35; text-align: center; background: rgba(0,0,0,.8); }
+#shot .wait { position: absolute; left: 0; right: 0; top: 480px; text-align: center; font-size: 40px; opacity: .8; }
+.item.action { background: rgba(41,194,179,.14); }
+.item.action.sel { background: rgba(41,194,179,.32); border-color: #29c2b3; }
+
+/* Icon trạng thái ở góc trái dải phụ đề: ● đang dịch, ⏸ tạm dừng, ⟳ đang dịch màn hình, ⚠ mất kết nối. */
+#st { position: absolute; left: 16px; bottom: 0; display: flex; align-items: center; font-weight: 700; line-height: 1; }
+#st.top { top: 0; bottom: auto; }
+#st.run { color: #4cd08a; } #st.pause { color: #e6c35a; } #st.off { color: #ff6b5e; } #st.busy { color: #6aa3ff; }

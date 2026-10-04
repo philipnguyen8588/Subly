@@ -664,6 +664,11 @@ final class Pipeline: ObservableObject {
         if speaker.onEngineFallback == nil {
             speaker.onEngineFallback = { [weak self] msg in Task { @MainActor in self?.overlay.hud(msg, seconds: 3) } }
         }
+        // Giọng đọc trên TV / điện thoại: chỉ khi có máy đang xem, không thì đọc ra loa máy này như cũ.
+        speaker.remote = settings.voiceOnRemote && settings.webServerOn && WebServer.shared.hasViewers
+        if speaker.onRemoteAudio == nil {
+            speaker.onRemoteAudio = { data, mime, flush, text in WebServer.shared.audio(data, mime: mime, flush: flush, text: text) }
+        }
     }
 
     // MARK: alerts
