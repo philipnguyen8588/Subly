@@ -33,6 +33,28 @@ final class WindowManager {
     private var settings: NSWindow?
     private var translationHost: NSWindow?
 
+    private var startupError: NSWindow?
+
+    /// Hiện màn hình lỗi khởi động chung (khi máy chưa sẵn sàng). Gọi lại nhiều lần thì chỉ đưa cửa sổ lên trước.
+    func showStartupError() {
+        if startupError == nil {
+            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 320),
+                             styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
+            w.title = "ScreenTranslator"
+            w.titlebarAppearsTransparent = true
+            w.isReleasedWhenClosed = false
+            w.center()
+            w.contentView = NSHostingView(rootView: StartupErrorView())
+            startupError = w
+        }
+        startupError?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func dismissStartupError() {
+        startupError?.close()
+    }
+
     func setup() {
         // Cửa sổ ẩn 1×1 giữ TranslationSession (Apple Translation) sống suốt phiên.
         let h = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1, height: 1), styleMask: .borderless, backing: .buffered, defer: false)
@@ -87,14 +109,30 @@ final class WindowManager {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
+        Integrity.arm()
         WindowManager.shared.setup()
-        Log.info("ScreenTranslator launched. Profile '\(AppSettings.shared.activeProfile.name)', regions: \(AppSettings.shared.regions.count)")
+        Log.info("ScreenTranslator launched.")
+        startApp()
+        // App luôn mở bình thường; việc kiểm tra máy chạy ngầm và chỉ chặn khi người dùng bấm Bắt đầu / Dịch màn hình.
+        SessionCheck.shared.begin(onLostAccess: { [weak self] in self?.onLostAccess() })
+    }
+
+    /// Khởi động đầy đủ (chạy ngay lúc mở app, không phụ thuộc trạng thái duyệt).
+    @MainActor private func startApp() {
+        Log.info("Profile '\(AppSettings.shared.activeProfile.name)', regions: \(AppSettings.shared.regions.count)")
         handleCommandLine()
         WebServer.shared.apply()
         RegionActions.fillMissingWindowOffsets()
         registerHotkeys()
         if !CommandLine.arguments.contains("--hidden") { WindowManager.shared.showMain() }
         if CommandLine.arguments.contains("--open-settings") { WindowManager.shared.showSettings() }
+    }
+
+    /// Đang chạy mà máy mất quyền (lần kiểm tra ngầm thấy vé không còn hợp lệ): dừng dịch và báo lỗi chung.
+    @MainActor private func onLostAccess() {
+        guard Pipeline.shared.isRunning else { return }
+        Pipeline.shared.stop()
+        WindowManager.shared.showStartupError()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

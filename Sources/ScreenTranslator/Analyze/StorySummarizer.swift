@@ -23,6 +23,7 @@ final class StorySummarizer: ObservableObject {
         lastError = nil
         Task {
             defer { runningCount = 0 }
+            guard await SessionCheck.shared.authorizeAction() else { return }
             do {
                 let r = try await Pipeline.shared.router.summarizeStory(lines: sorted.map(\.source))
                 let skipped = BackendKind.skipped.rawValue

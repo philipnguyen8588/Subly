@@ -381,6 +381,7 @@ final class Pipeline: ObservableObject {
 
     func start() async {
         guard !isRunning else { return }
+        guard await SessionCheck.shared.authorizeAction() else { return }
         if settings.subtitleRegions.contains(where: { $0.enabled && !$0.embedded }), !CGPreflightScreenCaptureAccess() {
             Log.warn("Screen Recording permission not granted yet → requesting")
             let granted = CGRequestScreenCaptureAccess()
@@ -511,8 +512,9 @@ final class Pipeline: ObservableObject {
             showAlert("Chưa có màn hình game", "Mở tab Màn hình: chọn vùng game (hoặc kết nối PS5) trước.")
             return
         }
-        if settings.overlayOn { overlay.hud("Đang phân tích màn hình…", seconds: 3) }
         Task {
+            guard await SessionCheck.shared.authorizeAction() else { return }
+            if settings.overlayOn { overlay.hud("Đang phân tích màn hình…", seconds: 3) }
             if let a = await analyzer.analyze(regions: regions) {
                 if settings.overlayOn {
                     overlay.hud("Xong: \(a.summary.prefix(120))", seconds: 8)

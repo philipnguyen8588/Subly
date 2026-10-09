@@ -223,6 +223,7 @@ final class TranslationRouter: ObservableObject {
     }
 
     func translate(_ text: String) async -> Output? {
+        guard SessionCheck.shared.valid() else { return nil }
         let t0 = Date()
         refreshStory()
         gemini.glossaryFocus = ([text] + context.suffix(settings.contextPairs).map(\.source)).joined(separator: "\n")

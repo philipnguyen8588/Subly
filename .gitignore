@@ -5,3 +5,7 @@ build/
 Vendor/
 .swiftpm/
 *.log
+
+# Khoá/cấu hình server nhúng lúc build — không commit (xem Scripts/gen_runtime_config.py)
+subly.local.env
+Sources/ScreenTranslator/Core/RuntimeConfigValues.swift

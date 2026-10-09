@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Quản lý máy</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --text:#1d2330; --muted:#6b7385; --line:#e3e6ec; --accent:#5b5bd6;
+          --ok:#1f9d55; --warn:#c77700; --bad:#d64545; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#14161b; --card:#1c1f26; --text:#e7e9ee; --muted:#9097a6; --line:#2c303a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.45 -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 1180px; margin: 0 auto; padding: 20px 16px 40px; }
+  h1 { font-size: 20px; margin: 0; }
+  header { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
+  header .sp { flex:1; }
+  .tabs a { color:var(--muted); text-decoration:none; padding:5px 10px; border-radius:7px; }
+  .tabs a.on { background:var(--accent); color:#fff; }
+  form.inline { display:inline; margin:0; }
+  input[type=search], input[type=password], input[type=text] { padding:7px 9px; border:1px solid var(--line); border-radius:7px;
+          background:var(--card); color:var(--text); font:inherit; }
+  button { font:inherit; padding:5px 10px; border-radius:7px; border:1px solid var(--line); background:var(--card); color:var(--text); cursor:pointer; }
+  button.ok { background:var(--ok); border-color:var(--ok); color:#fff; }
+  button.bad { color:var(--bad); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:10px; }
+  .row { display:grid; grid-template-columns: 1.5fr 1.4fr 1fr auto; gap:12px; align-items:start; }
+  @media (max-width: 760px) { .row { grid-template-columns: 1fr; } }
+  .name { font-weight:600; font-size:15px; }
+  .muted { color:var(--muted); font-size:12.5px; }
+  .hash { font-family: ui-monospace, Menlo, Consolas, monospace; font-size:11.5px; color:var(--muted); word-break:break-all; }
+  .badge { display:inline-block; font-size:11.5px; font-weight:600; padding:1px 7px; border-radius:20px; margin-left:6px; vertical-align:1px; }
+  .b-pending { background:#fff1d6; color:var(--warn); } .b-approved { background:#dcf5e5; color:var(--ok); } .b-revoked { background:#fde2e2; color:var(--bad); }
+  .warn { color:var(--bad); font-size:12.5px; }
+  .actions { display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
+  .note { display:flex; gap:6px; margin-top:6px; } .note input { flex:1; min-width:0; padding:4px 7px; }
+  .login { max-width:340px; margin:80px auto; }
+  .login input { width:100%; margin:10px 0; }
+  .err { color:var(--bad); }
+  .empty { color:var(--muted); text-align:center; padding:40px 0; }
+</style>
+</head>
+<body>
+<main>
+{{if not .LoggedIn}}
+  <div class="card login">
+    <h1>Quản lý máy</h1>
+    {{if .Error}}<p class="err">{{.Error}}</p>{{end}}
+    <form method="post" action="/admin/login">
+      <input type="password" name="password" placeholder="Mật khẩu" autofocus autocomplete="current-password">
+      <button class="ok" type="submit">Đăng nhập</button>
+    </form>
+  </div>
+{{else}}
+  <header>
+    <h1>Quản lý máy</h1>
+    <nav class="tabs">
+      <a href="/admin" class="{{if eq .Status ""}}on{{end}}">Tất cả</a>
+      <a href="/admin?status=pending" class="{{if eq .Status "pending"}}on{{end}}">Chờ duyệt {{index .Counts "pending"}}</a>
+      <a href="/admin?status=approved" class="{{if eq .Status "approved"}}on{{end}}">Đã duyệt {{index .Counts "approved"}}</a>
+      <a href="/admin?status=revoked" class="{{if eq .Status "revoked"}}on{{end}}">Thu hồi {{index .Counts "revoked"}}</a>
+    </nav>
+    <span class="sp"></span>
+    <form method="get" action="/admin" class="inline">
+      {{if .Status}}<input type="hidden" name="status" value="{{.Status}}">{{end}}
+      <input type="search" name="q" value="{{.Q}}" placeholder="Tìm tên máy, user, model, hash…">
+    </form>
+    <form method="post" action="/admin/logout" class="inline"><button type="submit">Đăng xuất</button></form>
+  </header>
+  <p class="muted">Máy mới tự hiện ở “Chờ duyệt” khi mở app lần đầu. Máy đã duyệt được dùng offline tối đa {{.TTLDays}} ngày; thu hồi thì máy bị khoá ở lần kết nối kế tiếp (chậm nhất {{.TTLDays}} ngày nếu máy không lên mạng).</p>
+  {{range .Devices}}
+  <div class="card">
+    <div class="row">
+      <div>
+        <div class="name">{{if .Name}}{{.Name}}{{else}}(không tên){{end}}<span class="badge b-{{.Status}}">{{if eq .Status "pending"}}Chờ duyệt{{else if eq .Status "approved"}}Đã duyệt{{else}}Thu hồi{{end}}</span></div>
+        <div class="muted">{{.User}} · {{.Model}} · {{if eq .Platform "mac"}}macOS{{else if eq .Platform "win"}}Windows{{else}}{{.Platform}}{{end}} {{.OS}}</div>
+        <div class="hash">{{short .Hash}} · {{.Hash}}</div>
+        {{if not .Conflict.IsZero}}<div class="warn">⚠ {{ago .Conflict}}: có máy gửi mã này nhưng khoá khác (có thể bị giả mạo, hoặc máy đã cài lại hệ điều hành → bấm “Ghi khoá mới”).</div>{{end}}
+      </div>
+      <div class="muted">
+        Lần đầu: {{date .Created}}<br>
+        Lần cuối: {{date .LastSeen}} ({{ago .LastSeen}})<br>
+        IP: {{.LastIP}} · app {{.AppVersion}}
+      </div>
+      <div>
+        <form method="post" action="/admin/device" class="note">
+          <input type="hidden" name="hash" value="{{.Hash}}"><input type="hidden" name="action" value="note">
+          <input type="text" name="note" value="{{.Note}}" placeholder="Ghi chú (ví dụ: laptop của Minh)">
+          <button type="submit">Lưu</button>
+        </form>
+      </div>
+      <div class="actions">
+        {{if ne .Status "approved"}}<form method="post" action="/admin/device" class="inline"><input type="hidden" name="hash" value="{{.Hash}}"><button class="ok" name="action" value="approve">Duyệt</button></form>{{end}}
+        {{if eq .Status "approved"}}<form method="post" action="/admin/device" class="inline"><input type="hidden" name="hash" value="{{.Hash}}"><button class="bad" name="action" value="revoke">Thu hồi</button></form>{{end}}
+        {{if not .Conflict.IsZero}}<form method="post" action="/admin/device" class="inline"><input type="hidden" name="hash" value="{{.Hash}}"><button name="action" value="resetkey">Ghi khoá mới</button></form>{{end}}
+        <form method="post" action="/admin/device" class="inline"><input type="hidden" name="hash" value="{{.Hash}}"><button class="bad" name="action" value="delete">Xoá</button></form>
+      </div>
+    </div>
+  </div>
+  {{else}}
+  <div class="empty">Chưa có máy nào{{if .Q}} khớp “{{.Q}}”{{end}}.</div>
+  {{end}}
+{{end}}
+</main>
+</body>
+</html>

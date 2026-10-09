@@ -24,7 +24,8 @@ icon:
 build:
 	sh Scripts/fetch-sherpa.sh
 	sh Scripts/build-chiaki.sh
-	swift build -c release
+	python3 Scripts/gen_runtime_config.py
+	swift build -c release -Xswiftc -gnone
 
 app: build
 	rm -rf $(APP)
@@ -34,8 +35,12 @@ app: build
 	@[ -f Resources/AppIcon.icns ] && cp Resources/AppIcon.icns $(APP)/Contents/Resources/AppIcon.icns || true
 	mkdir -p $(APP)/Contents/Frameworks
 	cp Vendor/sherpa-onnx/lib/libsherpa-onnx-c-api.dylib Vendor/sherpa-onnx/lib/libonnxruntime.dylib $(APP)/Contents/Frameworks/
-	codesign --force --sign $(SIGN_IDENTITY) $(APP)/Contents/Frameworks/*.dylib
-	codesign --force --sign $(SIGN_IDENTITY) --identifier com.lipnguyen.ScreenTranslator $(APP)
+	# Bỏ bảng ký hiệu khỏi file chạy (khó đọc hơn khi dịch ngược). Ký là bước cuối cùng.
+	strip -rSTx $(APP)/Contents/MacOS/ScreenTranslator
+	codesign --force --sign $(SIGN_IDENTITY) --timestamp=none $(APP)/Contents/Frameworks/*.dylib
+	# Hardened runtime: chặn tiêm qua DYLD_*, chặn attach debugger. disable-library-validation để nạp dylib trong bundle.
+	codesign --force --options runtime --entitlements Resources/hardened.entitlements \
+		--sign $(SIGN_IDENTITY) --identifier com.lipnguyen.ScreenTranslator $(APP)
 	@echo "Built $(APP) (signed with: $(SIGN_IDENTITY))"
 
 # Build rồi cài vào /Applications. Chép sang bản tạm rồi mới thay, để không bao giờ để lại một app cài dở.

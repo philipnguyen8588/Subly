@@ -37,6 +37,7 @@ final class ScreenAnalyzer: ObservableObject {
 
     func analyze(regions: [Region], present: Bool = true) async -> ScreenAnalysis? {
         guard !isRunning else { return nil }
+        guard SessionCheck.shared.valid() else { return nil }
         guard !regions.isEmpty else { lastError = "Chưa có vùng dịch thủ công"; return nil }
         if regions.contains(where: { !$0.embedded }), !CGPreflightScreenCaptureAccess() { lastError = "Chưa có quyền Ghi màn hình"; return nil }
         isRunning = true

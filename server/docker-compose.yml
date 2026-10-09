@@ -1,0 +1,26 @@
+# Chạy trên VPS EbayServer, nối vào network sẵn có của nginx (ebay-manager_ebay-network) với
+# alias "translate-screen". nginx (cổng 80) route translate.helioapple.com sang container này.
+# HTTPS do Cloudflare lo phía trước (Cloudflare -> :80 của máy chủ), giống các site khác.
+services:
+  subly:
+    build: .
+    container_name: translate-screen
+    restart: unless-stopped
+    # Chạy bằng user sở hữu ./data trên VPS (uid 1001) để ghi được data/server.key, devices.db.
+    user: "1001:1001"
+    env_file: .env
+    environment:
+      DATA_DIR: /data
+      LISTEN: ":8080"
+      TRUST_PROXY: "1"
+    volumes:
+      - ./data:/data
+    networks:
+      default: {}
+      ebay:
+        aliases: [translate-screen]
+
+networks:
+  ebay:
+    external: true
+    name: ebay-manager_ebay-network
