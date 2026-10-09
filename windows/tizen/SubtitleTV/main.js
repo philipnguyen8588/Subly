@@ -202,6 +202,40 @@
     rt.collapsed = b;
     showVideo();
   }
+  /// Giới hạn bề ngang một khối chữ ở `maxW` px (không quá gần hết màn hình); nếu phải xuống dòng thì thu hẹp tới mức hẹp nhất
+  /// mà vẫn giữ nguyên số dòng, để các dòng dài gần bằng nhau (không có dòng cuối chỉ một hai chữ).
+  /// Tối đa 2 dòng: câu quá dài thì nới rộng dòng (tới 1640 px), vẫn không vừa thì thu nhỏ chữ (tối thiểu 60 %).
+  function balanceLines(el, maxW) {
+    var FULL = 1640;
+    maxW = Math.min(FULL, maxW);
+    var lineH = function () { return parseFloat(window.getComputedStyle(el).lineHeight) || el.offsetHeight; };
+    var lines = function () { return Math.round(el.offsetHeight / lineH()); };
+    el.style.maxWidth = maxW + 'px';
+    if (lines() > 2) {
+      el.style.maxWidth = FULL + 'px';
+      var size0 = parseFloat(el.style.fontSize), size = size0;
+      while (lines() > 2 && size > size0 * 0.6) { size *= 0.94; el.style.fontSize = size + 'px'; }
+      if (lines() <= 2) {
+        // Hẹp nhất mà vẫn vừa 2 dòng (không rộng hơn mức thường nếu đã đủ).
+        var a = maxW, b = FULL;
+        el.style.maxWidth = a + 'px';
+        if (lines() > 2) {
+          while (b - a > 4) { var m = (a + b) / 2; el.style.maxWidth = m + 'px'; if (lines() > 2) a = m; else b = m; }
+          maxW = Math.ceil(b);
+        }
+      } else maxW = FULL;
+      el.style.maxWidth = maxW + 'px';
+    }
+    var h = el.offsetHeight;
+    if (h < lineH() * 1.5) return;   // vừa một dòng
+    var lo = maxW * 0.35, hi = maxW;
+    while (hi - lo > 4) {
+      var mid = (lo + hi) / 2;
+      el.style.maxWidth = mid + 'px';
+      if (el.offsetHeight > h) lo = mid; else hi = mid;
+    }
+    el.style.maxWidth = Math.ceil(hi) + 'px';
+  }
   /// Đang chỉnh vị trí / cỡ chữ mà chưa có câu nào: hiện câu mẫu vài giây để thấy kết quả.
   function previewSub() {
     if (rt.last) showSubtitle(rt.last);
@@ -234,6 +268,10 @@
       t.style.fontSize = Math.round(46 * cfg.fontScale) + 'px';
       if (pv) pv.style.fontSize = Math.round(29 * cfg.fontScale) + 'px';
       if (sc) sc.style.fontSize = Math.round(27 * cfg.fontScale) + 'px';
+      // Câu vừa (tới ~60 ký tự) giữ một dòng; câu dài hơn mới tách 2 dòng dài gần bằng nhau.
+      balanceLines(t, 34 * parseFloat(t.style.fontSize));
+      if (pv) balanceLines(pv, 52 * parseFloat(pv.style.fontSize));
+      if (sc) balanceLines(sc, 55 * parseFloat(sc.style.fontSize));
       clearTimeout(hideTimer);
       if (preview) hideTimer = setTimeout(function () { if (rt.last) showSubtitle(rt.last); else sub.innerHTML = ''; }, 2500);
       else if (cfg.keepLast > 0) hideTimer = setTimeout(expireSubtitle, cfg.keepLast * 1000);
