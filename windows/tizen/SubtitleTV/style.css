@@ -111,3 +111,6 @@ html.ovl, body.ovl { background: transparent; }
 #shot.live.dimimg { background: rgba(0,0,0,.45); }
 #shot .livebar { position: absolute; left: 50%; top: 18px; transform: translateX(-50%); white-space: nowrap; font-size: 22px;
                  padding: 8px 22px; border-radius: 20px; background: rgba(0,0,0,.6); }
+
+/* Câu phụ đề trước: nhỏ, mờ, phía trên câu hiện tại. */
+#sub .prev { line-height: 1.2; opacity: .6; margin-bottom: 4px; font-weight: 500; }

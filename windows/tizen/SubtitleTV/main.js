@@ -23,6 +23,7 @@
     band: 110,           // độ dày dải phụ đề (px trên 1080)
     fontScale: 1,
     showSource: false,
+    showPrev: true,      // hiện câu phụ đề trước (chữ nhỏ, mờ) phía trên câu hiện tại
     position: 'bottom',  // bottom | top
     keepLast: 45,        // giây giữ câu phụ đề cuối khi không có câu mới, 0 = giữ mãi
     autoCollapse: true,  // hết thời gian giữ câu cuối → thu dải về 0, game full màn hình
@@ -209,22 +210,29 @@
   /// Hết giờ giữ câu cuối: xoá chữ, quên người nói, thu dải nếu đang dịch bình thường (đang dừng / lỗi thì giữ dải để thấy icon).
   function expireSubtitle() {
     sub.innerHTML = '';
-    rt.last = null;
+    rt.last = rt.prev = null;
     rt.lastSpeaker = '';
     if (!overlay() && rt.running && rt.sse === 'đã kết nối' && !rt.analyzeReq && !rt.note) setCollapsed(true);
   }
   /// Vẽ phụ đề trong dải và co chữ cho vừa (tối đa theo độ dày dải × cỡ chữ người chọn).
   function showSubtitle(d, preview) {
-    if (!preview) rt.last = d;
+    if (!preview) {
+      // Câu mới (không phải vẽ lại câu cũ): câu đang hiện lùi lên làm "câu trước".
+      if (rt.last && d !== rt.last && rt.last.translated !== d.translated) rt.prev = rt.last;
+      rt.last = d;
+    }
     setCollapsed(false);
     applyBand();
     var withSrc = cfg.showSource && d.source;
-    var inner = '<div class="tr">' + styled(d.translated || '', !preview) + '</div>' + (withSrc ? '<div class="src">' + esc(d.source) + '</div>' : '');
+    // Câu trước: dải đen mỏng quá thì bỏ (không đủ chỗ, chữ sẽ bị co quá nhỏ).
+    var prev = !preview && cfg.showPrev && rt.prev && (overlay() || cfg.band >= 90) ? rt.prev : null;
+    var inner = (prev ? '<div class="prev">' + styled(prev.translated || '', false) + '</div>' : '') + '<div class="tr">' + styled(d.translated || '', !preview) + '</div>' + (withSrc ? '<div class="src">' + esc(d.source) + '</div>' : '');
     if (overlay()) {
       // Đè lên game: cỡ chữ cố định theo người chọn, khung ôm sát chữ (tối đa 2 dòng rộng gần hết màn hình).
       sub.innerHTML = '<div class="box">' + inner + '</div>';
-      var t = sub.querySelector('.tr'), sc = sub.querySelector('.src');
+      var t = sub.querySelector('.tr'), sc = sub.querySelector('.src'), pv = sub.querySelector('.prev');
       t.style.fontSize = Math.round(46 * cfg.fontScale) + 'px';
+      if (pv) pv.style.fontSize = Math.round(29 * cfg.fontScale) + 'px';
       if (sc) sc.style.fontSize = Math.round(27 * cfg.fontScale) + 'px';
       clearTimeout(hideTimer);
       if (preview) hideTimer = setTimeout(function () { if (rt.last) showSubtitle(rt.last); else sub.innerHTML = ''; }, 2500);
@@ -232,12 +240,13 @@
       return;
     }
     sub.innerHTML = inner;
-    var tr = sub.querySelector('.tr'), src = sub.querySelector('.src');
+    var tr = sub.querySelector('.tr'), src = sub.querySelector('.src'), pv = sub.querySelector('.prev');
     var pad = cfg.band >= 60 ? 14 : 2;
-    var size = Math.max(12, Math.min(52, (cfg.band - pad) / (withSrc ? 1.75 : 1.18)) * cfg.fontScale);
+    var size = Math.max(12, Math.min(52, (cfg.band - pad) / ((withSrc ? 1.75 : 1.18) + (pv ? 0.75 : 0))) * cfg.fontScale);
     for (var tries = 0; tries < 30; tries++) {
       tr.style.fontSize = size + 'px';
       if (src) src.style.fontSize = Math.max(10, size * 0.55) + 'px';
+      if (pv) pv.style.fontSize = Math.max(10, size * 0.62) + 'px';
       if (sub.scrollHeight <= cfg.band + 1 || size <= 12) break;
       size *= 0.92;
     }
@@ -634,6 +643,8 @@
         lr: function () { cfg.voice = !cfg.voice; if (!cfg.voice) stopVoice(); save(); }, ok: function () { cfg.voice = !cfg.voice; if (!cfg.voice) stopVoice(); save(); } },
       { label: 'Âm lượng giọng đọc', val: cfg.voiceVolume + '%', sub: 'So với tiếng game (âm lượng chung vẫn chỉnh bằng nút + − trên remote)',
         lr: function (d) { cfg.voiceVolume = Math.max(10, Math.min(100, cfg.voiceVolume + d * 10)); if (gain) gain.gain.value = cfg.voiceVolume / 100; save(); } },
+      { label: 'Hiện câu phụ đề trước', val: onOff(cfg.showPrev), sub: 'Chữ nhỏ, mờ ở phía trên câu hiện tại' + (overlay() ? '' : ' (dải đen cần dày từ 90 px)'),
+        lr: function () { cfg.showPrev = !cfg.showPrev; save(); }, ok: function () { cfg.showPrev = !cfg.showPrev; save(); } },
       { label: 'Hiện câu gốc tiếng Anh', val: onOff(cfg.showSource), sub: 'Dưới bản dịch trong dải phụ đề',
         lr: function () { cfg.showSource = !cfg.showSource; save(); }, ok: function () { cfg.showSource = !cfg.showSource; save(); } },
       { label: overlay() ? 'Phụ đề ở phía' : 'Vị trí dải phụ đề', val: cfg.position === 'top' ? 'Trên cùng' : 'Dưới cùng', sub: '',
