@@ -24,9 +24,10 @@ enum SpeakerNames {
         guard rows.count >= 2 else { return (rows, false) }
         let first = rows[0].trimmingCharacters(in: .whitespaces)
         let words = first.split(separator: " ")
-        guard (1...5).contains(words.count), !first.contains(":"), !first.contains("："),
-              first.rangeOfCharacter(from: CharacterSet(charactersIn: ".,!?…;\"")) == nil else { return (rows, false) }
+        // Tên đã học (người dùng tự thêm) được phép dài và có dấu phẩy, ví dụ "Charles, Botanist".
         let known = canonical(first, speakers: speakers) != nil
+        guard known || ((1...5).contains(words.count) && !first.contains(":") && !first.contains("：") &&
+              first.rangeOfCharacter(from: CharacterSet(charactersIn: ".,!?…;\"")) == nil) else { return (rows, false) }
         let nameLike = words.allSatisfy { w in
             guard let f = w.unicodeScalars.first else { return false }
             return CharacterSet.uppercaseLetters.contains(f) || ["of", "the", "de", "von", "van"].contains(w.lowercased())
@@ -61,16 +62,22 @@ enum SpeakerNames {
         guard !speakers.isEmpty else { return nil }
         // 2. Tên đã học đứng đầu, sau đó là , . ; - – — hoặc khoảng trắng
         let tokens = t.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
-        for n in stride(from: min(3, tokens.count), through: 1, by: -1) {
+        // Tối đa 6 từ: tên dài người dùng tự thêm ("Guardian of the Flame", "Charles, Botanist").
+        // Khớp chính xác trước, sau mới khớp gần đúng: "Guardian of the Flame We must…" không được nuốt chữ "We"
+        // (cụm 5 từ đủ giống tên 4 từ).
+        for exact in [true, false] {
+        for n in stride(from: min(6, tokens.count), through: 1, by: -1) {
             var head = tokens[0..<n].joined(separator: " ")
             head = head.trimmingCharacters(in: CharacterSet(charactersIn: ",.;:-–—!?"))
-            guard let known = canonical(head, speakers: speakers) else { continue }
+            let known = exact ? speakers.first { $0.lowercased() == head.lowercased() } : canonical(head, speakers: speakers)
+            guard let known else { continue }
             let restTokens = tokens[n...]
             var rest = restTokens.joined(separator: " ")
             rest = rest.replacingOccurrences(of: #"^[,.;:\-–— ]+"#, with: "", options: .regularExpression)
                 .trimmingCharacters(in: .whitespaces)
             guard !rest.isEmpty else { continue }
             return Match(speaker: known, rest: rest)
+        }
         }
         return nil
     }

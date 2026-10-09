@@ -173,6 +173,7 @@ struct SubtitleLogView: View {
     @State private var geo = RowGeometry()
     @State private var revealID: Int64?
     @State private var edgeScroll: Task<Void, Never>?
+    @State private var addSpeaker: AddSpeakerSheet.Item?
 
     private struct DragState {
         var start: Int64
@@ -249,6 +250,7 @@ struct SubtitleLogView: View {
             }
             NowTranslatingPanel()
         }
+        .sheet(item: $addSpeaker) { AddSpeakerSheet(source: $0.source) }
         .onChange(of: search) { _, _ in clearSelection() }
         .onChange(of: entries.last?.id) { _, _ in clearSelection() }     // đổi game / xoá nhật ký
     }
@@ -275,6 +277,8 @@ struct SubtitleLogView: View {
                 Button { Clipboard.copy(e.source) } label: { Label("Copy bản gốc", systemImage: "doc.on.doc") }
                 Button { Clipboard.copy(skipped ? e.source : e.translated) } label: { Label("Copy bản dịch", systemImage: "character.bubble") }
                 Button { Clipboard.copy("\(e.source)\n\(skipped ? e.source : e.translated)") } label: { Label("Copy cả hai", systemImage: "doc.on.clipboard") }
+                Divider()
+                Button { addSpeaker = .init(source: e.source) } label: { Label("Thêm tên nhân vật…", systemImage: "person.crop.circle.badge.plus") }
                 Divider()
                 Button { selectConversation(around: e.id) } label: { Label("Chọn cả đoạn hội thoại này", systemImage: "text.line.first.and.arrowtriangle.forward") }
                 Button { selectToNewest(from: e.id) } label: { Label("Chọn từ câu này đến mới nhất", systemImage: "arrow.down.to.line") }

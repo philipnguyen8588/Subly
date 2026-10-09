@@ -650,7 +650,16 @@
       { label: overlay() ? 'Phụ đề ở phía' : 'Vị trí dải phụ đề', val: cfg.position === 'top' ? 'Trên cùng' : 'Dưới cùng', sub: '',
         lr: function () { cfg.position = cfg.position === 'top' ? 'bottom' : 'top'; save(); applyLayout(); }, ok: function () { cfg.position = cfg.position === 'top' ? 'bottom' : 'top'; save(); applyLayout(); } },
       { label: 'Giữ câu phụ đề cuối', val: cfg.keepLast ? cfg.keepLast + ' giây rồi ẩn' : 'Giữ mãi (tới câu mới)', sub: '',
-        lr: function (d) { var opts = [5, 10, 20, 30, 45, 60, 90, 120, 0]; var i = opts.indexOf(cfg.keepLast); if (i < 0) i = 4; cfg.keepLast = opts[(i + d + opts.length) % opts.length]; save(); } },
+        lr: function (d) {
+          // Mỗi bước 2 giây tới 60 giây, sau đó 90, 120, rồi Giữ mãi (0).
+          var opts = []; for (var s = 2; s <= 60; s += 2) opts.push(s); opts.push(90, 120, 0);
+          var i = opts.indexOf(cfg.keepLast);
+          if (i < 0) {   // giá trị cũ không nằm trong danh sách (vd. 45) → lấy mức gần nhất
+            i = 0;
+            for (var k = 1; k < opts.length - 1; k++) if (Math.abs(opts[k] - cfg.keepLast) < Math.abs(opts[i] - cfg.keepLast)) i = k;
+          }
+          cfg.keepLast = opts[(i + d + opts.length) % opts.length]; save();
+        } },
     ]).concat(overlay() ? [] : [
       { label: 'Tự thu gọn dải khi hết phụ đề', val: onOff(cfg.autoCollapse),
         sub: 'Hết thời gian giữ câu cuối thì game full màn hình, có câu mới dải hiện lại' + (cfg.keepLast ? '' : ' (cần chọn thời gian giữ, không phải Giữ mãi)'),
