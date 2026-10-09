@@ -8,6 +8,52 @@
 (function () {
   'use strict';
 
+  // ---------- Chẩn đoán: in nhật ký lên màn hình TV (bản điều tra lỗi) ----------
+  // Dòng CUỐI còn hiện trước khi app tự thoát = chỗ gây crash. Tắt bằng cách đặt DBG = false.
+  var DBG = true;
+  var dbgLines = [];
+  function dbg(m) {
+    if (!DBG) return;
+    try {
+      dbgLines.push(m);
+      if (dbgLines.length > 14) dbgLines.shift();
+      var el = document.getElementById('dbg');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'dbg';
+        el.style.cssText = 'position:fixed;left:8px;top:8px;z-index:99999;background:rgba(0,0,0,.75);' +
+          'color:#4ef06a;font:13px/1.45 monospace;padding:7px 10px;max-width:70%;white-space:pre-wrap;pointer-events:none;border-radius:6px';
+        (document.body || document.documentElement).appendChild(el);
+      }
+      el.textContent = dbgLines.join('\n');
+      try { console.error('[DBG] ' + m); } catch (x) {}
+    } catch (x) {}
+  }
+
+  // Banner lỗi nổi bật, ở lại trên màn hình tới khi hết lỗi (để người dùng còn biết app gặp gì).
+  function showErr(msg) {
+    try {
+      var el = document.getElementById('err');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'err';
+        el.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:100000;background:rgba(176,32,32,.93);' +
+          'color:#fff;font:16px/1.5 "Segoe UI",Roboto,sans-serif;padding:14px 18px;white-space:pre-wrap;text-align:center';
+        (document.body || document.documentElement).appendChild(el);
+      }
+      el.textContent = '⚠ ' + msg;
+      el.style.display = 'block';
+      try { console.error('[ERR] ' + msg); } catch (x) {}
+    } catch (x) {}
+  }
+  function clearErr() { try { var el = document.getElementById('err'); if (el) el.style.display = 'none'; } catch (x) {} }
+
+  // Chống lặp crash: đánh dấu TRƯỚC khi gọi API hình HDMI (có thể làm app thoát ở tầng native, JS không bắt được).
+  // Mở app lần sau mà dấu vẫn còn → lần trước app đã chết ngay ở bước đó → tự tắt hiện hình và báo lên màn hình.
+  function markVideo(step) { try { localStorage.setItem('pendingVideo', step); } catch (e) {} }
+  function clearVideo() { try { localStorage.removeItem('pendingVideo'); } catch (e) {} }
+  function pendingVideo() { try { return localStorage.getItem('pendingVideo'); } catch (e) { return null; } }
+
   // ---------- Cài đặt (lưu trên TV) ----------
   var DEFAULTS = {
     servers: [
@@ -105,7 +151,12 @@
     var r = videoRect();
     if (!force && r.join() === shownRect) return;
     shownRect = r.join();
-    try { tizen.tvwindow.show(function () {}, function (e) { shownRect = ''; toast('Lỗi hiện hình: ' + e.message, true); }, r, 'MAIN', 'BEHIND'); } catch (e) { shownRect = ''; }
+    dbg('show ' + r.join());
+    markVideo('hiện hình HDMI' + rt.hdmi);
+    try {
+      tizen.tvwindow.show(function () { clearVideo(); clearErr(); },
+        function (e) { shownRect = ''; clearVideo(); showErr('Lỗi hiện hình: ' + e.message); }, r, 'MAIN', 'BEHIND');
+    } catch (e) { shownRect = ''; clearVideo(); showErr('Lỗi hiện hình: ' + (e && e.message || e)); }
   }
   function hideVideo() { shownRect = ''; try { tizen.tvwindow.hide(function () {}, function () {}, 'MAIN'); } catch (e) {} }
   /// Đổi kiểu hiển thị: nền trang trong suốt (đè lên game) hoặc đen (dải).
@@ -121,18 +172,26 @@
     var src = null;
     rt.sources.forEach(function (s) { if (s.type === 'HDMI' && s.number === n) src = s; });
     if (!src) { if (!quiet) toast('HDMI ' + n + ' không có tín hiệu', true); return; }
+    // Người dùng chủ động chọn HDMI → bật lại tự hiện hình (nếu trước đó đã bị tắt vì crash).
+    if (!quiet && cfg.videoDisabled) { cfg.videoDisabled = false; save(); }
+    dbg('setSource HDMI' + n);
+    markVideo('chọn nguồn HDMI' + n);
     try {
       tizen.tvwindow.setSource(src, function () {
         rt.hdmi = n; cfg.hdmi = n; save();
+        dbg('setSource ok HDMI' + n);
         showVideo(true);
         if (!quiet) toast('Đang xem HDMI ' + n);
         if (rt.menuOpen) renderMenu();
-      }, function (e) { toast('Không chọn được HDMI ' + n + ': ' + e.message, true); }, 'MAIN');
-    } catch (e) { toast('Lỗi tvwindow: ' + e.message, true); }
+      }, function (e) { clearVideo(); showErr('Không chọn được HDMI ' + n + ': ' + e.message); }, 'MAIN');
+    } catch (e) { clearVideo(); showErr('Lỗi tvwindow: ' + (e && e.message || e)); }
   }
   function startVideo() {
+    // Lần trước hiện hình làm app thoát → đã tắt tự hiện hình. Không tự gọi lại (tránh thoát lặp lại); chờ người dùng bấm số HDMI.
+    if (cfg.videoDisabled) { dbg('video disabled'); showErr('Đã tắt tự hiện hình HDMI vì lần trước làm app thoát. Bấm số HDMI (1–4) trên remote để thử lại.'); return; }
     withSources(function () {
       var ports = hdmiPorts();
+      dbg('startVideo ports=' + ports.join(','));
       var pick = ports.indexOf(cfg.hdmi) >= 0 ? cfg.hdmi : ports[0];
       if (pick) useHdmi(pick, true); else toast('Không có cổng HDMI nào có tín hiệu. Bật PS5 lên.', true);
     });
@@ -634,6 +693,8 @@
     if (which === 'connect') {
       sel = Math.max(0, cfg.server);
       for (var i = 0; i < cfg.servers.length; i++) probeServer(i);
+      // Lần đầu mở màn chọn máy: tự dò LAN một lần để thêm máy đang chạy ScreenTranslator.
+      if (!autoScanned) { autoScanned = true; scanLan(); }
     }
     renderMenu();
   }
@@ -715,6 +776,63 @@
     ]);
   }
 
+  // ---------- Tự dò máy chạy ScreenTranslator trong mạng LAN ----------
+  var scanning = false, scanFound = 0, autoScanned = false;
+  /// Lấy IP của chính TV (Wi-Fi hoặc dây mạng) để biết subnet.
+  function localIp(cb) {
+    function tryProp(prop, next) {
+      try {
+        tizen.systeminfo.getPropertyValue(prop, function (d) {
+          if (d && d.ipAddress && /^\d+\.\d+\.\d+\.\d+$/.test(d.ipAddress)) cb(d.ipAddress); else next();
+        }, next);
+      } catch (e) { next(); }
+    }
+    tryProp('WIFI_NETWORK', function () { tryProp('ETHERNET_NETWORK', function () { cb(null); }); });
+  }
+  function hasServer(url) { for (var i = 0; i < cfg.servers.length; i++) if (cfg.servers[i].url === url) return true; return false; }
+  /// Quét x.y.z.1–254 cổng 8787, máy nào trả lời /api/log (JSON) thì là ScreenTranslator → tự thêm.
+  function scanLan() {
+    if (scanning) return;
+    localIp(function (ip) {
+      if (!ip) { toast('Không lấy được IP của TV để dò máy', true); return; }
+      var base = ip.slice(0, ip.lastIndexOf('.') + 1);
+      scanning = true; scanFound = 0;
+      dbg('scanLan ' + base + '1-254');
+      if (rt.menuOpen) renderMenu();
+      var next = 1, done = 0;
+      function finishOne() {
+        if (++done >= 254) {
+          scanning = false;
+          toast(scanFound > 0 ? 'Tìm thấy ' + scanFound + ' máy' : 'Không thấy máy nào đang chạy ScreenTranslator (mở app trên máy tính, bật máy chủ Web)', scanFound === 0);
+          for (var i = 0; i < cfg.servers.length; i++) probeServer(i);
+          if (rt.menuOpen) renderMenu();
+          return;
+        }
+        pump();
+      }
+      function probeHost(n) {
+        var url = 'http://' + base + n + ':8787';
+        if (hasServer(url)) { finishOne(); return; }
+        var x = new XMLHttpRequest(), fin = false;
+        x.timeout = 1500;
+        function end() { if (fin) return; fin = true; finishOne(); }
+        try { x.open('GET', url + '/api/log?limit=1'); } catch (e) { end(); return; }
+        x.onload = function () {
+          if (fin) return; fin = true;
+          var ok = false;
+          if (x.status === 200) { try { ok = JSON.parse(x.responseText) instanceof Array; } catch (e) {} }
+          if (ok && !hasServer(url)) { cfg.servers.push({ name: 'Máy ' + base + n, url: url }); save(); scanFound++; if (rt.menuOpen) renderMenu(); }
+          finishOne();
+        };
+        x.onerror = x.ontimeout = end;
+        try { x.send(); } catch (e) { end(); }
+      }
+      // Chạy tối đa ~24 yêu cầu cùng lúc cho nhanh mà không nghẽn.
+      function pump() { while ((next - 1) - done < 24 && next <= 254) probeHost(next++); }
+      pump();
+    });
+  }
+
   function connectItems() {
     var items = cfg.servers.map(function (s, i) {
       var st = probe[i] || '';
@@ -726,6 +844,9 @@
                  chooseServer(i);
                } };
     });
+    items.push({ label: (scanning ? '🔎 Đang dò… (thấy ' + scanFound + ')' : '🔎 Dò máy trong mạng'), val: '', action: true,
+      sub: 'Tự tìm máy tính trong cùng mạng Wi-Fi/LAN đang chạy ScreenTranslator',
+      ok: function () { scanLan(); } });
     items.push({ label: '+ Nhập địa chỉ IP máy khác…', val: '', sub: '', ok: function () {
       var cur = cfg.servers[cfg.server];
       var m = cur ? /(\d+)\.(\d+)\.(\d+)\.(\d+)/.exec(cur.url) : null;
@@ -894,7 +1015,7 @@
     try { if (rt.hdmi) showVideo(); else startVideo(); } catch (x) {}
   }
   window.onerror = function (msg, src, line) {
-    try { console.error('Lỗi: ' + msg + ' @' + line); } catch (x) {}
+    showErr('Lỗi: ' + msg + ' @' + line);
     recover();
     return true;
   };
@@ -907,7 +1028,7 @@
         var up = e.keyCode === 38 ? 1 : -1;
         cfg.subY = Math.max(0, Math.min(900, cfg.subY + (cfg.position === 'top' ? -up : up) * 20)); save(); applyBand(); previewSub(); return;
       case 37: case 39:   // ◀▶: cỡ chữ
-        cfg.fontScale = Math.round(Math.max(0.5, Math.min(2, cfg.fontScale + (e.keyCode === 39 ? 0.1 : -0.1))) * 10) / 10; save(); previewSub(); return;
+        cfg.fontScale = Math.round(Math.max(0.5, Math.min(2, cfg.fontScale + (e.keyCode === 39 ? 0.05 : -0.05))) * 20) / 20; save(); previewSub(); return;
     }
     switch (e.keyCode) {
       case 37: setCollapsed(false); cfg.band = Math.max(20, cfg.band - (cfg.band > 60 ? 10 : 5)); save(); applyBand(); showVideo(); if (rt.last) showSubtitle(rt.last); toast('Dải phụ đề ' + cfg.band + ' px'); break;
@@ -925,14 +1046,24 @@
   }
 
   window.onload = function () {
-    registerKeys();
-    document.body.className = document.documentElement.className = overlay() ? 'ovl' : '';
-    applyBand();
-    withSources(function () {
-      if (cfg.askOnStart || cfg.server < 0) { openMenu('connect'); }
-      else { connect(); startVideo(); }
-    });
-    // Nguồn HDMI được cắm / rút → cập nhật danh sách (để menu hiện đúng).
-    setInterval(function () { withSources(function () { if (rt.menuOpen) renderMenu(); }); }, 5000);
+    try {
+      dbg('onload askOnStart=' + cfg.askOnStart + ' server=' + cfg.server);
+      // Dấu crash còn sót → lần trước app thoát ngay khi đang làm việc này. Tắt tự hiện hình và báo lên màn hình.
+      var pend = pendingVideo();
+      if (pend) {
+        clearVideo();
+        cfg.videoDisabled = true; save();
+        showErr('Lần trước app thoát khi đang: ' + pend + '. Đã tắt tự hiện hình HDMI. Bấm số HDMI (1–4) trên remote để thử lại, hoặc mở Menu (Back).');
+      }
+      registerKeys();
+      document.body.className = document.documentElement.className = overlay() ? 'ovl' : '';
+      applyBand();
+      withSources(function () {
+        if (cfg.askOnStart || cfg.server < 0) { openMenu('connect'); }
+        else { connect(); startVideo(); }
+      });
+      // Nguồn HDMI được cắm / rút → cập nhật danh sách (để menu hiện đúng).
+      setInterval(function () { withSources(function () { if (rt.menuOpen) renderMenu(); }); }, 5000);
+    } catch (e) { showErr('Lỗi khởi động: ' + (e && e.message || e)); }
   };
 })();
