@@ -82,3 +82,9 @@ html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; backgro
 #shot .sumpanel { position: absolute; left: 240px; right: 240px; top: 50%; transform: translateY(-50%); padding: 40px 56px; border-radius: 22px;
                   background: rgba(10,12,20,.88); font-size: 38px; line-height: 1.5; text-align: center; }
 #shot .sumtitle { font-size: 26px; opacity: .6; margin-bottom: 16px; letter-spacing: 1px; }
+/* Trạng thái đang làm (vd. đang dịch màn hình): chữ xanh cạnh icon, không phải lỗi. */
+#toast.note { color: #6aa3ff; }
+
+/* Hướng dẫn phím: tiêu đề nhóm + phím ở cột phải. */
+#menu .group { margin: 26px 0 8px 6px; font-size: 22px; letter-spacing: 1px; text-transform: uppercase; opacity: .55; }
+#menu .item.key .val { font-weight: 700; color: #ffd36b; }
