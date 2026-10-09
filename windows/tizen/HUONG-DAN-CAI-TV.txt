@@ -1,170 +1,33 @@
-HƯỚNG DẪN CÀI APP "SUBTITLE TV" LÊN TV SAMSUNG
-===============================================
+CÀI SUBTITLE TV LÊN TV SAMSUNG
+==============================
 
-App Subtitle TV hiện hình PS5 (qua cổng HDMI) toàn màn hình trên TV và vẽ phụ đề tiếng Việt
-đè lên hình game. Phụ đề được dịch trên máy tính chạy ScreenTranslator (Windows hoặc Mac), TV
-nhận qua mạng nội bộ.
+1. CÀI TIZEN STUDIO (một lần trên máy tính)
+- Tải: https://developer.tizen.org/development/tizen-studio/download → cài vào C:\tizen-studio.
+- Package Manager: cài "Tizen SDK tools" (Main SDK), "Samsung Certificate Extension" và
+  "TV Extensions" (Extension SDK).
 
-Áp dụng cho: TV Samsung chạy Tizen (đời 2016 trở lên, ví dụ Q70T).
-
-
----------------------------------------------------------------
-0. CẦN CÓ GÌ
----------------------------------------------------------------
-- TV Samsung Tizen. PS5 (hoặc máy game khác) cắm vào cổng HDMI của TV.
-- Máy tính Windows có cài Tizen Studio (để cài app lên TV) và thư mục dự án Subly
-  (cần thư mục windows\tizen, trong đó có SubtitleTV và deploy.ps1).
-- Một tài khoản Samsung (để tạo chứng chỉ ký app).
-- Máy tính chạy ScreenTranslator để dịch phụ đề, CÙNG MẠNG Wi-Fi/LAN với TV.
-  Có thể là chính máy Windows ở trên (file ScreenTranslator.exe) hoặc máy Mac.
-- TV và máy tính phải chung một mạng trong suốt quá trình cài và khi dùng.
-
-
----------------------------------------------------------------
-1. CÀI TIZEN STUDIO (chỉ làm một lần trên máy tính)
----------------------------------------------------------------
-1. Tải Tizen Studio tại: https://developer.tizen.org/development/tizen-studio/download
-   Cài vào thư mục mặc định C:\tizen-studio.
-2. Mở Package Manager (đi kèm Tizen Studio):
-   - Thẻ "Main SDK": cài "Tizen SDK tools".
-   - Thẻ "Extension SDK": cài "Samsung Certificate Extension" và "TV Extensions-...".
-3. Kiểm tra: mở PowerShell, chạy
-       C:\tizen-studio\tools\sdb.exe version
-   Thấy hiện số phiên bản là được.
-
-
----------------------------------------------------------------
 2. BẬT DEVELOPER MODE TRÊN TV
----------------------------------------------------------------
-1. Trên máy tính, xem IP của máy: mở PowerShell, gõ  ipconfig
-   Lấy dòng "IPv4 Address" của card mạng đang dùng (ví dụ 192.168.1.10).
-2. Trên TV: bấm Home, vào "Apps" (Ứng dụng).
-3. Trong màn hình Apps, bấm lần lượt 1 2 3 4 5 trên remote
-   (remote Smart không có phím số thì bấm nút "123" để hiện bàn phím số).
-4. Bật "Developer mode" = On. Ô "Host PC IP" điền IP máy tính ở bước 1. Bấm OK.
-5. TẮT HẲN TV rồi bật lại (rút điện 10 giây, hoặc giữ nút nguồn tới khi TV khởi động lại).
-   Khi vào lại Apps sẽ thấy dòng chữ "Developer Mode" ở trên cùng.
-6. Xem IP của TV: Cài đặt → Chung → Mạng → Trạng thái mạng → Cài đặt IP.
-   Ghi lại (ví dụ 192.168.1.31).
+- Xem IP máy tính: PowerShell → ipconfig → dòng "IPv4 Address".
+- TV: vào Apps, bấm 1 2 3 4 5 (nút "123" để hiện số) → Developer mode = On,
+  Host PC IP = IP máy tính → OK.
+- Tắt hẳn TV rồi bật lại.
+- Xem IP TV: Cài đặt → Chung → Mạng → Trạng thái mạng → Cài đặt IP.
 
-Lưu ý: TV có thể tự tắt Developer Mode sau khi cập nhật phần mềm. App đã cài vẫn chạy bình
-thường; chỉ khi cần cài lại/cập nhật app mới phải bật lại.
-
-
----------------------------------------------------------------
 3. KẾT NỐI MÁY TÍNH VỚI TV
----------------------------------------------------------------
-Mở PowerShell, chạy (thay bằng IP của TV):
-
-    C:\tizen-studio\tools\sdb.exe connect 192.168.1.31
+    C:\tizen-studio\tools\sdb.exe connect <IP-TV>
     C:\tizen-studio\tools\sdb.exe devices
+- Thấy TV trong danh sách là được.
 
-Thấy TV trong danh sách (ví dụ "192.168.1.31:26101  device  QN..") là được.
-Không kết nối được: kiểm tra lại Host PC IP ở bước 2, TV đã khởi động lại chưa, hai máy
-có chung mạng không, tường lửa Windows có chặn không.
+4. TẠO CHỨNG CHỈ (mỗi TV mới phải làm)
+- Tizen Studio → Tools → Certificate Manager → "+" → Samsung → TV.
+- Đặt tên profile, ví dụ TV-NhaMinh.
+- Author: dùng lại cái cũ, hoặc tạo mới (đăng nhập tài khoản Samsung).
+- Distributor: chọn Public; DUID của TV đang kết nối tự hiện (thêm DUID TV khác nếu muốn
+  dùng chung) → đăng nhập Samsung → Finish.
 
-
----------------------------------------------------------------
-4. TẠO CHỨNG CHỈ SAMSUNG CHO TV (mỗi TV mới phải làm)
----------------------------------------------------------------
-Samsung chỉ cho cài app lên những TV có mã DUID nằm trong chứng chỉ. TV mới chưa có thì
-phải tạo (hoặc tạo lại) chứng chỉ có DUID của TV đó.
-
-1. Giữ TV đang kết nối (bước 3).
-2. Mở Tizen Studio → menu Tools → Certificate Manager.
-3. Bấm dấu "+" để tạo profile mới → chọn "Samsung" → "TV".
-4. Đặt tên profile, ví dụ:  TV-NhaMinh   (nhớ tên này, dùng ở bước 5).
-5. Author certificate:
-   - Đã có từ lần trước: chọn "Use an existing author certificate".
-   - Chưa có: "Create a new author certificate", điền tên + mật khẩu, đăng nhập tài khoản Samsung.
-6. Distributor certificate: chọn mức "Public", bấm tiếp. Danh sách DUID sẽ tự hiện DUID
-   của TV đang kết nối. Muốn một chứng chỉ dùng cho nhiều TV thì thêm DUID của các TV khác
-   vào danh sách này (mỗi dòng một DUID).
-7. Đăng nhập tài khoản Samsung khi được hỏi → Finish.
-8. Đặt profile vừa tạo làm "Active" (dấu tích) trong Certificate Manager.
-
-
----------------------------------------------------------------
-5. CÀI APP LÊN TV
----------------------------------------------------------------
-Mở PowerShell trong thư mục windows\tizen của dự án, chạy (thay IP TV và tên profile):
-
+5. CÀI APP
     cd E:\Projects\VScodeProject\Subly\windows\tizen
-    .\deploy.ps1 -Tv 192.168.1.31 -Profile TV-NhaMinh
-
-Thấy "install completed" là cài xong, app tự mở trên TV.
-
-Nếu PowerShell báo không cho chạy script, chạy trước lệnh:
-    Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-
-Lỗi hay gặp:
-- "Đóng gói thất bại (kiểm tra profile chứng chỉ ...)": sai tên profile ở -Profile.
-- "Cài lên TV thất bại": chứng chỉ không chứa DUID của TV này → làm lại bước 4.
-- Không thấy TV: chạy lại bước 3 (sdb connect).
-
-Lần sau mở app: trên TV vào Apps, kéo xuống cuối, mở "Subtitle TV".
-Cập nhật app (khi có bản mới): chạy lại lệnh ở bước 5.
-
-
----------------------------------------------------------------
-6. CHẠY SCREENTRANSLATOR TRÊN MÁY TÍNH (để có phụ đề)
----------------------------------------------------------------
-Máy Windows:
-1. Chép file ScreenTranslator.exe sang máy (một file duy nhất, không cần cài .NET).
-2. Mở ScreenTranslator.exe. Lần đầu Windows có thể cảnh báo "Windows protected your PC" →
-   bấm "More info" → "Run anyway". Khi tường lửa hỏi, cho phép mạng "Private".
-3. Vào Cài đặt (bánh răng) → "Điện thoại / Web": bật máy chủ web (cổng mặc định 8787).
-   Ở đây cũng có địa chỉ IP của máy tính để nhập vào TV.
-4. Chọn nguồn hình (PS5 Remote Play trong app, hoặc cửa sổ app khác), vẽ khung phụ đề,
-   bấm "Bắt đầu".
-5. Muốn nghe giọng đọc trên loa TV: Cài đặt → Voice → bật
-   "Phát giọng đọc trên TV / điện thoại thay vì loa máy tính".
-
-Máy Mac: mở app ScreenTranslator, bật "iPhone / Web" trong Cài đặt, các bước còn lại tương tự.
-
-
----------------------------------------------------------------
-7. DÙNG APP TRÊN TV
----------------------------------------------------------------
-Lần đầu mở app, TV hỏi kết nối máy tính nào:
-- Có sẵn Mac mini 192.168.8.24 và PC Windows 192.168.8.22 (máy ở nhà người cài).
-  Ở nhà khác thì chọn "+ Nhập địa chỉ IP máy khác…", nhập IP máy tính chạy ScreenTranslator
-  (bấm số trên remote, ◀▶ chuyển ô, OK để kết nối).
-- Chấm xanh = máy đang chạy ScreenTranslator, chấm đỏ = không trả lời.
-
-Phím trên remote khi đang xem game:
-  ⏯ (Play/Pause)   tạm dừng / tiếp tục dịch phụ đề
-  OK               dịch toàn màn hình (xong mới vẽ bản dịch lên game)
-  ▲ ▼              dời phụ đề lên / xuống
-  ◀ ▶              cỡ chữ phụ đề nhỏ / lớn
-  Kênh ∧ (CH up)   xem lịch sử phụ đề đã dịch
-  Kênh ∨ (CH down) xem lại ảnh dịch màn hình
-  123 → 1–4        chọn cổng HDMI
-  Back             mở menu (cài đặt, đổi máy tính, hướng dẫn phím, thoát app)
-
-Khi đang xem bản dịch màn hình: OK đổi bản dịch → bản gốc → tóm tắt, ◀▶ xem ảnh chụp,
-Back đóng.
-
-Trong menu có: kiểu hiển thị (đè lên game / dải đen), nền phụ đề (mờ / đậm / không nền),
-hiện câu trước, màu theo nhân vật, giữ câu cuối bao lâu, giọng đọc trên TV và âm lượng,
-hỏi chọn máy khi mở app.
-
-Icon ở góc trái dưới màn hình:
-  ● xanh lá = đang dịch     ⏸ vàng = tạm dừng
-  ⟳ xanh dương = đang dịch màn hình     ⚠ đỏ = mất kết nối máy tính
-
-
----------------------------------------------------------------
-8. XỬ LÝ SỰ CỐ
----------------------------------------------------------------
-- Màn hình đen: bấm 1–4 chọn đúng cổng HDMI của PS5, hoặc bật PS5 lên.
-- Có hình nhưng không có phụ đề:
-  + Icon ⚠: TV không kết nối được máy tính → kiểm tra máy tính đang mở ScreenTranslator,
-    máy chủ web đang bật, cùng mạng, đúng IP; tường lửa Windows cho phép cổng 8787.
-  + Icon ⏸: bấm ⏯ để bật dịch.
-- Phụ đề hiện sai chỗ / không thấy chữ đè lên game: Back → menu → "Kiểu hiển thị phụ đề"
-  → chọn "Dải đen dưới hình".
-- Không có tiếng đọc: bật "Phát giọng đọc trên TV" trong app máy tính, và "Giọng đọc trên TV"
-  trong menu app TV.
-- Máy tính đổi IP (do router cấp lại): vào menu app TV → "Máy tính" → nhập IP mới.
-  Nên đặt IP cố định cho máy tính trong router để khỏi phải nhập lại.
+    .\deploy.ps1 -Tv <IP-TV> -Profile TV-NhaMinh
+- Thấy "install completed" là xong, app tự mở.
+- Báo không cho chạy script: Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+- "Cài lên TV thất bại": chứng chỉ chưa có DUID của TV → làm lại bước 4.
