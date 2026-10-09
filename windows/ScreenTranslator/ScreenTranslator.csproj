@@ -26,7 +26,16 @@
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.10" />
     <PackageReference Include="NAudio" Version="2.2.1" />
     <PackageReference Include="QRCoder" Version="1.6.0" />
+    <!-- Ed25519 (khoá thiết bị + kiểm vé server). .NET 8 chưa có Ed25519 sẵn. -->
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.4.0" />
   </ItemGroup>
+
+  <!-- Sinh Core\RuntimeConfigValues.cs (cấu hình server nhúng lúc build) nếu chưa có, để `dotnet build` chạy độc lập
+       vẫn biên dịch được (cấu hình rỗng = bản dùng riêng, không kiểm tra máy). build.ps1 gọi gen-runtime-config.ps1
+       với subly.local.env để sinh cấu hình thật của bản phát hành. -->
+  <Target Name="GenRuntimeConfig" BeforeTargets="BeforeBuild" Condition="!Exists('Core\RuntimeConfigValues.cs')">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\Scripts\gen-runtime-config.ps1&quot;" />
+  </Target>
 
   <ItemGroup>
     <EmbeddedResource Include="Web\WebPage.html" LogicalName="WebPage.html" />
@@ -37,6 +46,12 @@
   <!-- Danh sách từ tiếng Anh (thay /usr/share/dict/words), tải bằng Scripts/fetch-words.ps1. Không có thì bỏ qua. -->
   <ItemGroup Condition="Exists('Resources\words.txt')">
     <None Include="Resources\words.txt" CopyToOutputDirectory="PreserveNewest" Link="words.txt" />
+  </ItemGroup>
+
+  <!-- Thuật ngữ game đóng kèm (glossaries/ ở gốc repo, dùng chung với bản macOS). Chép vào glossaries/ cạnh exe;
+       GameGlossaries.cs đọc để tạo sẵn profile lần đầu chạy. -->
+  <ItemGroup Condition="Exists('..\..\glossaries')">
+    <None Include="..\..\glossaries\*.csv" CopyToOutputDirectory="PreserveNewest" Link="glossaries\%(Filename)%(Extension)" />
   </ItemGroup>
 
   <!-- Thư viện native: sherpa-onnx (giọng offline) và st_chiaki (PS5). Chưa có thì app vẫn build, tính năng báo "chưa cài". -->

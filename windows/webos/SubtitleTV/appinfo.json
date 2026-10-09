@@ -1,0 +1,13 @@
+{
+    "id": "com.lipnguyen.subtitletv",
+    "version": "1.0.0",
+    "vendor": "LipNguyen",
+    "type": "web",
+    "main": "index.html",
+    "title": "Subtitle TV",
+    "icon": "icon_80.png",
+    "largeIcon": "icon_130.png",
+    "resolution": "1920x1080",
+    "disableBackHistoryAPI": true,
+    "requiredACG": []
+}

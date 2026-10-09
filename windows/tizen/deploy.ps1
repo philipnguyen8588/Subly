@@ -1,11 +1,15 @@
-# Đóng gói (ký chứng chỉ Samsung) và cài app Subtitle TV lên TV Samsung Tizen đang bật Developer Mode.
+﻿# Đóng gói (ký chứng chỉ Samsung) và cài app Subtitle TV lên TV Samsung Tizen đang bật Developer Mode.
 #   .\deploy.ps1 -Tv 192.168.8.31            đóng gói + cài + mở app
 #   .\deploy.ps1 -Tv 192.168.8.31 -Debug     mở app ở chế độ debug (in cổng DevTools để soi lỗi)
+#   .\deploy.ps1 -Kit                        chỉ đóng gói thành 1 file zip cài được từ máy không có Tizen Studio
+#   .\deploy.ps1 -IdKit                       gói nhỏ "lấy mã TV": gửi cho người dùng TV mới để họ lấy DUID gửi lại
 param(
     [string]$Tv = "192.168.8.31",
     [string]$Profile = "LipNguyen-TV",
     [string]$Tizen = "C:\tizen-studio",
-    [switch]$Debug
+    [switch]$Debug,
+    [switch]$Kit,
+    [switch]$IdKit
 )
 $ErrorActionPreference = "Stop"
 $sdb = Join-Path $Tizen "tools\sdb.exe"
@@ -16,7 +20,21 @@ $serial = "${Tv}:26101"
 $src = Join-Path $PSScriptRoot "SubtitleTV"
 $out = Join-Path $PSScriptRoot "build"
 
-& $sdb connect $Tv | Out-Null
+if ($IdKit) {
+    # Gói "lấy mã TV" = sdb.exe + LAY-ID-TV.bat + hướng dẫn. Gửi cho người dùng TV mới: họ chạy lấy DUID rồi gửi lại.
+    New-Item -ItemType Directory -Force $out | Out-Null
+    $idDir = Join-Path $out "LayID-TV-Samsung"
+    Remove-Item -Recurse -Force $idDir -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory $idDir | Out-Null
+    Copy-Item $sdb, (Join-Path $PSScriptRoot "LAY-ID-TV.bat"), (Join-Path $PSScriptRoot "HUONG-DAN-CAI-TV.txt") $idDir
+    $dist = Join-Path $PSScriptRoot "..\dist"
+    New-Item -ItemType Directory -Force $dist | Out-Null
+    $zip = Join-Path (Resolve-Path $dist) "LayID-TV-Samsung.zip"
+    Compress-Archive -Path $idDir -DestinationPath $zip -Force
+    Write-Host "Gói lấy mã TV: $zip"
+    return
+}
+
 Remove-Item -Recurse -Force $out -ErrorAction SilentlyContinue
 New-Item -ItemType Directory $out | Out-Null
 Copy-Item "$src\*" $out
@@ -25,6 +43,22 @@ Copy-Item "$src\*" $out
 $wgt = Get-ChildItem $out -Filter *.wgt | Select-Object -First 1
 if (-not $wgt) { throw "Đóng gói thất bại (kiểm tra profile chứng chỉ '$Profile')" }
 Move-Item $wgt.FullName (Join-Path $out "SubtitleTV.wgt") -Force
+
+if ($Kit) {
+    # Bộ cài = file .wgt đã ký + sdb.exe (chạy độc lập) + CAI-LEN-TV.bat + LAY-ID-TV.bat + hướng dẫn, nén thành 1 file zip.
+    $kitDir = Join-Path $out "SubtitleTV-Samsung"
+    New-Item -ItemType Directory $kitDir | Out-Null
+    Copy-Item (Join-Path $out "SubtitleTV.wgt"), $sdb, (Join-Path $PSScriptRoot "CAI-LEN-TV.bat"), `
+        (Join-Path $PSScriptRoot "LAY-ID-TV.bat"), (Join-Path $PSScriptRoot "HUONG-DAN-CAI-TV.txt") $kitDir
+    $dist = Join-Path $PSScriptRoot "..\dist"
+    New-Item -ItemType Directory -Force $dist | Out-Null
+    $zip = Join-Path (Resolve-Path $dist) "SubtitleTV-Samsung.zip"
+    Compress-Archive -Path $kitDir -DestinationPath $zip -Force
+    Write-Host "Bộ cài: $zip"
+    return
+}
+
+& $sdb connect $Tv | Out-Null
 $remote = "/home/owner/share/tmp/sdk_tools/tmp/SubtitleTV.wgt"
 & $sdb -s $serial push (Join-Path $out "SubtitleTV.wgt") $remote | Out-Null
 $res = & $sdb -s $serial shell 0 vd_appinstall $pkgId $remote

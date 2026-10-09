@@ -1,0 +1,28 @@
+CÀI SUBTITLE TV LÊN TV LG (webOS)
+=================================
+
+1. CHUẨN BỊ MÁY TÍNH (một lần)
+- Cài Node.js: https://nodejs.org (bản LTS).
+- Mở PowerShell, cài công cụ của LG:
+    npm i -g @webos-tools/cli
+- Tạo tài khoản LG Developer: https://webostv.developer.lge.com (Sign In → Create account).
+
+2. BẬT DEVELOPER MODE TRÊN TV
+- Trên TV mở LG Content Store, tìm và cài app "Developer Mode".
+- Mở app Developer Mode, đăng nhập tài khoản LG Developer.
+- Bật "Dev Mode Status" = ON → TV khởi động lại.
+- Mở lại app Developer Mode, bật "Key Server" = ON. Ghi lại IP và Passphrase hiện trên màn hình.
+
+3. CÀI APP
+    cd E:\Projects\VScodeProject\Subly\windows\webos
+    .\deploy.ps1 -Tv <IP-TV>
+- Lần đầu script hỏi Passphrase: nhập dãy chữ hiện trong app Developer Mode.
+- Thấy "Đã cài và mở Subtitle TV" là xong. Lần sau mở app trong danh sách app của TV.
+- Báo không cho chạy script: Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+
+4. LƯU Ý
+- Developer Mode có hạn 1000 giờ: mở app Developer Mode, bấm "Extend" để gia hạn,
+  nếu hết hạn thì app Subtitle TV bị gỡ (cài lại bằng bước 3).
+- Màn hình đen: Back → menu → "Cổng HDMI" chọn đúng cổng đang cắm PS5 (1–4),
+  hoặc di chuyển remote rồi bấm nút "HDMI" ở góc trái dưới.
+- Không có phím ⏯ / số trên Magic Remote: di chuyển remote để hiện con trỏ, bấm các nút trên màn hình.

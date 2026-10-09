@@ -34,6 +34,7 @@ public sealed class StorySummarizer : INotifyPropertyChanged
         lastError = null;
         try
         {
+            if (!await SessionCheck.shared.AuthorizeAction()) return;
             var r = await Pipeline.shared.router.SummarizeStory(sorted.Select(e => e.source).ToList());
             var skipped = BackendKind.skipped.ToString();
             var lines = sorted.Select((e, i) => new AnalysisLine { id = i, source = e.source, target = e.backend == skipped ? "" : e.translated }).ToList();

@@ -36,6 +36,9 @@ try {
         }
     }
 
+    Write-Host "== Cấu hình server nhúng (duyệt máy)" -ForegroundColor Cyan
+    & (Join-Path $root "Scripts\gen-runtime-config.ps1")
+
     Write-Host "== dotnet build ($Configuration)" -ForegroundColor Cyan
     dotnet build (Join-Path $root "ScreenTranslator.sln") -c $Configuration
     if ($LASTEXITCODE -ne 0) { throw "dotnet build lỗi" }

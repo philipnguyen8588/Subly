@@ -128,7 +128,19 @@ public sealed class SettingsWindow : Window
             Ui.Btn("Xoá key", () => { S.geminiAPIKey = ""; key.Password = ""; result.Text = ""; UpdateScreenWarn(); }));
         var used = Ui.Caption($"Đã dùng hôm nay: {router.usedToday}");
 
+        // Mục Tài khoản: email gửi lên server để chủ app nhận diện/duyệt máy (chỉ bản phát hành có kiểm tra máy).
+        UIElement? account = null;
+        if (RuntimeConfig.Enabled)
+        {
+            var emailBox = new TextBox { Text = S.userEmail, MinWidth = 320 };
+            emailBox.LostFocus += (_, _) => { var t = emailBox.Text.Trim(); if (t != S.userEmail) S.userEmail = t; };
+            account = Ui.Section("Tài khoản",
+                Ui.V(3, Ui.Caption("Email"), emailBox),
+                Ui.Caption("Email này gửi cho quản trị viên để nhận diện và duyệt thiết bị của bạn."));
+        }
+
         return Ui.V(14,
+            account,
             Ui.Section("Ngôn ngữ",
                 Ui.Picker("Dịch sang", TargetLanguage.all.Select(l => (l.code, l.name)), () => S.targetLanguage, v => S.targetLanguage = v),
                 Ui.Caption("Nguồn: tiếng Anh. Đổi ngôn ngữ đích sẽ đổi cả giọng đọc.")),

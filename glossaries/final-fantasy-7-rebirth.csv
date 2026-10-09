@@ -1,0 +1,215 @@
+#!game=Final Fantasy VII Rebirth
+# Thuật ngữ Final Fantasy VII Rebirth cho ScreenTranslator. Định dạng: thuật ngữ gốc,bản dịch (để trống = giữ nguyên)
+# Nhân vật
+Cloud Strife,
+Cloud,
+Tifa Lockhart,
+Tifa,
+Aerith Gainsborough,
+Aerith,
+Aeris,
+Barret Wallace,
+Barret,
+Red XIII,
+Nanaki,
+Yuffie Kisaragi,
+Yuffie,
+Cait Sith,
+Vincent Valentine,
+Vincent,
+Cid Highwind,
+Cid,
+Sephiroth,
+Zack Fair,
+Zack,
+Rufus Shinra,
+Rufus,
+President Shinra,Tổng thống Shinra
+Heidegger,
+Scarlet,
+Palmer,
+Reeve Tuesti,
+Reeve,
+Hojo,
+Professor Hojo,Giáo sư Hojo
+Professor Gast,Giáo sư Gast
+Gast,
+Ifalna,
+Lucrecia Crescent,
+Lucrecia,
+Tseng,
+Reno,
+Rude,
+Elena,
+Cissnei,
+Jessie,
+Biggs,
+Wedge,
+Marlene,
+Dyne,
+Bugenhagen,
+Elmyra Gainsborough,
+Elmyra,
+Marle,
+Chadley,
+Johnny,
+Priscilla,
+Dio,
+Kyrie,
+Roche,
+Billy,
+Chloe,
+Zangan,
+Chocobo Sage,Hiền giả Chocobo
+Mr. Dolphin,
+Ester,
+Jenova,
+# Địa danh
+Midgar,
+Kalm,
+the Grasslands,Vùng Đồng Cỏ
+Chocobo Ranch,Trang trại Chocobo
+Mythril Mine,Mỏ Mythril
+Fort Condor,
+Junon,
+Under Junon,Junon Hạ
+Upper Junon,Junon Thượng
+Costa del Sol,
+Corel,
+North Corel,Bắc Corel
+Corel Prison,Nhà tù Corel
+Mt. Corel,Núi Corel
+Corel Desert,Sa mạc Corel
+Gold Saucer,
+Battle Square,Đấu Trường
+Chocobo Square,Khu Chocobo
+Gongaga,
+Gongaga Reactor,Lò phản ứng Gongaga
+Cosmo Canyon,
+Cosmo Candle,Ngọn Lửa Cosmo
+Observatory,Đài Thiên văn
+Nibelheim,
+Mt. Nibel,Núi Nibel
+Nibel Reactor,Lò phản ứng Nibel
+Shinra Mansion,Dinh thự Shinra
+Shinra Manor,Dinh thự Shinra
+Mako Reactor,Lò phản ứng Mako
+Temple of the Ancients,Đền của Người Cổ Đại
+Forgotten Capital,Thủ Đô Bị Lãng Quên
+Forgotten City,Thành Phố Bị Lãng Quên
+City of the Ancients,Thành Phố của Người Cổ Đại
+Shinra Building,Tòa nhà Shinra
+Sector 7,Khu 7
+Sector 5,Khu 5
+Slums,khu ổ chuột
+Midgar Slums,khu ổ chuột Midgar
+Wutai,
+Meridian Ocean,
+Cave of the Gi,Hang của tộc Gi
+# Phe phái / Tổ chức
+Shinra,
+Shinra Electric Power Company,Công ty Điện lực Shinra
+Shinra Inc.,Tập đoàn Shinra
+SOLDIER,
+Avalanche,
+the Turks,
+Cetra,
+the Ancients,người Cổ Đại
+Gi,
+Gi tribe,tộc Gi
+Shinra Army,Quân đội Shinra
+Science Department,Phòng Khoa học
+Public Security Division,Cục An ninh Công cộng
+Weapons Development Department,Phòng Phát triển Vũ khí
+Urban Development Department,Phòng Phát triển Đô thị
+Space Program,Chương trình Không gian
+# Kẻ địch / Boss
+Midgardsormr,
+Midgar Zolom,
+Materia Keeper,
+Gi Nattak,
+Demon Gate,
+Jenova Emergent,
+Jenova Lifeclinger,
+Sephiroth Reborn,
+Terror of the Deep,
+Mindflayer,
+Red Dragon,
+Zolom,
+Zu,
+Behemoth,
+Tonberry,
+Cactuar,
+Malboro,
+Cockatrice,
+Grangalan,
+Nibel Wolf,
+Mandragora,
+Elphadunk,
+Flan,
+Bomb,
+Ghoul,
+Mu,
+Levrikon,
+Sweeper,
+Custom Valkyrie,
+# Thuật ngữ cốt truyện
+Lifestream,
+Mako,
+Mako energy,năng lượng Mako
+Mako poisoning,nhiễm độc Mako
+Jenova Project,Dự án Jenova
+Jenova cells,tế bào Jenova
+Reunion,
+the Promised Land,Miền Đất Hứa
+the Planet,Hành tinh
+Gaia,
+Weapon,
+Nibelheim Incident,Sự kiện Nibelheim
+SOLDIER First Class,SOLDIER Hạng Nhất
+Keystone,
+Black Materia,
+White Materia,
+Whispers,
+Whisper,
+Protorelic,
+Queen's Blood,
+World Intel,
+Planetology,
+Valley of the Fallen Star,Thung lũng Vì Sao Sa
+Buster Sword,
+Masamune,
+One-Winged Angel,
+Highwind,
+Tiny Bronco,
+Limit Break,
+Synergy Ability,chiêu Hiệp Đồng
+Summon Crystal,Tinh thể Triệu hồi
+Sephiroth clone,bản sao Sephiroth
+Fiend,
+Materia,
+# Triệu hồi / Materia
+summon,triệu hồi
+summons,các triệu hồi
+Ifrit,
+Shiva,
+Ramuh,
+Titan,
+Leviathan,
+Bahamut Arisen,
+Bahamut,
+Odin,
+Alexander,
+Phoenix,
+Kujata,
+Gilgamesh,
+Chocobo & Moogle,
+Carbuncle,
+Fat Chocobo,
+Chocobo Chick,
+Moogle Trio,
+Magic Materia,Materia Phép thuật
+Summon Materia,Materia Triệu hồi
+Command Materia,Materia Mệnh lệnh
+Support Materia,Materia Hỗ trợ
+Complete Materia,Materia Hoàn chỉnh

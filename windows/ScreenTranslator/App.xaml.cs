@@ -93,6 +93,7 @@ public partial class App : Application
     {
         base.OnStartup(e);
         args = e.Args;
+        Integrity.Arm();
         DispatcherUnhandledException += (_, ex) =>
         {
             Log.Error($"Lỗi không xử lý: {ex.Exception}");
@@ -111,6 +112,20 @@ public partial class App : Application
         RegisterHotkeys();
         if (!Has("--hidden")) ShowMain();
         if (Has("--open-settings")) ShowSettings();
+
+        // App luôn mở bình thường; việc kiểm tra máy chạy ngầm và chỉ chặn khi người dùng bấm Bắt đầu / Dịch màn hình.
+        // Lần đầu (bản phát hành, chưa có email): hỏi email rồi mới bắt đầu kiểm tra, để máy đăng ký kèm email.
+        if (RuntimeConfig.Enabled && AppSettings.shared.userEmail.Length == 0 && !Has("--hidden"))
+            EmailPromptWindow.Prompt();
+        SessionCheck.shared.Begin(OnLostAccess);
+    }
+
+    /// Đang chạy mà máy mất quyền (lần kiểm tra ngầm thấy vé không còn hợp lệ): dừng dịch và báo lỗi chung.
+    static void OnLostAccess()
+    {
+        if (!Pipeline.shared.isRunning) return;
+        Pipeline.shared.Stop();
+        StartupErrorWindow.Present();
     }
 
     static bool Has(string flag) => args.Contains(flag);

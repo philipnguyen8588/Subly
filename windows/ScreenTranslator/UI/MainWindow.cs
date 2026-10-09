@@ -38,6 +38,9 @@ public sealed class MainWindow : Window
         var dock = new DockPanel();
         DockPanel.SetDock(header, Dock.Top);
         dock.Children.Add(header);
+        var support = Ui.SupportBanner();
+        DockPanel.SetDock(support, Dock.Top);
+        dock.Children.Add(support);
         DockPanel.SetDock(tabBar, Dock.Top);
         dock.Children.Add(tabBar);
         var div = new Border { Height = 1, Background = Ui.Res("CardStroke") };
@@ -139,7 +142,10 @@ public sealed class HeaderBar : Border
         profileBtn.Click += (_, _) => ProfileMenu().Also(m => { m.PlacementTarget = profileBtn; m.IsOpen = true; });
         profileBtn.ToolTip = "Game đang dịch. Mỗi game có nguồn hình, khung phụ đề, thuật ngữ và tên nhân vật riêng";
 
-        var logo = Ui.H(8, new Image { Source = new BitmapImage(new Uri("pack://application:,,,/Resources/AppIcon.png")), Width = 22, Height = 22 }, Ui.Text("ScreenTranslator", 14, true, wrap: false));
+        var titleStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        titleStack.Children.Add(Ui.Text("ScreenTranslator", 14, true, wrap: false));
+        titleStack.Children.Add(Ui.Text(AppInfo.VersionLabel, 9, color: Ui.Tertiary, wrap: false));
+        var logo = Ui.H(8, new Image { Source = new BitmapImage(new Uri("pack://application:,,,/Resources/AppIcon.png")), Width = 22, Height = 22 }, titleStack);
         var left = Ui.H(10, logo, startBtn, analyzeBtn, pill);
         Child = Ui.Row(left, profileBtn, voiceBtn, overlayBtn, moon, gear);
 
@@ -187,10 +193,25 @@ public sealed class HeaderBar : Border
         var add = new MenuItem { Header = "Game mới…", InputGestureText = "Ctrl+N" };
         add.Click += (_, _) => AppNav.shared.ShowNewProfile();
         m.Items.Add(add);
+        var samples = new MenuItem { Header = "Thêm game mẫu có sẵn" };
+        samples.Click += (_, _) => AddSampleGames();
+        m.Items.Add(samples);
         var manage = new MenuItem { Header = "Đổi tên, xoá game…" };
         manage.Click += (_, _) => App.ShowSettings("profile");
         m.Items.Add(manage);
         return m;
+    }
+
+    /// Thêm các game mẫu còn thiếu rồi báo kết quả.
+    static void AddSampleGames()
+    {
+        var added = AppSettings.shared.AddMissingSampleGames();
+        if (added.Count == 0)
+            MessageBox.Show("Tất cả game mẫu có sẵn đều đã nằm trong danh sách của bạn.", "Đã có đủ game mẫu",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+        else
+            MessageBox.Show(string.Join(", ", added) + ".\nMỗi game đã có sẵn thuật ngữ; bạn chỉ cần chọn nguồn hình và vẽ khung phụ đề.",
+                $"Đã thêm {added.Count} game", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 }
 

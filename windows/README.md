@@ -29,6 +29,24 @@ Chỉ cần build app (không có giọng AI offline / PS5) thì `dotnet build w
 
 Thư viện tải/dựng nằm trong `windows\Vendor\` (không commit) và được chép cạnh `ScreenTranslator.exe` khi build.
 
+### Bản phát hành có duyệt máy (tuỳ chọn)
+
+Giống bản macOS: nếu có file `subly.local.env` ở **thư mục gốc repo** (dùng chung Mac + Windows) thì bản build sẽ chỉ chạy
+các tính năng dịch trên máy đã được duyệt ở [server](../server/). Không có file thì bản build là bản dùng riêng, không kiểm
+tra gì.
+
+```
+# subly.local.env (gốc repo, không commit)
+SUBLY_SERVER=https://translate.helioapple.com
+SUBLY_PUBKEY=<public key do `docker compose run --rm subly keygen` in ra>
+```
+
+`build.ps1` (và `dotnet build` khi chưa có file cấu hình) tự chạy `Scripts\gen-runtime-config.ps1` để sinh
+`ScreenTranslator\Core\RuntimeConfigValues.cs` (server + public key được XOR mỗi lần build, không nằm nguyên văn trong
+file chạy; file này không commit). App luôn mở bình thường; chỉ **Bắt đầu / Dịch màn hình / Tóm tắt** mới kiểm tra, và
+chỉ hiện một màn hình lỗi chung chung (không nói gì về duyệt/giấy phép). Lần đầu app hỏi email để gửi kèm lên server cho
+chủ app nhận ra máy. Máy đã duyệt nhận vé ký Ed25519 hạn 7 ngày nên vẫn chạy khi tạm mất mạng.
+
 ## Lần đầu sử dụng
 
 1. **OCR tiếng Anh**: app dùng Windows OCR có sẵn. Nếu báo "Chưa cài OCR tiếng Anh": Settings → Time & language → Language & region → thêm *English (United States)*.

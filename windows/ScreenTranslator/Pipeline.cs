@@ -424,6 +424,7 @@ public sealed class Pipeline : INotifyPropertyChanged
     public async Task Start()
     {
         if (isRunning) return;
+        if (!await SessionCheck.shared.AuthorizeAction()) return;
         var regions = settings.subtitleRegions.Where(r => r.enabled).ToList();
         if (regions.Count == 0) { ShowAlert("Chưa có vùng phụ đề", "Mở tab Màn hình: chọn vùng game (hoặc kết nối PS5) rồi vẽ khung phụ đề."); return; }
         if (!WinOcr.Available) { ShowAlert("Chưa có OCR tiếng Anh", WinOcr.LastError ?? "Windows OCR không dùng được."); return; }
@@ -550,9 +551,10 @@ public sealed class Pipeline : INotifyPropertyChanged
             ShowAlert("Chưa có màn hình game", "Mở tab Màn hình: chọn vùng game (hoặc kết nối PS5) trước.");
             return;
         }
-        if (settings.overlayOn) overlay.Hud("Đang phân tích màn hình…", 3);
         _ = Task.Run(async () =>
         {
+            if (!await SessionCheck.shared.AuthorizeAction()) return;
+            App.RunOnUI(() => { if (settings.overlayOn) overlay.Hud("Đang phân tích màn hình…", 3); });
             var a = await analyzer.Analyze(regions);
             App.RunOnUI(() =>
             {

@@ -210,6 +210,7 @@ public sealed class TranslationRouter : INotifyPropertyChanged
 
     public async Task<Output?> Translate(string text)
     {
+        if (!SessionCheck.shared.Valid()) return null;
         var t0 = DateTime.UtcNow;
         RefreshStory();
         var ctx = RecentContext();

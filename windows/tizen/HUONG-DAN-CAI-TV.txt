@@ -1,33 +1,71 @@
 CÀI SUBTITLE TV LÊN TV SAMSUNG
 ==============================
 
-1. CÀI TIZEN STUDIO (một lần trên máy tính)
-- Tải: https://developer.tizen.org/development/tizen-studio/download → cài vào C:\tizen-studio.
-- Package Manager: cài "Tizen SDK tools" (Main SDK), "Samsung Certificate Extension" và
-  "TV Extensions" (Extension SDK).
+Vì TV Samsung chỉ cho cài app lên đúng những TV đã đăng ký, nên cần làm 2 bước:
+  BƯỚC A: bạn lấy "mã thiết bị" (DUID) của TV rồi gửi cho người đóng gói app.
+  BƯỚC B: nhận lại bộ cài làm riêng cho TV của bạn, rồi cài.
+
+Cần: máy tính Windows cùng mạng Wi-Fi/LAN với TV. KHÔNG cần cài gì thêm.
+
+
+────────────────────────────────────────
+BƯỚC A — LẤY MÃ TV (DUID) GỬI CHO NGƯỜI ĐÓNG GÓI
+────────────────────────────────────────
+
+1. XEM IP MÁY TÍNH
+   - Mở PowerShell (hoặc Command Prompt), gõ:  ipconfig
+   - Ghi lại dòng "IPv4 Address", ví dụ 192.168.8.22.
 
 2. BẬT DEVELOPER MODE TRÊN TV
-- Xem IP máy tính: PowerShell → ipconfig → dòng "IPv4 Address".
-- TV: vào Apps, bấm 1 2 3 4 5 (nút "123" để hiện số) → Developer mode = On,
-  Host PC IP = IP máy tính → OK.
-- Tắt hẳn TV rồi bật lại.
-- Xem IP TV: Cài đặt → Chung → Mạng → Trạng thái mạng → Cài đặt IP.
+   - Mở màn hình Apps (Smart Hub).
+   - Bấm trên remote dãy số: 1 2 3 4 5.
+   - Developer mode = On.
+   - Host PC IP = IP máy tính ở mục 1 (ví dụ 192.168.8.22) → OK.
+   - TẮT HẲN TV RỒI BẬT LẠI (để Developer Mode có hiệu lực).
 
-3. KẾT NỐI MÁY TÍNH VỚI TV
-    C:\tizen-studio\tools\sdb.exe connect <IP-TV>
-    C:\tizen-studio\tools\sdb.exe devices
-- Thấy TV trong danh sách là được.
+3. XEM IP CỦA TV
+   - Trên TV: Cài đặt → Chung → Mạng → Trạng thái mạng → Cài đặt IP.
+   - Ghi lại IP của TV, ví dụ 192.168.8.31.
 
-4. TẠO CHỨNG CHỈ (mỗi TV mới phải làm)
-- Tizen Studio → Tools → Certificate Manager → "+" → Samsung → TV.
-- Đặt tên profile, ví dụ TV-NhaMinh.
-- Author: dùng lại cái cũ, hoặc tạo mới (đăng nhập tài khoản Samsung).
-- Distributor: chọn Public; DUID của TV đang kết nối tự hiện (thêm DUID TV khác nếu muốn
-  dùng chung) → đăng nhập Samsung → Finish.
+4. LẤY MÃ TV
+   - Giải nén gói "LayID-TV-Samsung.zip" (người đóng gói gửi cho bạn).
+   - Bấm đúp file  LAY-ID-TV.bat
+   - Nhập IP của TV (mục 3) → Enter.
+   - Màn hình hiện một dòng mã dạng:  BDCLTHZVX36DA
+   - COPY dòng mã đó và GỬI cho người đóng gói app.
 
-5. CÀI APP
-    cd E:\Projects\VScodeProject\Subly\windows\tizen
-    .\deploy.ps1 -Tv <IP-TV> -Profile TV-NhaMinh
-- Thấy "install completed" là xong, app tự mở.
-- Báo không cho chạy script: Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-- "Cài lên TV thất bại": chứng chỉ chưa có DUID của TV → làm lại bước 4.
+   (Nếu không hiện mã: kiểm tra lại đã bật Developer Mode + Host PC IP đúng chưa,
+    và máy tính với TV có cùng mạng không.)
+
+
+────────────────────────────────────────
+BƯỚC B — CÀI APP (sau khi nhận lại bộ cài)
+────────────────────────────────────────
+
+5. Người đóng gói thêm mã TV của bạn vào chứng chỉ rồi gửi lại file
+   "SubtitleTV-Samsung.zip".
+
+6. Giải nén file đó.
+   - TV vẫn phải đang bật Developer Mode (Bước A mục 2), cùng mạng với máy tính.
+   - Bấm đúp  CAI-LEN-TV.bat  → nhập IP của TV.
+   - Thấy dòng "install completed" là xong, app Subtitle TV tự mở trên TV.
+
+   (Nếu báo "CÀI THẤT BẠI ... certificate": mã TV chưa được thêm vào chứng chỉ —
+    báo lại người đóng gói, làm lại từ Bước A mục 4.)
+
+
+────────────────────────────────────────
+DÀNH CHO NGƯỜI ĐÓNG GÓI (có Tizen Studio + chứng chỉ Samsung)
+────────────────────────────────────────
+
+- Gửi người dùng mới gói lấy mã:   .\deploy.ps1 -IdKit
+  → ra  windows\dist\LayID-TV-Samsung.zip  (sdb + LAY-ID-TV.bat + file này).
+
+- Nhận được DUID từ người dùng → thêm vào chứng chỉ:
+  Certificate Manager → profile → tạo lại Distributor certificate, dán DUID mới
+  (giữ cả các DUID cũ), đăng nhập Samsung → Finish.
+
+- Đóng gói bộ cài làm riêng cho họ:   .\deploy.ps1 -Kit -Profile <tên-profile>
+  → ra  windows\dist\SubtitleTV-Samsung.zip  → gửi lại người dùng (Bước B).
+
+- Hoặc cài thẳng từ máy mình:   .\deploy.ps1 -Tv <IP-TV> -Profile <tên-profile>

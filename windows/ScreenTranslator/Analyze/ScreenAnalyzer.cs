@@ -27,6 +27,7 @@ public sealed class ScreenAnalyzer : INotifyPropertyChanged
     public async Task<ScreenAnalysis?> Analyze(List<Region> regions, bool present = true)
     {
         if (isRunning) return null;
+        if (!SessionCheck.shared.Valid()) return null;
         if (regions.Count == 0) { lastError = "Chưa có vùng dịch thủ công"; return null; }
         if (!WinOcr.Available) { lastError = WinOcr.LastError ?? "OCR không dùng được"; return null; }
         isRunning = true;

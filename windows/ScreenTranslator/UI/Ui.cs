@@ -36,6 +36,67 @@ public static class Ui
 
     public static TextBlock Caption(string s, Brush? color = null) => Text(s, 11.5, color: color ?? Secondary);
 
+    /// Dòng "app miễn phí" + 2 link Telegram bấm được (khớp bản macOS).
+    public static TextBlock SupportText(double size = 13)
+    {
+        var tb = new TextBlock { TextWrapping = TextWrapping.Wrap, FontSize = size, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
+        tb.Inlines.Add("Đây là app ");
+        tb.Inlines.Add(new Run("miễn phí") { FontWeight = FontWeights.Bold });
+        tb.Inlines.Add(". Cần hỗ trợ cài đặt, liên hệ Telegram ");
+        tb.Inlines.Add(TgLink(AppInfo.TelegramGroup));
+        tb.Inlines.Add(" hoặc ");
+        tb.Inlines.Add(TgLink(AppInfo.TelegramOwner));
+        tb.Inlines.Add(".");
+        return tb;
+    }
+
+    static Hyperlink TgLink(string handle)
+    {
+        var link = new Hyperlink(new Run("@" + handle))
+        {
+            NavigateUri = new Uri("https://t.me/" + handle),
+            Foreground = AccentStart, Cursor = System.Windows.Input.Cursors.Hand,
+        };
+        link.RequestNavigate += (_, e) => App.OpenUrl(e.Uri.AbsoluteUri);
+        return link;
+    }
+
+    static Color AccentColor => ((SolidColorBrush)AccentStart).Color;
+
+    /// Dải hỗ trợ nổi bật dưới header cửa sổ chính (hiện ở mọi bản).
+    public static Border SupportBanner()
+    {
+        var gift = Icon("", 12, AccentStart);
+        gift.Margin = new Thickness(0, 0, 7, 0);
+        DockPanel.SetDock(gift, Dock.Left);
+        var row = new DockPanel { LastChildFill = true };
+        row.Children.Add(gift);
+        row.Children.Add(SupportText());
+        return new Border
+        {
+            Padding = new Thickness(14, 6, 14, 6),
+            Background = new SolidColorBrush(AccentColor) { Opacity = 0.12 },
+            BorderThickness = new Thickness(0, 0, 0, 1),
+            BorderBrush = new SolidColorBrush(AccentColor) { Opacity = 0.25 },
+            Child = row,
+        };
+    }
+
+    /// Hộp "app miễn phí" nổi bật (dùng trong màn hỏi email).
+    public static Border SupportBox()
+    {
+        return new Border
+        {
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(14, 10, 14, 10),
+            MaxWidth = 400,
+            Background = new SolidColorBrush(AccentColor) { Opacity = 0.12 },
+            BorderThickness = new Thickness(1),
+            BorderBrush = new SolidColorBrush(AccentColor) { Opacity = 0.3 },
+            Child = SupportText().Also(t => t.TextAlignment = TextAlignment.Center),
+        };
+    }
+
     public static TextBlock Styled(string s, double size, bool onDark = false, FontWeight? weight = null, Brush? color = null)
     {
         var t = new TextBlock { FontSize = size, TextWrapping = TextWrapping.Wrap };

@@ -221,12 +221,33 @@ public sealed class AppSettings : INotifyPropertyChanged
         var ps = profiles;
         if (ps.Count == 0)
         {
-            var p = new Profile { name = "Mặc định" };
-            profiles = new List<Profile> { p };
-            activeProfileID = p.id;
+            // Lần đầu cài: tạo sẵn một profile cho mỗi game thông dụng (thuật ngữ đóng kèm app).
+            var created = new List<Profile>();
+            foreach (var g in GameGlossaries.Bundled())
+                if (!created.Any(p => p.name.Equals(g.name, StringComparison.OrdinalIgnoreCase)))
+                    created.Add(new Profile { name = g.name, glossary = g.entries });
+            if (created.Count == 0) created.Add(new Profile { name = "Mặc định" });
+            Log.Info($"Tạo {created.Count} profile lần đầu: {string.Join(", ", created.Select(p => p.name))}");
+            profiles = created;
+            activeProfileID = created[0].id;
         }
         else if (activeProfileID == null || !ps.Any(p => p.id == activeProfileID))
             activeProfileID = ps[0].id;
+    }
+
+    /// Thêm các game mẫu (thuật ngữ đóng kèm app) chưa có trong danh sách, không đụng profile hiện có. Trả về tên đã thêm.
+    public List<string> AddMissingSampleGames()
+    {
+        var ps = profiles;
+        var added = new List<string>();
+        foreach (var g in GameGlossaries.Bundled())
+            if (!ps.Any(p => p.name.Equals(g.name, StringComparison.OrdinalIgnoreCase)))
+            {
+                ps.Add(new Profile { name = g.name, glossary = g.entries });
+                added.Add(g.name);
+            }
+        if (added.Count > 0) { profiles = ps; Log.Info($"Thêm {added.Count} game mẫu: {string.Join(", ", added)}"); }
+        return added;
     }
 
     // MARK: Capture
@@ -251,6 +272,8 @@ public sealed class AppSettings : INotifyPropertyChanged
     public bool skipUIText { get => Get("skipUIText", true); set => Set("skipUIText", value); }
 
     // MARK: Dịch
+    /// Email người dùng tự nhập (gửi kèm lên server duyệt máy để chủ app biết máy của ai).
+    public string userEmail { get => Get("userEmail", ""); set => Set("userEmail", value); }
     public string targetLanguage { get => Get("targetLanguage", "vi"); set => Set("targetLanguage", value); }
     public string geminiModel { get => Get("geminiModel", "gemini-3.5-flash-lite"); set => Set("geminiModel", value); }
     public string geminiBaseURL { get => Get("geminiBaseURL", "https://generativelanguage.googleapis.com/v1beta"); set => Set("geminiBaseURL", value); }
