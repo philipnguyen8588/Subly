@@ -114,7 +114,6 @@ struct HeaderBar: View {
                     Text(AppInfo.versionLabel).font(.system(size: 9)).foregroundStyle(.tertiary).monospacedDigit()
                 }
             }
-            .padding(.leading, 70)   // chừa chỗ nút đèn giao thông
 
             Button { pipeline.toggle() } label: {
                 Label(pipeline.isRunning ? "Dừng" : "Bắt đầu", systemImage: pipeline.isRunning ? "stop.fill" : "play.fill")
@@ -149,6 +148,11 @@ struct HeaderBar: View {
             }
             .buttonStyle(.bordered)
             .help("Tắt màn hình để tiết kiệm điện (app vẫn dịch và đọc). Di chuột hoặc gõ phím để bật lại")
+            Button { Self.openGuide() } label: {
+                Image(systemName: "questionmark.circle").font(.system(size: 14, weight: .medium)).frame(width: 30, height: 26)
+            }
+            .buttonStyle(.bordered)
+            .help("Hướng dẫn sử dụng app")
             Button { WindowManager.shared.showSettings() } label: {
                 Image(systemName: "gearshape").font(.system(size: 14, weight: .medium)).frame(width: 30, height: 26)
             }
@@ -157,6 +161,18 @@ struct HeaderBar: View {
         }
         .padding(.horizontal, 14)
         .frame(height: 48)
+    }
+
+    /// Mở file hướng dẫn HTML đóng kèm app bằng trình duyệt mặc định.
+    static func openGuide() {
+        if let url = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "guide") {
+            NSWorkspace.shared.open(url)
+        } else {
+            // Bản chạy từ mã nguồn (chưa đóng bundle): mở file trong repo nếu có.
+            let dev = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+                .appendingPathComponent("Resources/guide/index.html")
+            if FileManager.default.fileExists(atPath: dev.path) { NSWorkspace.shared.open(dev) }
+        }
     }
 }
 
