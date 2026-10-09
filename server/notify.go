@@ -14,7 +14,12 @@ func (a *App) notifyNewDevice(d *Device) {
 		return
 	}
 	platform := map[string]string{"mac": "macOS", "win": "Windows"}[d.Platform]
-	text := "Máy mới chờ duyệt: " + d.Name + "\n" + strings.Join([]string{d.User, d.Model, platform + " " + d.OS}, " · ") +
+	text := "Máy mới chờ duyệt: " + d.Name + "\n" + (func() string {
+		if d.Email != "" {
+			return "✉ " + d.Email + "\n"
+		}
+		return ""
+	}()) + strings.Join([]string{d.User, d.Model, platform + " " + d.OS}, " · ") +
 		"\n" + short(d.Hash) + " · IP " + d.LastIP
 	go func() {
 		c := http.Client{Timeout: 10 * time.Second}

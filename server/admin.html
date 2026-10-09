@@ -65,7 +65,7 @@
     <span class="sp"></span>
     <form method="get" action="/admin" class="inline">
       {{if .Status}}<input type="hidden" name="status" value="{{.Status}}">{{end}}
-      <input type="search" name="q" value="{{.Q}}" placeholder="Tìm tên máy, user, model, hash…">
+      <input type="search" name="q" value="{{.Q}}" placeholder="Tìm email, tên máy, model, hash…">
     </form>
     <form method="post" action="/admin/logout" class="inline"><button type="submit">Đăng xuất</button></form>
   </header>
@@ -75,6 +75,7 @@
     <div class="row">
       <div>
         <div class="name">{{if .Name}}{{.Name}}{{else}}(không tên){{end}}<span class="badge b-{{.Status}}">{{if eq .Status "pending"}}Chờ duyệt{{else if eq .Status "approved"}}Đã duyệt{{else}}Thu hồi{{end}}</span></div>
+        {{if .Email}}<div class="muted" style="font-weight:600">✉ {{.Email}}</div>{{end}}
         <div class="muted">{{.User}} · {{.Model}} · {{if eq .Platform "mac"}}macOS{{else if eq .Platform "win"}}Windows{{else}}{{.Platform}}{{end}} {{.OS}}</div>
         <div class="hash">{{short .Hash}} · {{.Hash}}</div>
         {{if not .Conflict.IsZero}}<div class="warn">⚠ {{ago .Conflict}}: có máy gửi mã này nhưng khoá khác (có thể bị giả mạo, hoặc máy đã cài lại hệ điều hành → bấm “Ghi khoá mới”).</div>{{end}}

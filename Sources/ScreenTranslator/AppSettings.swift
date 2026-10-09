@@ -211,6 +211,8 @@ final class AppSettings: ObservableObject {
     @Stored("skipUIText") var skipUIText: Bool = true   // bỏ qua chữ giao diện (menu/cài đặt), chỉ đọc khi giống phụ đề
 
     // MARK: Dịch
+    /// Email người dùng tự nhập (gửi kèm lên server duyệt máy để chủ app biết máy của ai).
+    @Stored("userEmail") var userEmail: String = ""
     @Stored("targetLanguage") var targetLanguage: String = "vi"
     @Stored("geminiModel") var geminiModel: String = "gemini-3.5-flash-lite"
     @Stored("geminiBaseURL") var geminiBaseURL: String = "https://generativelanguage.googleapis.com/v1beta"

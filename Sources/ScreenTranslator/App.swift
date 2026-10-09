@@ -34,6 +34,30 @@ final class WindowManager {
     private var translationHost: NSWindow?
 
     private var startupError: NSWindow?
+    private var emailPrompt: NSWindow?
+
+    /// Hỏi email lần đầu (bản phát hành): modal đè lên cửa sổ chính, chưa nhập thì không thao tác được app.
+    func showEmailPrompt(onDone: @escaping () -> Void) {
+        let sheet = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 320),
+                             styleMask: [.titled, .fullSizeContentView], backing: .buffered, defer: false)
+        sheet.titlebarAppearsTransparent = true
+        sheet.isReleasedWhenClosed = false
+        sheet.contentView = NSHostingView(rootView: EmailPromptView(onDone: { [weak self] in
+            guard let self, let sheet = self.emailPrompt else { onDone(); return }
+            (self.main ?? sheet.sheetParent)?.endSheet(sheet)
+            sheet.close()
+            self.emailPrompt = nil
+            onDone()
+        }))
+        emailPrompt = sheet
+        NSApp.activate(ignoringOtherApps: true)
+        // Đè lên cửa sổ chính; cửa sổ chính bị khoá thao tác tới khi nhập xong.
+        if let parent = main {
+            parent.beginSheet(sheet)
+        } else {
+            sheet.center(); sheet.makeKeyAndOrderFront(nil)
+        }
+    }
 
     /// Hiện màn hình lỗi khởi động chung (khi máy chưa sẵn sàng). Gọi lại nhiều lần thì chỉ đưa cửa sổ lên trước.
     func showStartupError() {
@@ -114,7 +138,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Log.info("ScreenTranslator launched.")
         startApp()
         // App luôn mở bình thường; việc kiểm tra máy chạy ngầm và chỉ chặn khi người dùng bấm Bắt đầu / Dịch màn hình.
-        SessionCheck.shared.begin(onLostAccess: { [weak self] in self?.onLostAccess() })
+        let begin = { SessionCheck.shared.begin(onLostAccess: { [weak self] in self?.onLostAccess() }) }
+        // Lần đầu (bản phát hành, chưa có email): hỏi email rồi mới bắt đầu kiểm tra, để máy đăng ký kèm email.
+        if RuntimeConfig.enabled, AppSettings.shared.userEmail.isEmpty, !CommandLine.arguments.contains("--hidden") {
+            WindowManager.shared.showEmailPrompt(onDone: begin)
+        } else {
+            begin()
+        }
     }
 
     /// Khởi động đầy đủ (chạy ngay lúc mở app, không phụ thuộc trạng thái duyệt).

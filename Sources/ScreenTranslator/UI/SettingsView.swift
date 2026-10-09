@@ -64,6 +64,12 @@ struct TranslateSettings: View {
 
     var body: some View {
         Form {
+            if RuntimeConfig.enabled {
+                Section("Tài khoản") {
+                    TextField("Email", text: $settings.userEmail, prompt: Text("ban@example.com"))
+                    Text("Email này gửi cho quản trị viên để nhận diện và duyệt thiết bị của bạn.").font(.caption).foregroundStyle(.secondary)
+                }
+            }
             Section("Ngôn ngữ") {
                 Picker("Dịch sang", selection: $settings.targetLanguage) {
                     ForEach(TargetLanguage.all) { l in Text(l.name).tag(l.code) }

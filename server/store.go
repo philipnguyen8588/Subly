@@ -19,6 +19,7 @@ type Device struct {
 	Hash       string
 	Pub        string
 	Name       string
+	Email      string
 	User       string
 	Model      string
 	Platform   string
@@ -42,7 +43,7 @@ func openStore(path string) (*Store, error) {
 	}
 	db.SetMaxOpenConns(1)
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS devices(
-		hash TEXT PRIMARY KEY, pub TEXT NOT NULL, name TEXT NOT NULL DEFAULT '', user TEXT NOT NULL DEFAULT '',
+		hash TEXT PRIMARY KEY, pub TEXT NOT NULL, name TEXT NOT NULL DEFAULT '', email TEXT NOT NULL DEFAULT '', user TEXT NOT NULL DEFAULT '',
 		model TEXT NOT NULL DEFAULT '', platform TEXT NOT NULL DEFAULT '', os TEXT NOT NULL DEFAULT '',
 		app_version TEXT NOT NULL DEFAULT '', status TEXT NOT NULL, note TEXT NOT NULL DEFAULT '',
 		created INTEGER NOT NULL, last_seen INTEGER NOT NULL, last_ip TEXT NOT NULL DEFAULT '',
@@ -50,15 +51,17 @@ func openStore(path string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Thêm cột email cho DB tạo trước khi có tính năng này (bỏ qua nếu đã có).
+	db.Exec(`ALTER TABLE devices ADD COLUMN email TEXT NOT NULL DEFAULT ''`)
 	return &Store{db: db}, nil
 }
 
-const deviceCols = `hash, pub, name, user, model, platform, os, app_version, status, note, created, last_seen, last_ip, conflict`
+const deviceCols = `hash, pub, name, email, user, model, platform, os, app_version, status, note, created, last_seen, last_ip, conflict`
 
 func scanDevice(sc interface{ Scan(...any) error }) (*Device, error) {
 	var d Device
 	var created, seen, conflict int64
-	if err := sc.Scan(&d.Hash, &d.Pub, &d.Name, &d.User, &d.Model, &d.Platform, &d.OS, &d.AppVersion,
+	if err := sc.Scan(&d.Hash, &d.Pub, &d.Name, &d.Email, &d.User, &d.Model, &d.Platform, &d.OS, &d.AppVersion,
 		&d.Status, &d.Note, &created, &seen, &d.LastIP, &conflict); err != nil {
 		return nil, err
 	}
@@ -78,16 +81,16 @@ func (s *Store) Get(hash string) (*Device, error) {
 }
 
 func (s *Store) Insert(d *Device) error {
-	_, err := s.db.Exec(`INSERT INTO devices(`+deviceCols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,0)`,
-		d.Hash, d.Pub, d.Name, d.User, d.Model, d.Platform, d.OS, d.AppVersion, d.Status, d.Note,
+	_, err := s.db.Exec(`INSERT INTO devices(`+deviceCols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)`,
+		d.Hash, d.Pub, d.Name, d.Email, d.User, d.Model, d.Platform, d.OS, d.AppVersion, d.Status, d.Note,
 		d.Created.Unix(), d.LastSeen.Unix(), d.LastIP)
 	return err
 }
 
 // Seen cập nhật thông tin máy tự báo (tên máy, phiên bản…) và lần cuối thấy.
 func (s *Store) Seen(d *Device) error {
-	_, err := s.db.Exec(`UPDATE devices SET name=?, user=?, model=?, platform=?, os=?, app_version=?, last_seen=?, last_ip=? WHERE hash=?`,
-		d.Name, d.User, d.Model, d.Platform, d.OS, d.AppVersion, d.LastSeen.Unix(), d.LastIP, d.Hash)
+	_, err := s.db.Exec(`UPDATE devices SET name=?, email=?, user=?, model=?, platform=?, os=?, app_version=?, last_seen=?, last_ip=? WHERE hash=?`,
+		d.Name, d.Email, d.User, d.Model, d.Platform, d.OS, d.AppVersion, d.LastSeen.Unix(), d.LastIP, d.Hash)
 	return err
 }
 
@@ -131,8 +134,8 @@ func (s *Store) List(status, q string) ([]*Device, error) {
 	}
 	if q = strings.TrimSpace(q); q != "" {
 		like := "%" + strings.ToLower(q) + "%"
-		where = append(where, "(lower(name) LIKE ? OR lower(user) LIKE ? OR lower(model) LIKE ? OR lower(hash) LIKE ? OR lower(note) LIKE ?)")
-		args = append(args, like, like, like, like, like)
+		where = append(where, "(lower(name) LIKE ? OR lower(email) LIKE ? OR lower(user) LIKE ? OR lower(model) LIKE ? OR lower(hash) LIKE ? OR lower(note) LIKE ?)")
+		args = append(args, like, like, like, like, like, like)
 	}
 	rows, err := s.db.Query(`SELECT `+deviceCols+` FROM devices WHERE `+strings.Join(where, " AND ")+
 		` ORDER BY status = 'pending' DESC, last_seen DESC`, args...)

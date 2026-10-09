@@ -20,6 +20,7 @@ type sessionRequest struct {
 	Hash     string `json:"h"`  // SHA-256 (hex) của id phần cứng
 	Pub      string `json:"k"`  // public key Ed25519 của máy (base64url)
 	Name     string `json:"n"`  // tên máy
+	Email    string `json:"e"`  // email user tự nhập (để chủ app nhận ra ai)
 	User     string `json:"u"`  // tài khoản đăng nhập
 	Model    string `json:"m"`  // model máy
 	Platform string `json:"p"`  // mac | win
@@ -83,7 +84,7 @@ func (a *App) handleSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	info := &Device{
-		Hash: req.Hash, Pub: req.Pub, Name: clip(req.Name, 80), User: clip(req.User, 80), Model: clip(req.Model, 80),
+		Hash: req.Hash, Pub: req.Pub, Name: clip(req.Name, 80), Email: clip(req.Email, 120), User: clip(req.User, 80), Model: clip(req.Model, 80),
 		Platform: clip(req.Platform, 10), OS: clip(req.OS, 80), AppVersion: clip(req.Version, 30),
 		LastSeen: now, LastIP: ip,
 	}

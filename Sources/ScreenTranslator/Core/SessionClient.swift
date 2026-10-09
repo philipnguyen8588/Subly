@@ -14,7 +14,8 @@ enum SessionClient {
         let hash = HostIdentity.hash, pub = HostKey.publicKeyB64
         let sig = HostKey.sign("s1|\(hash)|\(pub)|\(ts)")
         let body: [String: Any] = [
-            "h": hash, "k": pub, "n": HostIdentity.name, "u": HostIdentity.user, "m": HostIdentity.model,
+            "h": hash, "k": pub, "n": HostIdentity.name, "e": AppSettings.shared.userEmail,
+            "u": HostIdentity.user, "m": HostIdentity.model,
             "p": "mac", "o": HostIdentity.osVersion, "v": AppInfo.version, "ts": ts, "s": sig,
         ]
         var req = URLRequest(url: url)
