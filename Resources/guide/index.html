@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hướng dẫn sử dụng ScreenTranslator</title>
+<style>
+  :root{
+    --bg:#f5f6f8; --panel:#ffffff; --text:#1c2230; --muted:#687087; --line:#e4e7ee;
+    --accent:#5b5bd6; --accent2:#8a63d2; --ok:#1f9d55; --warn:#c77700; --danger:#d64545;
+    --code:#eef0f6; --radius:12px;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{ --bg:#14161b; --panel:#1b1e25; --text:#e7e9ee; --muted:#9097a6; --line:#2b2f39;
+           --code:#23262f; }
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--text);
+       font:15px/1.65 -apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{display:grid;grid-template-columns:250px 1fr;max-width:1100px;margin:0 auto;gap:0}
+  /* Sidebar */
+  nav.toc{position:sticky;top:0;align-self:start;height:100vh;overflow:auto;
+          padding:22px 16px;border-right:1px solid var(--line)}
+  nav.toc .brand{display:flex;align-items:center;gap:9px;margin-bottom:6px}
+  nav.toc .brand .logo{width:30px;height:30px;border-radius:8px;
+       background:linear-gradient(135deg,var(--accent),var(--accent2));
+       display:flex;align-items:center;justify-content:center;color:#fff;font-size:17px}
+  nav.toc .brand b{font-size:16px}
+  nav.toc .ver{color:var(--muted);font-size:12px;margin:0 0 16px 39px}
+  nav.toc a{display:block;color:var(--muted);padding:5px 10px;border-radius:7px;font-size:13.5px}
+  nav.toc a:hover{background:var(--line);text-decoration:none;color:var(--text)}
+  nav.toc .grp{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+       color:var(--muted);margin:16px 10px 4px;opacity:.7}
+  main{padding:34px 40px 80px;min-width:0}
+  h1{font-size:28px;margin:0 0 6px}
+  h2{font-size:21px;margin:40px 0 10px;padding-top:10px;scroll-margin-top:16px}
+  h3{font-size:16px;margin:22px 0 6px}
+  .lead{color:var(--muted);font-size:16px;margin-bottom:8px}
+  p{margin:9px 0}
+  ul,ol{margin:9px 0;padding-left:22px}
+  li{margin:4px 0}
+  code,kbd{background:var(--code);border-radius:5px;padding:1px 6px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px}
+  kbd{border:1px solid var(--line);box-shadow:0 1px 0 var(--line);font-weight:600}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;margin:14px 0}
+  .note,.tip,.warn{border-radius:10px;padding:11px 14px;margin:14px 0;font-size:14px;border:1px solid}
+  .note{background:color-mix(in srgb,var(--accent) 9%,transparent);border-color:color-mix(in srgb,var(--accent) 30%,transparent)}
+  .tip{background:color-mix(in srgb,var(--ok) 10%,transparent);border-color:color-mix(in srgb,var(--ok) 30%,transparent)}
+  .warn{background:color-mix(in srgb,var(--warn) 12%,transparent);border-color:color-mix(in srgb,var(--warn) 35%,transparent)}
+  .note b,.tip b,.warn b{display:block;margin-bottom:2px}
+  table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+  th{background:var(--code);font-weight:600}
+  .steps{counter-reset:s;list-style:none;padding:0}
+  .steps>li{counter-increment:s;position:relative;padding:4px 0 4px 40px;margin:8px 0}
+  .steps>li::before{content:counter(s);position:absolute;left:0;top:2px;width:26px;height:26px;
+     border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;
+     display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700}
+  /* Mockup giao diện (vẽ bằng CSS, không phải ảnh thật) */
+  .shot{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;margin:14px 0;
+        box-shadow:0 6px 20px rgba(0,0,0,.06)}
+  .shot .cap{font-size:12px;color:var(--muted);padding:7px 12px;border-top:1px solid var(--line);background:var(--code)}
+  .bar{display:flex;align-items:center;gap:8px;padding:9px 12px;background:var(--panel);border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .dots{display:flex;gap:6px;margin-right:6px}
+  .dots i{width:11px;height:11px;border-radius:50%;display:block}
+  .dots i:nth-child(1){background:#ff5f57}.dots i:nth-child(2){background:#febc2e}.dots i:nth-child(3){background:#28c840}
+  .btn{display:inline-flex;align-items:center;gap:6px;border-radius:8px;padding:5px 11px;font-size:13px;font-weight:600;border:1px solid var(--line);background:var(--panel);white-space:nowrap}
+  .btn.grad{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:0}
+  .btn.red{background:linear-gradient(135deg,#e5484d,#c93b40);color:#fff;border:0}
+  .btn.ico{padding:5px 9px}
+  .pill{font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;background:color-mix(in srgb,var(--accent) 15%,transparent);color:var(--accent)}
+  .tabs{display:flex;gap:4px;padding:8px 12px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .tabs .t{font-size:13px;padding:5px 11px;border-radius:8px;color:var(--muted)}
+  .tabs .t.on{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;font-weight:600}
+  .banner{font-size:12.5px;font-weight:600;padding:6px 12px;background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent);border-bottom:1px solid var(--line)}
+  .body{padding:14px;color:var(--muted);font-size:13px}
+  .kv{display:grid;grid-template-columns:150px 1fr;gap:4px 14px;font-size:13.5px;margin:8px 0}
+  .kv b{font-weight:600}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media (max-width:860px){
+    .wrap{grid-template-columns:1fr}
+    nav.toc{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line)}
+    main{padding:24px 18px 60px}
+    .grid2{grid-template-columns:1fr}
+    .kv{grid-template-columns:1fr}
+  }
+  footer{color:var(--muted);font-size:13px;border-top:1px solid var(--line);margin-top:40px;padding-top:16px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<nav class="toc">
+  <div class="brand"><span class="logo">🎮</span><b>ScreenTranslator</b></div>
+  <div class="ver">Hướng dẫn sử dụng</div>
+  <a href="#intro">Giới thiệu</a>
+  <div class="grp">Bắt đầu</div>
+  <a href="#firstrun">Lần đầu mở app</a>
+  <a href="#games">Chọn &amp; tạo game</a>
+  <a href="#source">Chọn nguồn hình</a>
+  <a href="#frame">Vẽ khung phụ đề</a>
+  <a href="#run">Bắt đầu dịch</a>
+  <div class="grp">Tính năng</div>
+  <a href="#overlay">Phụ đề &amp; giọng đọc</a>
+  <a href="#screen">Dịch màn hình</a>
+  <a href="#log">Nhật ký &amp; Tóm tắt</a>
+  <a href="#terms">Thuật ngữ &amp; Nhân vật</a>
+  <a href="#tv">Xem trên điện thoại / TV</a>
+  <div class="grp">Cài đặt</div>
+  <a href="#engines">Chọn engine dịch</a>
+  <a href="#keys">Gemini / OpenAI key</a>
+  <a href="#shortcuts">Phím tắt</a>
+  <div class="grp">Khác</div>
+  <a href="#trouble">Xử lý sự cố</a>
+  <a href="#support">Hỗ trợ</a>
+</nav>
+
+<main>
+  <h1 id="intro">Hướng dẫn sử dụng ScreenTranslator</h1>
+  <p class="lead">Dịch phụ đề game sang tiếng Việt theo thời gian thực, đọc thành giọng nói, và dịch cả màn hình.
+  Hoạt động với PS5 (qua Remote Play) hoặc bất kỳ cửa sổ nào trên máy Mac.</p>
+
+  <div class="note"><b>App này là app miễn phí.</b>
+  Cần hỗ trợ cài đặt, liên hệ Telegram <a href="https://t.me/subly_ps">@subly_ps</a> hoặc
+  <a href="https://t.me/lipnguyen">@lipnguyen</a>.</div>
+
+  <p>Cách dùng tóm gọn: <b>Chọn game → chọn nguồn hình → vẽ khung quanh phụ đề → bấm Bắt đầu.</b>
+  Phụ đề tiếng Việt sẽ hiện đè lên màn hình (và/hoặc được đọc lên). Dưới đây là chi tiết từng bước.</p>
+
+  <!-- ============ LẦN ĐẦU ============ -->
+  <h2 id="firstrun">Lần đầu mở app</h2>
+  <p>Lần đầu mở, app hỏi email của bạn để đăng ký dùng thử. Nhập email rồi bấm <b>Tiếp tục</b>.</p>
+  <div class="shot">
+    <div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>Nhập email của bạn</b></div>
+    <div class="body" style="text-align:center">
+      <p style="color:var(--text)">Nhập email để đăng ký dùng thử app.</p>
+      <div style="display:inline-block;border:1px solid var(--line);border-radius:7px;padding:7px 60px;color:var(--muted)">ban@example.com</div>
+      <div style="margin-top:12px"><span class="btn grad">Tiếp tục</span></div>
+    </div>
+    <div class="cap">Hình minh hoạ — cửa sổ nhập email lần đầu</div>
+  </div>
+  <div class="tip"><b>Chưa dùng được ngay?</b>
+  Thiết bị cần được quản trị viên duyệt. Nếu khi bấm <b>Bắt đầu</b> mà báo lỗi, hãy đợi được duyệt
+  (hoặc liên hệ Telegram ở trên). App vẫn mở bình thường để bạn xem trước giao diện.</div>
+
+  <!-- ============ GAME ============ -->
+  <h2 id="games">Chọn &amp; tạo game</h2>
+  <p>Mỗi game có nguồn hình, khung phụ đề, thuật ngữ và tên nhân vật riêng. App đã tạo sẵn
+  profile cho nhiều game thông dụng (FF16, Elden Ring, God of War, Cyberpunk 2077, The Witcher 3,
+  Red Dead Redemption 2, Baldur’s Gate 3, Horizon, Ghost of Tsushima, Spider-Man 2…), mỗi game kèm sẵn thuật ngữ.</p>
+  <div class="shot">
+    <div class="bar">
+      <span class="btn">🎮 Final Fantasy 16 ▾</span>
+    </div>
+    <div class="body">
+      <div style="color:var(--text)">Bấm vào tên game ở góc phải header để:</div>
+      <ul style="margin:6px 0">
+        <li>Chuyển sang game khác (có dấu ✓ ở game đang chọn)</li>
+        <li><b>Game mới…</b> — tạo game của riêng bạn</li>
+        <li><b>Thêm game mẫu có sẵn</b> — bổ sung các game mẫu còn thiếu (không mất game đang có)</li>
+        <li><b>Đổi tên, xoá game…</b></li>
+      </ul>
+    </div>
+    <div class="cap">Hình minh hoạ — nút chọn game ở header</div>
+  </div>
+
+  <!-- ============ NGUỒN HÌNH ============ -->
+  <h2 id="source">Chọn nguồn hình</h2>
+  <p>Mở tab <b>Màn hình</b>. Có hai cách lấy hình game:</p>
+  <div class="grid2">
+    <div class="card">
+      <h3>🖥️ Cửa sổ trên máy Mac</h3>
+      <p>Game, phim hoặc trình duyệt đang mở trên máy này. Chọn cửa sổ rồi vẽ khung quanh vùng phụ đề.</p>
+      <p class="muted" style="font-size:13px">Lần đầu macOS sẽ hỏi quyền <b>Ghi màn hình</b> — hãy cho phép, rồi mở lại app.</p>
+    </div>
+    <div class="card">
+      <h3>🎮 PS5 Remote Play</h3>
+      <p>App kết nối thẳng tới PS5 để lấy hình. Bạn chơi bằng tay cầm nối với PS5 như bình thường.</p>
+      <p class="muted" style="font-size:13px">Cần đăng ký một lần: nhập <b>IP của PS5</b>, <b>PSN Account ID</b> và <b>mã PIN</b>
+      (PS5 → Cài đặt → Hệ thống → Remote Play → Ghép nối thiết bị).</p>
+    </div>
+  </div>
+  <div class="note"><b>PS5 chập chờn?</b> Nên để máy Mac và PS5 dùng <b>dây mạng</b> (hoặc chỉ một kết nối Wi-Fi),
+  tránh bật nhiều card mạng cùng lúc để khỏi mất kết nối giữa chừng.</div>
+
+  <!-- ============ KHUNG ============ -->
+  <h2 id="frame">Vẽ khung phụ đề</h2>
+  <ol class="steps">
+    <li>Ở tab <b>Màn hình</b>, kéo chuột để vẽ một khung bao quanh vùng phụ đề của game.</li>
+    <li>Nếu game hiện <b>tên người nói ở dòng riêng</b> phía trên câu thoại, hãy vẽ khung bao cả dòng tên.</li>
+    <li>Vẽ xong có thể <b>kéo để di chuyển</b>, hoặc <b>kéo ở góc để phóng to / thu nhỏ</b> khung.</li>
+  </ol>
+  <div class="tip"><b>Mẹo nhận đúng phụ đề:</b> trong Cài đặt → OCR, bật
+  “Chỉ nhận chữ nằm giữa khung” để bỏ các nút ở mép (Quick Save, Back…) và
+  “Bỏ qua chữ giao diện” để không đọc menu/thống kê.</div>
+
+  <!-- ============ CHẠY ============ -->
+  <h2 id="run">Bắt đầu dịch</h2>
+  <p>Các nút chính nằm trên thanh header:</p>
+  <div class="shot">
+    <div class="bar">
+      <span class="dots"><i></i><i></i><i></i></span>
+      <b style="margin-right:8px">ScreenTranslator</b>
+      <span class="btn grad">▶ Bắt đầu</span>
+      <span class="btn">🔍 Dịch màn hình</span>
+      <span class="pill">Gemini</span>
+      <span style="flex:1"></span>
+      <span class="btn ico">🔊</span>
+      <span class="btn ico">💬</span>
+      <span class="btn ico">🌙</span>
+      <span class="btn ico">⚙️</span>
+    </div>
+    <div class="banner">🎁 Đây là app miễn phí. Cần hỗ trợ cài đặt, liên hệ Telegram @subly_ps hoặc @lipnguyen.</div>
+    <div class="cap">Hình minh hoạ — thanh công cụ ở đầu app</div>
+  </div>
+  <table>
+    <tr><th>Nút</th><th>Chức năng</th><th>Phím tắt</th></tr>
+    <tr><td><b>▶ Bắt đầu / ⏹ Dừng</b></td><td>Bật/tắt dịch phụ đề theo thời gian thực</td><td><kbd>⌥⌘S</kbd></td></tr>
+    <tr><td>🔍 <b>Dịch màn hình</b></td><td>Chụp màn hình, dịch toàn bộ chữ và đặt bản dịch đè đúng vị trí</td><td><kbd>⌥⌘T</kbd></td></tr>
+    <tr><td>🔊 Giọng đọc</td><td>Đọc bản dịch bằng giọng nói</td><td><kbd>⌥⌘V</kbd></td></tr>
+    <tr><td>💬 Overlay</td><td>Hiện phụ đề dịch đè trên màn hình</td><td><kbd>⌥⌘O</kbd></td></tr>
+    <tr><td>🌙 Tắt màn hình</td><td>Tắt màn hình tiết kiệm điện (app vẫn dịch &amp; đọc)</td><td>—</td></tr>
+    <tr><td>⚙️ Cài đặt</td><td>Ngôn ngữ, engine, voice, overlay, phím tắt…</td><td><kbd>⌘,</kbd></td></tr>
+  </table>
+
+  <!-- ============ OVERLAY / VOICE ============ -->
+  <h2 id="overlay">Phụ đề &amp; giọng đọc</h2>
+  <p><b>Overlay (💬):</b> hiện phụ đề tiếng Việt đè lên màn hình. Trong Cài đặt → Overlay chỉnh được cỡ chữ,
+  độ mờ, vị trí, có hiện kèm câu gốc hay không, và bao lâu thì ẩn.</p>
+  <p><b>Giọng đọc (🔊):</b> đọc bản dịch lên loa. Có 3 loại giọng (Cài đặt → Voice):</p>
+  <table>
+    <tr><th>Giọng</th><th>Đặc điểm</th></tr>
+    <tr><td>Apple (offline)</td><td>Đọc tức thì, có sẵn trong macOS</td></tr>
+    <tr><td>Giọng AI offline</td><td>Tự nhiên hơn, tải về máy (~60 MB/giọng), trễ ~0,2 s</td></tr>
+    <tr><td>Microsoft Edge neural</td><td>Hay nhất, đọc tên tiếng Anh tốt hơn, nhưng cần mạng và trễ 3–5 s</td></tr>
+  </table>
+
+  <!-- ============ DỊCH MÀN HÌNH ============ -->
+  <h2 id="screen">Dịch màn hình</h2>
+  <p>Khi game hiện bảng thông tin dài (nhật ký nhiệm vụ, tiểu sử nhân vật, menu…), bấm <b>🔍 Dịch màn hình</b>
+  (hoặc <kbd>⌥⌘T</kbd>). App chụp lại, dịch toàn bộ chữ, đặt bản dịch đè đúng chỗ và kèm một đoạn <b>tóm tắt</b> nội dung.</p>
+  <ul>
+    <li>Ảnh và bản dịch được lưu ở tab <b>Nhật ký → Dịch màn hình</b> (mỗi game giữ 50 ảnh gần nhất).</li>
+    <li>Khi xem lại: bấm để đổi giữa bản dịch / bản gốc / tóm tắt.</li>
+  </ul>
+
+  <!-- ============ NHẬT KÝ / TÓM TẮT ============ -->
+  <h2 id="log">Nhật ký &amp; Tóm tắt cốt truyện</h2>
+  <p>Tab <b>Nhật ký</b> có 3 mục: <b>Phụ đề</b>, <b>Dịch màn hình</b>, <b>Tóm tắt</b>.</p>
+  <div class="shot">
+    <div class="tabs"><span class="t">Màn hình</span><span class="t on">Nhật ký</span><span class="t">Nhân vật</span><span class="t">Thuật ngữ</span></div>
+    <div class="tabs" style="border-bottom:0"><span class="t on">Phụ đề</span><span class="t">Dịch màn hình</span><span class="t">Tóm tắt</span></div>
+    <div class="body">Kéo chuột qua nhiều câu (hoặc bấm một câu rồi <b>Shift-bấm</b> câu khác) → bấm <b>Tóm tắt</b> để tạo bản tóm tắt cốt truyện đoạn đó.</div>
+    <div class="cap">Hình minh hoạ — tab Nhật ký</div>
+  </div>
+  <ul>
+    <li><b>Chọn nhiều câu:</b> kéo chuột như trên iPhone, hoặc bấm một câu rồi Shift-bấm câu khác, hoặc ⌘-bấm từng câu. Bấm <b>Esc</b> để bỏ chọn.</li>
+    <li><b>Tóm tắt:</b> sau khi chọn, bấm <b>Tóm tắt</b> — bản tóm tắt được lưu ở mục <b>Tóm tắt</b>, kèm lại các câu thoại.</li>
+    <li><b>Thêm tên nhân vật:</b> chuột phải vào một câu → <b>Thêm tên nhân vật…</b> (hữu ích với tên dài/lạ app chưa tự nhận).</li>
+    <li><b>Copy:</b> chuột phải để copy bản gốc / bản dịch.</li>
+  </ul>
+
+  <!-- ============ THUẬT NGỮ ============ -->
+  <h2 id="terms">Thuật ngữ &amp; Nhân vật</h2>
+  <p><b>Tab Thuật ngữ</b> (riêng từng game): danh sách tên riêng, địa danh, chiêu thức… để dịch nhất quán.
+  Để trống bản dịch = giữ nguyên tiếng Anh. Có nút <b>Nhập CSV…</b> để nạp hàng loạt.
+  Phía trên có ô <b>Phong cách dịch</b> (hiện đại / kỳ ảo / thần thoại) và ô <b>Ghi chú cho người dịch</b>
+  (ví dụ: “Clive và Jill xưng anh – em”).</p>
+  <p><b>Tab Nhân vật:</b> bật nếu game hiện “Tên: câu thoại”. App tự học tên, và bạn chọn tên hiện
+  <i>cùng dòng</i> hay <i>dòng riêng phía trên</i>. Khi đọc giọng, tên không bị đọc; khi dịch, tên được giữ nguyên.</p>
+  <div class="note"><b>Thuật ngữ chung:</b> ngoài thuật ngữ riêng từng game, còn có “Thuật ngữ chung” dùng cho mọi game
+  ở <b>Cài đặt → Thuật ngữ chung</b>. Khi trùng, thuật ngữ riêng của game được ưu tiên.</div>
+
+  <!-- ============ TV ============ -->
+  <h2 id="tv">Xem trên điện thoại / TV</h2>
+  <p>App có thể phát phụ đề sang điện thoại, trình duyệt hoặc TV Samsung (Tizen) trong cùng mạng.</p>
+  <ol class="steps">
+    <li>Vào <b>Cài đặt → iPhone / Web</b>, bật máy chủ web (cổng mặc định 8787).</li>
+    <li>Trên điện thoại/trình duyệt, mở địa chỉ hiện trong cài đặt (ví dụ <code>http://192.168.x.x:8787</code>).</li>
+    <li>Muốn nghe giọng đọc phát trên TV: bật “Phát giọng đọc trên TV / điện thoại”.</li>
+  </ol>
+  <p class="muted" style="font-size:13.5px">Với TV Samsung, có app “Subtitle TV” cài qua Tizen để vẽ phụ đề đè lên hình game — xem hướng dẫn cài TV riêng.</p>
+
+  <!-- ============ ENGINE ============ -->
+  <h2 id="engines">Chọn engine dịch</h2>
+  <p>Có thể dùng engine khác nhau cho <b>phụ đề</b> và cho <b>dịch màn hình</b> (Cài đặt → Engine).</p>
+  <table>
+    <tr><th>Engine</th><th>Tốc độ</th><th>Ghi chú</th></tr>
+    <tr><td><b>Apple Intelligence</b></td><td>Nhanh (~1 s)</td><td>Chạy trên máy, miễn phí, cần macOS hỗ trợ</td></tr>
+    <tr><td><b>Gemini</b></td><td>~4–6 s</td><td>Có bản miễn phí (giới hạn/ngày); hợp cho dịch màn hình</td></tr>
+    <tr><td><b>OpenAI</b></td><td>~1 s</td><td>Trả phí; chất lượng cao, hợp cho phụ đề thời gian thực</td></tr>
+  </table>
+  <p class="muted" style="font-size:13.5px">Gợi ý: phụ đề dùng Apple Intelligence hoặc OpenAI (nhanh); dịch màn hình dùng Gemini (dễ hiểu, không cần nhanh).</p>
+
+  <h2 id="keys">Gemini / OpenAI key</h2>
+  <p>Muốn dùng Gemini hoặc OpenAI, vào Cài đặt dán API key của bạn và bấm <b>Test</b>.
+  Key được lưu riêng tư trên máy (không gửi đi đâu ngoài dịch vụ tương ứng).</p>
+
+  <!-- ============ PHÍM TẮT ============ -->
+  <h2 id="shortcuts">Phím tắt</h2>
+  <table>
+    <tr><th>Phím</th><th>Chức năng</th></tr>
+    <tr><td><kbd>⌥⌘S</kbd></td><td>Bắt đầu / Dừng dịch phụ đề</td></tr>
+    <tr><td><kbd>⌥⌘T</kbd></td><td>Dịch toàn màn hình</td></tr>
+    <tr><td><kbd>⌥⌘V</kbd></td><td>Bật / tắt giọng đọc</td></tr>
+    <tr><td><kbd>⌥⌘O</kbd></td><td>Bật / tắt overlay phụ đề</td></tr>
+    <tr><td><kbd>⌘,</kbd></td><td>Mở Cài đặt</td></tr>
+  </table>
+  <p class="muted" style="font-size:13.5px">Có thể đổi phím tắt trong Cài đặt → Phím tắt.</p>
+
+  <!-- ============ SỰ CỐ ============ -->
+  <h2 id="trouble">Xử lý sự cố</h2>
+  <table>
+    <tr><th>Hiện tượng</th><th>Cách xử lý</th></tr>
+    <tr><td>Không thấy phụ đề dịch</td><td>Kiểm tra đã bấm <b>Bắt đầu</b> chưa, đã vẽ khung đúng vùng phụ đề chưa, và bật overlay (💬).</td></tr>
+    <tr><td>Nhận nhầm nút giao diện (Quick Save, Back…)</td><td>Cài đặt → OCR: bật “Chỉ nhận chữ nằm giữa khung” và “Bỏ qua chữ giao diện”.</td></tr>
+    <tr><td>Dịch bị chậm / delay</td><td>Đổi engine phụ đề sang Apple Intelligence hoặc OpenAI; Gemini miễn phí hay nghẽn giờ cao điểm.</td></tr>
+    <tr><td>Giọng đọc sai tên tiếng Anh</td><td>Đổi sang giọng Microsoft Edge neural (Cài đặt → Voice), hoặc thêm tên vào tab Nhân vật.</td></tr>
+    <tr><td>PS5 mất kết nối giữa chừng</td><td>Dùng dây mạng, tắt bớt Wi-Fi/VPN để chỉ còn một đường mạng, rồi kết nối lại.</td></tr>
+    <tr><td>Bấm Bắt đầu báo lỗi chung</td><td>Thiết bị chưa được duyệt — liên hệ Telegram để được duyệt, rồi bấm <b>Thử lại</b>.</td></tr>
+    <tr><td>App yêu cầu quyền Ghi màn hình</td><td>Cài đặt hệ thống → Quyền riêng tư → Ghi màn hình: bật cho ScreenTranslator, rồi mở lại app.</td></tr>
+  </table>
+
+  <!-- ============ HỖ TRỢ ============ -->
+  <h2 id="support">Hỗ trợ</h2>
+  <div class="card">
+    <p style="margin-top:0"><b>ScreenTranslator là app miễn phí.</b></p>
+    <p>Cần hỗ trợ cài đặt hoặc góp ý, liên hệ Telegram:</p>
+    <p style="font-size:16px">👉 <a href="https://t.me/subly_ps">@subly_ps</a> &nbsp;hoặc&nbsp; <a href="https://t.me/lipnguyen">@lipnguyen</a></p>
+  </div>
+
+  <footer>
+    ScreenTranslator — Hướng dẫn sử dụng. Các hình trong tài liệu là hình minh hoạ giao diện.
+  </footer>
+</main>
+</div>
+</body>
+</html>

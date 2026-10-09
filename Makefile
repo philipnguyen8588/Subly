@@ -36,6 +36,9 @@ app: build
 	# Thuật ngữ game đóng kèm: tạo sẵn profile cho các game thông dụng ở lần chạy đầu.
 	mkdir -p $(APP)/Contents/Resources/glossaries
 	cp glossaries/*.csv $(APP)/Contents/Resources/glossaries/
+	# Hướng dẫn sử dụng (mở bằng nút Hướng dẫn trong app).
+	mkdir -p $(APP)/Contents/Resources/guide
+	cp Resources/guide/*.html $(APP)/Contents/Resources/guide/
 	mkdir -p $(APP)/Contents/Frameworks
 	cp Vendor/sherpa-onnx/lib/libsherpa-onnx-c-api.dylib Vendor/sherpa-onnx/lib/libonnxruntime.dylib $(APP)/Contents/Frameworks/
 	# Bỏ bảng ký hiệu khỏi file chạy (khó đọc hơn khi dịch ngược). Ký là bước cuối cùng.
