@@ -186,7 +186,7 @@ public partial class App : Application
     //   --clear-regions  --autostart  --mute  --quiet  --hidden  --analyze-once  --no-web  --web-port N  --no-overlay
     //   --gemini-base-url <url>  --gemini-key <key>  --profile <tên>  --delete-profile <tên>
     //   --translate "a|b"  --translate-engine auto|google  --speak "a|b"  --voice-engine windows|local|edge
-    //   --feed "a|b"  --download-voice <id>  --ps5-import  --ps5-connect  --ps5-discover  --show-shot  --tab source|log|speakers
+    //   --feed "a|b"  --download-voice <id>  --ps5-import  --ps5-connect  --ps5-discover  --show-shot  --tab source|log|speakers|glossary
     //   --quit-after <giây>  (tự thoát, dùng khi kiểm thử tự động)
     void HandleCommandLine()
     {
@@ -198,7 +198,7 @@ public partial class App : Application
             var map = new System.Collections.Generic.Dictionary<string, AppNav.Tab>
             {
                 ["source"] = AppNav.Tab.source, ["ps5"] = AppNav.Tab.source, ["regions"] = AppNav.Tab.source,
-                ["log"] = AppNav.Tab.log, ["live"] = AppNav.Tab.log, ["analysis"] = AppNav.Tab.log, ["speakers"] = AppNav.Tab.speakers,
+                ["log"] = AppNav.Tab.log, ["live"] = AppNav.Tab.log, ["analysis"] = AppNav.Tab.log, ["speakers"] = AppNav.Tab.speakers, ["glossary"] = AppNav.Tab.glossary,
             };
             if (map.TryGetValue(tab, out var t)) AppNav.shared.tab = t;
         }
@@ -354,7 +354,7 @@ public partial class App : Application
             Log.Info($"RENDER {path}");
         }
         ShowMain();
-        foreach (var t in new[] { AppNav.Tab.source, AppNav.Tab.log, AppNav.Tab.speakers })
+        foreach (var t in new[] { AppNav.Tab.source, AppNav.Tab.log, AppNav.Tab.speakers, AppNav.Tab.glossary })
         {
             AppNav.shared.tab = t;
             await Task.Delay(700);

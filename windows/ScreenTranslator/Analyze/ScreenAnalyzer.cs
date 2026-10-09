@@ -46,7 +46,16 @@ public sealed class ScreenAnalyzer : INotifyPropertyChanged
                     // Ảnh nhỏ (vùng < 1500 px) phóng to cho OCR đọc chữ nhỏ tốt hơn
                     var ocrImg = img.Width < 1500 ? img.Scale(Math.Min(2.0, 3000.0 / Math.Max(1, img.Width))) : img;
                     progress = "Đang nhận dạng chữ…";
-                    var blocks = await Task.Run(() => ocr.RecognizeBlocks(ocrImg));
+                    // Bộ nhận dạng chữ có lúc treo hẳn (không bao giờ trả về): chờ tối đa `analyzeTimeout` giây rồi báo lỗi,
+                    // để nút Dịch màn hình không kẹt ở "Đang nhận dạng chữ…" mãi.
+                    var ocrTask = Task.Run(() => ocr.RecognizeBlocks(ocrImg));
+                    if (await Task.WhenAny(ocrTask, Task.Delay(TimeSpan.FromSeconds(Math.Max(5, settings.analyzeTimeout)))) != ocrTask)
+                    {
+                        lastError = "Bộ nhận dạng chữ của Windows bị treo. Thoát hẳn app rồi mở lại.";
+                        Log.Error($"Analyze OCR[{r.name}] quá {(int)settings.analyzeTimeout} s không xong → OCR treo");
+                        return null;
+                    }
+                    var blocks = await ocrTask;
                     Log.Info($"Analyze OCR[{r.name}] {blocks.Count} khối chữ");
                     placed ??= (img, blocks, lines.Count);
                     lines.AddRange(blocks.Select(b => b.text));

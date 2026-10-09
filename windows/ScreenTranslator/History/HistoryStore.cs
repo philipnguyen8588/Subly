@@ -47,6 +47,22 @@ public class ScreenAnalysis
     public bool hasImage;
 }
 
+/// Một lần người dùng chọn nhiều câu phụ đề trong nhật ký và bấm "Tóm tắt". Giữ kèm các câu đã chọn để đọc lại được
+/// cả khi nhật ký phụ đề đã bị xoá.
+public class StorySummary
+{
+    public long id;
+    public DateTime timestamp;
+    public string profile = "";
+    public string title = "";
+    public string summary = "";
+    public List<AnalysisLine> lines = new();
+    /// Thời điểm câu đầu và câu cuối của đoạn được tóm tắt.
+    public DateTime from, to;
+    public string backend = "";
+    public int latencyMs;
+}
+
 /// Lịch sử dịch + phân tích màn hình, SQLite (cùng schema với bản macOS). Mỗi dòng gắn với một game (profile);
 /// `entries` / `analyses` chỉ chứa dữ liệu của game đang chọn và tự nạp lại khi đổi game. Dùng trên UI thread.
 public sealed class HistoryStore
@@ -56,6 +72,7 @@ public sealed class HistoryStore
     /// mới nhất trước
     public List<TranslationEntry> entries { get; private set; } = new();
     public List<ScreenAnalysis> analyses { get; private set; } = new();
+    public List<StorySummary> summaries { get; private set; } = new();
     /// Game (UUID của profile) mà `entries` / `analyses` đang chứa.
     public string scope { get; private set; } = "";
     /// Số dòng có từ trước khi nhật ký được tách theo game (không gắn với game nào).
@@ -92,6 +109,10 @@ public sealed class HistoryStore
         CREATE TABLE IF NOT EXISTS analyses(
             id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL, region TEXT NOT NULL,
             thumbnail BLOB, summary TEXT NOT NULL, lines TEXT NOT NULL, backend TEXT NOT NULL, latency INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS summaries(
+            id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL, profile TEXT NOT NULL, title TEXT NOT NULL,
+            summary TEXT NOT NULL, lines TEXT NOT NULL, t_from REAL NOT NULL, t_to REAL NOT NULL,
+            backend TEXT NOT NULL, latency INTEGER NOT NULL);
         PRAGMA journal_mode=WAL;
         """);
         if (!Columns("history").Contains("kind")) Exec("ALTER TABLE history ADD COLUMN kind TEXT NOT NULL DEFAULT 'subtitle'");
@@ -107,6 +128,7 @@ public sealed class HistoryStore
         scope = ProfileKey(AppSettings.shared.activeProfile.id);
         entries = LoadEntries(scope);
         analyses = LoadAnalyses(scope);
+        summaries = LoadSummaries(scope);
         legacyCount = Count("SELECT (SELECT COUNT(*) FROM history WHERE profile = '') + (SELECT COUNT(*) FROM analyses WHERE profile = '')");
         // Đổi game (ở bất kỳ đâu trong app) → nạp lại nhật ký của game mới.
         AppSettings.shared.Changed += key =>
@@ -126,6 +148,7 @@ public sealed class HistoryStore
         scope = active;
         entries = LoadEntries(active);
         analyses = LoadAnalyses(active);
+        summaries = LoadSummaries(active);
         Changed?.Invoke();
     }
 
@@ -335,6 +358,77 @@ public sealed class HistoryStore
         foreach (var a in LoadAnalyses(scope)) { try { File.Delete(ShotPath(a.id)); } catch { } }
         Exec("DELETE FROM analyses WHERE profile = $p;", ("$p", scope));
         analyses.Clear();
+        Changed?.Invoke();
+    }
+
+    // MARK: summaries
+    List<StorySummary> LoadSummaries(string profile)
+    {
+        var outp = new List<StorySummary>();
+        lock (lk)
+        {
+            using var cmd = db.CreateCommand();
+            cmd.CommandText = "SELECT id, ts, profile, title, summary, lines, t_from, t_to, backend, latency FROM summaries WHERE profile = $p ORDER BY id DESC";
+            cmd.Parameters.AddWithValue("$p", profile);
+            using var r = cmd.ExecuteReader();
+            while (r.Read())
+            {
+                List<AnalysisLine> lines;
+                try { lines = JsonSerializer.Deserialize<List<AnalysisLine>>(r.GetString(5)) ?? new(); } catch { lines = new(); }
+                outp.Add(new StorySummary
+                {
+                    id = r.GetInt64(0), timestamp = FromUnix(r.GetDouble(1)), profile = r.GetString(2), title = r.GetString(3),
+                    summary = r.GetString(4), lines = lines, from = FromUnix(r.GetDouble(6)), to = FromUnix(r.GetDouble(7)),
+                    backend = r.GetString(8), latencyMs = r.GetInt32(9),
+                });
+            }
+        }
+        return outp;
+    }
+
+    public StorySummary AddSummary(string title, string summary, List<AnalysisLine> lines, DateTime from, DateTime to,
+                                   BackendKind backend, int ms, string profile)
+    {
+        var now = DateTime.Now;
+        long id;
+        lock (lk)
+        {
+            using var cmd = db.CreateCommand();
+            cmd.CommandText = "INSERT INTO summaries(ts, profile, title, summary, lines, t_from, t_to, backend, latency) VALUES($ts,$p,$t,$s,$l,$f,$to,$b,$ms); SELECT last_insert_rowid();";
+            cmd.Parameters.AddWithValue("$ts", ToUnix(now));
+            cmd.Parameters.AddWithValue("$p", profile);
+            cmd.Parameters.AddWithValue("$t", title);
+            cmd.Parameters.AddWithValue("$s", summary);
+            cmd.Parameters.AddWithValue("$l", JsonSerializer.Serialize(lines));
+            cmd.Parameters.AddWithValue("$f", ToUnix(from));
+            cmd.Parameters.AddWithValue("$to", ToUnix(to));
+            cmd.Parameters.AddWithValue("$b", backend.ToString());
+            cmd.Parameters.AddWithValue("$ms", ms);
+            try { id = Convert.ToInt64(cmd.ExecuteScalar()); }
+            catch (Exception e) { Log.Error($"SQLite insert summary: {e.Message}"); id = 0; }
+        }
+        var s = new StorySummary
+        {
+            id = id, timestamp = now, profile = profile, title = title, summary = summary, lines = lines,
+            from = from, to = to, backend = backend.ToString(), latencyMs = ms,
+        };
+        if (profile == scope) summaries.Insert(0, s);
+        Changed?.Invoke();
+        return s;
+    }
+
+    public void DeleteSummary(long id)
+    {
+        Exec("DELETE FROM summaries WHERE id = $id;", ("$id", id));
+        summaries.RemoveAll(s => s.id == id);
+        Changed?.Invoke();
+    }
+
+    /// Xoá mọi bản tóm tắt của game đang chọn.
+    public void ClearSummaries()
+    {
+        Exec("DELETE FROM summaries WHERE profile = $p;", ("$p", scope));
+        summaries.Clear();
         Changed?.Invoke();
     }
 

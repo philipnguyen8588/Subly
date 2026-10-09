@@ -113,7 +113,7 @@ public sealed class AppNav : INotifyPropertyChanged
 {
     public static readonly AppNav shared = new();
     public event PropertyChangedEventHandler? PropertyChanged;
-    public enum Tab { source, log, speakers }
+    public enum Tab { source, log, speakers, glossary }
     Tab _tab = Tab.source;
     public Tab tab { get => _tab; set { _tab = value; PropertyChanged?.Invoke(this, new(nameof(tab))); } }
     public event Action? NewProfileRequested;

@@ -31,6 +31,8 @@ public class OcrBlock
     public string text = "";
     public RectD box;
     public int lines = 1;
+    /// Chiều cao chữ trung bình của các dòng (không tính khoảng trống giữa dòng), để so cỡ chữ khi gộp đoạn.
+    public double textH;
 }
 
 /// OCR bằng Windows.Media.Ocr (có sẵn trên Windows 10/11, cần gói ngôn ngữ English).
@@ -169,7 +171,7 @@ public sealed class WinOcr
         {
             var text = TextUtils.Normalize(TextUtils.StripJunkTokens(o.text));
             if (TextUtils.LetterCount(text) < 2) continue;
-            items.Add(new OcrBlock { text = text, box = o.box, lines = 1 });
+            items.Add(new OcrBlock { text = text, box = o.box, lines = 1, textH = o.box.Height });
         }
         items.Sort((a, b) => Math.Abs(a.box.MinY - b.box.MinY) > 0.01 ? a.box.MinY.CompareTo(b.box.MinY) : a.box.MinX.CompareTo(b.box.MinX));
         // Gộp đoạn văn: dòng dưới nằm sát dòng trên, cùng lề trái, cỡ chữ tương đương.
@@ -180,13 +182,17 @@ public sealed class WinOcr
             for (int i = outp.Count - 1; i >= 0; i--)
             {
                 var prev = outp[i];
-                double lineH = prev.box.Height / prev.lines;
+                double lineH = prev.textH;
                 double gap = it.box.MinY - prev.box.MaxY;
-                bool sameLeft = Math.Abs(it.box.MinX - prev.box.MinX) < 0.012;
-                bool sameSize = Math.Max(lineH, it.box.Height) / Math.Max(0.0001, Math.Min(lineH, it.box.Height)) < 1.3;
+                // Cùng lề trái, hoặc cùng tâm (đoạn chữ canh giữa như hướng dẫn, thông báo).
+                bool sameLeft = Math.Abs(it.box.MinX - prev.box.MinX) < 0.012 || Math.Abs(it.box.MidX - prev.box.MidX) < 0.012;
+                // Dòng không có chữ cao/thấp (dòng cuối ngắn "no amount of money can buy.") có khung thấp hơn ~30 %.
+                bool sameSize = Math.Max(lineH, it.box.Height) / Math.Max(0.0001, Math.Min(lineH, it.box.Height)) < 1.5;
                 // Mục menu xếp dọc cũng cùng lề nhưng cách nhau xa hơn và thường chỉ 1–2 từ → không gộp.
                 bool wordy = prev.text.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length >= 3;
-                if (sameLeft && sameSize && wordy && gap > -lineH * 0.3 && gap < lineH * 0.45 && prev.lines < 8) { idx = i; break; }
+                // Khoảng cách dòng của đoạn văn trong game thường bằng 0,5–0,8 lần chiều cao chữ (ngưỡng cũ 0,45 tách nhầm
+                // dòng đầu của đoạn ra riêng); dưới 1 lần chiều cao chữ coi là cùng đoạn.
+                if (sameLeft && sameSize && wordy && gap > -lineH * 0.3 && gap < lineH * 1.0 && prev.lines < 12) { idx = i; break; }
             }
             if (idx >= 0)
             {
@@ -195,6 +201,7 @@ public sealed class WinOcr
                 double x0 = Math.Min(b.box.MinX, it.box.MinX), y0 = Math.Min(b.box.MinY, it.box.MinY);
                 double x1 = Math.Max(b.box.MaxX, it.box.MaxX), y1 = Math.Max(b.box.MaxY, it.box.MaxY);
                 b.box = new RectD(x0, y0, x1 - x0, y1 - y0);
+                b.textH = (b.textH * b.lines + it.box.Height) / (b.lines + 1);
                 b.lines += 1;
             }
             else outp.Add(it);
@@ -213,6 +220,53 @@ public sealed class WinOcr
         }
         return clusters.Where(c => c.Min(o => o.box.MinX) <= centerBandHi && c.Max(o => o.box.MaxX) >= centerBandLo)
                        .SelectMany(c => c).ToList();
+    }
+
+    /// Như `Centered` cho cả khung: giữ cụm chạm dải giữa, cộng thêm dòng tiếp nối của phụ đề bị xuống dòng
+    /// ("…Are you here" / "alone?"): cụm nằm sát ngay trên/dưới một cụm đã giữ và gọn trong bề ngang của cụm đó.
+    /// Nút bấm ở mép không nằm trong bề ngang của phụ đề nên vẫn bị bỏ.
+    static List<List<Frag>> CenteredRows(List<List<Frag>> groups)
+    {
+        var rows = groups.Select(row =>
+        {
+            var clusters = new List<List<Frag>>();
+            foreach (var o in row.OrderBy(o => o.box.MinX))
+            {
+                if (clusters.Count > 0 && o.box.MinX - clusters[^1][^1].box.MaxX < 0.05) clusters[^1].Add(o);
+                else clusters.Add(new List<Frag> { o });
+            }
+            return clusters;
+        }).ToList();
+        static RectD Box(List<Frag> c)
+        {
+            double x0 = c.Min(o => o.box.MinX), y0 = c.Min(o => o.box.MinY), x1 = c.Max(o => o.box.MaxX), y1 = c.Max(o => o.box.MaxY);
+            return new RectD(x0, y0, x1 - x0, y1 - y0);
+        }
+        var keep = rows.Select(r => r.Select(c => { var b = Box(c); return b.MinX <= centerBandHi && b.MaxX >= centerBandLo; }).ToList()).ToList();
+        bool changed = true;
+        while (changed)
+        {
+            changed = false;
+            for (int i = 0; i < rows.Count; i++)
+                for (int j = 0; j < rows[i].Count; j++)
+                {
+                    if (keep[i][j]) continue;
+                    var b = Box(rows[i][j]);
+                    foreach (var n in new[] { i - 1, i + 1 })
+                    {
+                        if (n < 0 || n >= rows.Count) continue;
+                        for (int k = 0; k < rows[n].Count; k++)
+                        {
+                            if (!keep[n][k]) continue;
+                            var kb = Box(rows[n][k]);
+                            double gap = Math.Max(kb.MinY - b.MaxY, b.MinY - kb.MaxY);
+                            bool inside = b.MinX >= kb.MinX - 0.02 && b.MaxX <= kb.MaxX + 0.02;
+                            if (inside && gap < Math.Max(kb.Height, b.Height) * 1.2 && !keep[i][j]) { keep[i][j] = true; changed = true; }
+                        }
+                    }
+                }
+        }
+        return rows.Select((r, i) => r.Where((_, j) => keep[i][j]).SelectMany(c => c).ToList()).Where(g => g.Count > 0).ToList();
     }
 
     OcrResult Build(List<Frag> raw, bool centerOnly, double minRowHeight)
@@ -239,7 +293,7 @@ public sealed class WinOcr
             }
             groups.Add(new List<Frag> { o });
         }
-        if (centerOnly) groups = groups.Select(Centered).Where(g => g.Count > 0).ToList();
+        if (centerOnly) groups = CenteredRows(groups);
         if (minRowHeight > 0) groups = groups.Where(g => g.Max(o => o.box.Height) >= minRowHeight).ToList();
         if (groups.Count == 0) return new OcrResult();
         var obs = groups.SelectMany(g => g).ToList();

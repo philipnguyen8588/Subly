@@ -7,7 +7,7 @@ namespace ScreenTranslator;
 
 public record TranslationPair(string source, string target);
 
-public enum BackendKind { gemini, google, skipped }
+public enum BackendKind { gemini, google, skipped, openAI }
 
 public static class BackendLabels
 {
@@ -15,6 +15,7 @@ public static class BackendLabels
     {
         BackendKind.skipped => "Không dịch",
         BackendKind.gemini => "Gemini",
+        BackendKind.openAI => "OpenAI",
         _ => "Google",
     };
     public static string Label(string raw) => Enum.TryParse<BackendKind>(raw, out var k) ? Label(k) : raw switch

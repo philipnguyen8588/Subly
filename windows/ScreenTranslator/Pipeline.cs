@@ -19,10 +19,14 @@ public sealed class RegionWorker
     readonly SerialQueue ocrQueue;
     readonly SerialQueue gateQueue;
     bool ocrBusy;                   // chỉ đọc/ghi trên gateQueue
+    DateTime ocrStartedAt;          // chỉ đọc/ghi trên gateQueue
+    bool reportedHang;              // chỉ đọc/ghi trên gateQueue
     volatile bool stopped;
     bool restarting;                // chỉ đọc/ghi trên gateQueue
     string lastText = "";
-    readonly List<(string text, DateTime at)> recent = new();   // các câu đã chấp nhận gần đây, để lọc trùng
+    /// Các câu đã nhận còn đang được nhớ (để lọc trùng). `missingSince`: lần OCR đầu tiên không còn thấy câu này
+    /// (null = vẫn đang trên màn hình). Màn hình đứng yên thì không OCR nên không ai đánh dấu → câu vẫn được nhớ.
+    readonly List<(string text, DateTime? missingSince)> recent = new();
     readonly double dedup;
     readonly bool skipUI, skipInterjections, skipSimple;
     readonly double stableDelay;
@@ -51,6 +55,8 @@ public sealed class RegionWorker
     /// Tên nhân vật đã học + game có hiện tên không (đọc trực tiếp từ settings mỗi lần OCR vì danh sách tăng dần).
     public Func<IList<string>> speakerNames = () => Array.Empty<string>();
     public Func<bool> usesNames = () => true;
+    /// Game hiện tên ở dòng riêng phía trên câu thoại.
+    public Func<bool> namesAbove = () => false;
     bool appActive = true;
 
     public RegionWorker(Region region, AppSettings settings)
@@ -115,6 +121,13 @@ public sealed class RegionWorker
         statsTimer = new Timer(_ => gateQueue.Async(() =>
         {
             Log.Info($"STATS[{region.name}] frames/10s={frameCount} ocr/10s={ocrRuns} nghỉ/10s={heldFrames}");
+            // Một lượt OCR (bình thường dưới 0,2 s) quá 10 s chưa xong: bộ nhận dạng chữ đã treo, chỉ mở lại app mới hết.
+            if (ocrBusy && (DateTime.UtcNow - ocrStartedAt).TotalSeconds > 10 && !reportedHang)
+            {
+                reportedHang = true;
+                Log.Error($"OCR[{region.name}] treo {(int)(DateTime.UtcNow - ocrStartedAt).TotalSeconds} s trong Windows OCR");
+                onCaptureError?.Invoke("Nhận dạng chữ của Windows bị treo, phụ đề không được dịch. Thoát hẳn app rồi mở lại.");
+            }
             frameCount = 0; ocrRuns = 0; heldFrames = 0;
         }), null, 10000, 10000);
     }
@@ -187,6 +200,10 @@ public sealed class RegionWorker
         RunOCR(p);
     }
 
+    /// Câu đã đọc mà không còn thấy trên màn hình quá chừng này thì quên (đủ để bỏ qua vài khung OCR đọc trượt
+    /// hoặc phụ đề nháy tắt rồi hiện lại cùng một câu).
+    const double forgetAfter = 4;
+
     /// Ước lượng một câu thoại nằm trên màn hình bao lâu (nói nhanh ~3,2 từ/giây, tối thiểu 1 s) và nghỉ nửa thời gian đó,
     /// TRỪ ĐI `lag` = khoảng app không nhìn màn hình trước khi thấy câu này (câu có thể đã hiện từ lúc đó).
     public static double HoldAfterSubtitle(string text, double lag = 0)
@@ -208,9 +225,9 @@ public sealed class RegionWorker
         });
     }
 
-    void AddRecent(IEnumerable<string> items, DateTime now)
+    void AddRecent(IEnumerable<string> items)
     {
-        foreach (var d in items) recent.Add((d, now));
+        foreach (var d in items) recent.Add((d, null));
         if (recent.Count > 6) recent.RemoveRange(0, recent.Count - 6);
     }
 
@@ -218,6 +235,7 @@ public sealed class RegionWorker
     {
         if (ocrBusy) { pendingPB = pb; return; }
         ocrBusy = true;
+        ocrStartedAt = DateTime.UtcNow;
         ocrRuns++;
         ocrQueue.Async(() =>
         {
@@ -243,17 +261,27 @@ public sealed class RegionWorker
         double lag = Math.Min(2.5, (DateTime.UtcNow - lastLookAt).TotalSeconds);
         lastLookAt = DateTime.UtcNow;
         onOCR?.Invoke();
-        var text = r.text;
+        // Game hiện tên ở dòng riêng phía trên: ghép "Tên" + câu bên dưới thành "Tên: câu".
+        IList<string> rows = r.lines;
+        bool nameJoined = false;
+        if (namesAbove()) (rows, nameJoined) = SpeakerNames.JoinNameAbove(r.lines, speakerNames());
+        var text = nameJoined ? string.Join(" ", rows) : r.text;
         if (text.Length == 0 || TextUtils.LetterCount(text) < 2)
         {
             RegionPreviewProvider.shared.ReportOCR(region.id, r.ms, text);
             if (lastText.Length > 0) { lastText = ""; onEmpty?.Invoke(region); }
+            // Phụ đề đã biến mất: bắt đầu đếm thời gian vắng mặt của mọi câu đang nhớ.
+            var gone = DateTime.UtcNow;
+            for (int i = 0; i < recent.Count; i++) if (recent[i].missingSince == null) recent[i] = (recent[i].text, gone);
             return;
         }
         // Chữ giao diện (menu, cài đặt, danh sách) → không dịch, không đọc.
         if (skipUI)
         {
-            var v = SubtitleClassifier.Classify(r);
+            // Dòng tên riêng (Viết Hoa, không dấu câu, cỡ chữ khác câu thoại) không được tính là dấu hiệu chữ giao diện.
+            var v = nameJoined
+                ? SubtitleClassifier.Classify(string.Join(" ", r.lines.Skip(1)), Math.Max(1, r.rows - 1), r.maxPerRow, 1)
+                : SubtitleClassifier.Classify(r);
             if (v.isUI)
             {
                 RegionPreviewProvider.shared.ReportOCR(region.id, r.ms, "⏸ " + text);
@@ -268,8 +296,17 @@ public sealed class RegionWorker
         RegionPreviewProvider.shared.ReportOCR(region.id, r.ms, text);
         // Tách thành từng câu thoại và lọc trùng theo từng câu (so với 6 câu gần nhất trong 20 s).
         var now = DateTime.UtcNow;
-        recent.RemoveAll(x => (now - x.at).TotalSeconds > 20);
-        var fresh = SubtitleSplitter.Fresh(r.lines, speakerNames(), usesNames(), recent.Select(x => x.text).ToList(), dedup);
+        // Chỉ nhớ những câu ĐANG nằm trên màn hình: câu còn hiện liên tục thì không đọc lại, dù đứng yên bao lâu.
+        // Câu OCR không còn thấy quá `forgetAfter` giây, hoặc đã bị câu mới thay thế (xem dưới), thì quên:
+        // A → B → A đọc lại A. Thời gian vắng mặt chỉ tính từ lần OCR thấy câu đã biến mất, không theo đồng hồ.
+        var onScreen = SubtitleSplitter.Utterances(rows, speakerNames(), usesNames());
+        recent.RemoveAll(x => x.missingSince is DateTime m && (now - m).TotalSeconds > forgetAfter);
+        for (int i = 0; i < recent.Count; i++)
+        {
+            if (SubtitleSplitter.Score(recent[i].text, onScreen) >= dedup) recent[i] = (recent[i].text, null);
+            else if (recent[i].missingSince == null) recent[i] = (recent[i].text, now);
+        }
+        var fresh = SubtitleSplitter.Fresh(rows, speakerNames(), usesNames(), recent.Select(x => x.text).ToList(), dedup);
         bool changed = text != lastText;
         lastText = text;
         // Câu chỉ có từ cảm thán (hmm, haha, huh…): không dịch, không đọc; vẫn ghi nhớ để không xét lại.
@@ -279,7 +316,7 @@ public sealed class RegionWorker
             if (dropped.Count > 0)
             {
                 fresh.RemoveAll(SubtitleSplitter.IsInterjectionOnly);
-                AddRecent(dropped, now);
+                AddRecent(dropped);
                 Log.Info($"CẢM THÁN[{region.name}] bỏ qua: {string.Join(" ⏎ ", dropped)}");
                 if (fresh.Count == 0) return;
             }
@@ -291,7 +328,7 @@ public sealed class RegionWorker
             if (stray.Count > 0)
             {
                 fresh.RemoveAll(SubtitleSplitter.IsStrayFragment);
-                AddRecent(stray, now);
+                AddRecent(stray);
                 Log.Info($"LẠC[{region.name}] bỏ qua: {string.Join(" ⏎ ", stray)}");
                 if (fresh.Count == 0) { Hold(0.6); return; }
             }
@@ -304,7 +341,7 @@ public sealed class RegionWorker
             if (simple.Count > 0)
             {
                 fresh.RemoveAll(SubtitleSplitter.IsSimple);
-                AddRecent(simple, now);
+                AddRecent(simple);
                 var real = simple.Where(SubtitleSplitter.HasEnglishWord).ToList();
                 var junk = simple.Where(s => !SubtitleSplitter.HasEnglishWord(s)).ToList();
                 if (real.Count > 0)
@@ -325,7 +362,9 @@ public sealed class RegionWorker
             return;
         }
         dupStreak = 0;
-        AddRecent(fresh, now);
+        // Có câu mới thật: câu cũ nào không còn trên màn hình là đã được thay thế → quên ngay.
+        recent.RemoveAll(x => x.missingSince != null);
+        AddRecent(fresh);
         bool droppedOld = string.Join(" ", fresh).Length < text.Length - 3;
         Log.Info($"OCR[{region.name}] {r.ms:0}ms{(fresh.Count > 1 ? $" [{fresh.Count} câu]" : "")}{(droppedOld ? " [bỏ câu cũ]" : "")}: {string.Join(" ⏎ ", fresh)}");
         // Học cỡ chữ phụ đề từ những hàng chắc chắn là lời thoại (từ 4 từ trở lên).
@@ -390,7 +429,7 @@ public sealed class Pipeline : INotifyPropertyChanged
         if (!WinOcr.Available) { ShowAlert("Chưa có OCR tiếng Anh", WinOcr.LastError ?? "Windows OCR không dùng được."); return; }
         ResetQueue();
         ApplyVoiceSettings();
-        router.ResetContext();
+        router.SeedContextFromHistory();
         workerErrors = new(); inactiveRegions = new(); skippedUI = new();
         var started = new List<RegionWorker>();
         int gen = queueGeneration;      // Dừng / chạy lại làm số này tăng → câu OCR xong muộn của lần chạy cũ bị bỏ
@@ -418,6 +457,7 @@ public sealed class Pipeline : INotifyPropertyChanged
             var st = settings;
             w.speakerNames = () => st.speakers;
             w.usesNames = () => st.showsSpeakerNames;
+            w.namesAbove = () => st.showsSpeakerNames && st.speakerAbove;
             w.onUI = (text, region) => App.RunOnUI(() =>
             {
                 if (!skippedUI.ContainsKey(region.id)) skippedCount++;
@@ -707,7 +747,7 @@ public sealed class Pipeline : INotifyPropertyChanged
         speaker.edgeVoice = settings.edgeVoice.Length == 0 ? EdgeTTS.DefaultVoice(settings.targetLanguage) : settings.edgeVoice;
         speaker.onEngineFallback ??= msg => App.RunOnUI(() => overlay.Hud(msg, 3));
         // Giọng đọc trên TV / điện thoại: chỉ khi có máy đang xem, không thì đọc ra loa máy này như cũ.
-        speaker.remote = settings.voiceOnRemote && settings.webServerOn && WebServer.shared.clientCount > 0;
+        speaker.remote = settings.voiceOnRemote && settings.webServerOn && WebServer.shared.hasViewers;
         speaker.onRemoteAudio ??= (data, mime, flush, text) => WebServer.shared.Audio(data, mime, flush, text);
     }
 

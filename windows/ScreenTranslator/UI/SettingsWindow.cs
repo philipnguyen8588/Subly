@@ -11,7 +11,7 @@ using System.Windows.Media.Imaging;
 
 namespace ScreenTranslator;
 
-/// Cửa sổ Cài đặt: 8 mục ở thanh bên (Dịch, Capture & OCR, Voice, Overlay, Thuật ngữ, Game, Phím tắt, Điện thoại / Web).
+/// Cửa sổ Cài đặt: 8 mục ở thanh bên (Dịch, Capture & OCR, Voice, Overlay, Thuật ngữ chung, Game, Phím tắt, Điện thoại / Web).
 public sealed class SettingsWindow : Window
 {
     readonly ListBox sidebar = new() { Width = 200, BorderThickness = new Thickness(0), Background = Brushes.Transparent, Padding = new Thickness(6) };
@@ -19,7 +19,7 @@ public sealed class SettingsWindow : Window
     static readonly (string key, string title, string glyph)[] tabs =
     {
         ("translate", "Dịch", ""), ("capture", "Capture & OCR", ""), ("voice", "Voice", ""), ("overlay", "Overlay", ""),
-        ("glossary", "Thuật ngữ", ""), ("profile", "Game", ""), ("hotkeys", "Phím tắt", ""), ("web", "Điện thoại / Web", ""),
+        ("glossary", "Thuật ngữ chung", ""), ("profile", "Game", ""), ("hotkeys", "Phím tắt", ""), ("web", "Điện thoại / Web", ""),
     };
     AppSettings S => AppSettings.shared;
 
@@ -113,8 +113,19 @@ public sealed class SettingsWindow : Window
             catch (Exception e) { result.Text = $"Không tải được danh sách: {e.Message}"; }
             loadBtn.IsEnabled = true; loadBtn.Content = "Tải danh sách";
         }, tip: "Lấy danh sách model thật mà key này dùng được");
-        var keyButtons = Ui.H(8, Ui.Btn("Lưu key", () => { S.geminiAPIKey = key.Password.Trim(); result.Text = "Đã lưu"; }, primary: true), testBtn,
-            Ui.Btn("Xoá key", () => { S.geminiAPIKey = ""; key.Password = ""; result.Text = ""; }));
+        // Cảnh báo khi engine dịch màn hình thiếu key (cập nhật ngay khi lưu / xoá key).
+        var screenWarn = Ui.Caption("", Ui.Orange);
+        void UpdateScreenWarn()
+        {
+            screenWarn.Text = S.screenEngine == ScreenEngine.openAI && S.openAIKey.Length == 0
+                ? "Chưa có OpenAI API key (nhập ở mục OpenAI phía trên) nên sẽ dùng Google Translate."
+                : S.screenEngine == ScreenEngine.gemini && S.geminiAPIKey.Length == 0
+                ? "Chưa có Gemini API key (nhập ở mục Gemini phía trên) nên sẽ dùng Google Translate." : "";
+            screenWarn.Visibility = screenWarn.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+        UpdateScreenWarn();
+        var keyButtons = Ui.H(8, Ui.Btn("Lưu key", () => { S.geminiAPIKey = key.Password.Trim(); result.Text = "Đã lưu"; UpdateScreenWarn(); }, primary: true), testBtn,
+            Ui.Btn("Xoá key", () => { S.geminiAPIKey = ""; key.Password = ""; result.Text = ""; UpdateScreenWarn(); }));
         var used = Ui.Caption($"Đã dùng hôm nay: {router.usedToday}");
 
         return Ui.V(14,
@@ -122,8 +133,9 @@ public sealed class SettingsWindow : Window
                 Ui.Picker("Dịch sang", TargetLanguage.all.Select(l => (l.code, l.name)), () => S.targetLanguage, v => S.targetLanguage = v),
                 Ui.Caption("Nguồn: tiếng Anh. Đổi ngôn ngữ đích sẽ đổi cả giọng đọc.")),
             Ui.Section("Engine dịch phụ đề",
-                Ui.Picker("Engine", Enum.GetValues<TranslationEngine>().Select(e => (e, Labels.Of(e))), () => S.translationEngine, v => S.translationEngine = v, 340),
+                Ui.Picker("Engine", Enum.GetValues<TranslationEngine>().Select(e => (e, Labels.Of(e))), () => S.translationEngine, v => S.translationEngine = v, 420),
                 Ui.Caption("Tự động: dùng Gemini khi có key, còn quota và có mạng; lỗi / hết quota thì rơi về Google Translate (miễn phí, không cần key, dịch từng câu rời, không tóm tắt khi dịch màn hình).")),
+            OpenAISection(UpdateScreenWarn),
             Ui.Section("Gemini API (free tier)",
                 Ui.V(3, Ui.Caption("API key (aistudio.google.com/apikey)"), key),
                 keyButtons, result,
@@ -134,11 +146,46 @@ public sealed class SettingsWindow : Window
                 used,
                 Ui.Slider("Timeout phụ đề", 2, 10, 0.5, () => S.geminiTimeout, v => S.geminiTimeout = v, v => $"{v:0.0}s"),
                 Ui.Stepper(() => $"Ngữ cảnh: {S.contextPairs} câu trước", 0, 10, 1, () => S.contextPairs, v => S.contextPairs = v)),
-            Ui.Section("Phân tích màn hình (thủ công)",
+            Ui.Section("Dịch màn hình (thủ công)",
+                Ui.Picker("Engine", Enum.GetValues<ScreenEngine>().Select(e => (e, Labels.Of(e))), () => S.screenEngine, v => { S.screenEngine = v; UpdateScreenWarn(); }, 420),
+                screenWarn,
+                Ui.Caption("Chọn riêng với engine phụ đề: phụ đề cần nhanh, còn dịch màn hình (nhật ký, tiểu sử nhân vật, nhiệm vụ) cần hiểu và tóm tắt kỹ. Gemini / OpenAI lỗi, hết quota hoặc mất mạng thì tự dùng Google Translate (không có tóm tắt)."),
                 Ui.Toggle("Đọc tóm tắt bằng giọng nói", () => S.analyzeSpeakSummary, v => S.analyzeSpeakSummary = v),
                 Ui.Slider("Timeout", 5, 60, 5, () => S.analyzeTimeout, v => S.analyzeTimeout = v, v => $"{(int)v}s")),
             Ui.Section("Hàng đợi phụ đề",
                 Ui.Picker("Chế độ", Enum.GetValues<QueueMode>().Select(q => (q, Labels.Of(q))), () => S.queueMode, v => S.queueMode = v)));
+    }
+
+    /// Mục OpenAI trong Cài đặt → Dịch: key, model, thời gian chờ.
+    UIElement OpenAISection(Action keyChanged)
+    {
+        var key = new PasswordBox { Password = S.openAIKey, MinWidth = 320 };
+        var result = Ui.Caption("");
+        var models = OpenAIBackend.models.ToList();
+        if (!models.Contains(S.openAIModel)) models.Add(S.openAIModel);
+        var modelBox = new ComboBox { MinWidth = 240, IsEditable = true, Text = S.openAIModel };
+        foreach (var m in models) modelBox.Items.Add(m);
+        modelBox.SelectedItem = S.openAIModel;
+        modelBox.SelectionChanged += (_, _) => { if (modelBox.SelectedItem is string m) S.openAIModel = m; };
+        modelBox.LostFocus += (_, _) => { var t = modelBox.Text.Trim(); if (t.Length > 0 && t != S.openAIModel) S.openAIModel = t; };
+        Button? testBtn = null;
+        testBtn = Ui.Btn("Test key", async () =>
+        {
+            var k = key.Password.Trim();
+            if (k.Length == 0) return;
+            testBtn!.IsEnabled = false; testBtn.Content = "Đang test…"; result.Text = "";
+            var (ok, msg) = await OpenAIBackend.Test(k, S.openAIModel);
+            result.Text = ok ? $"OK: {msg}" : $"Lỗi: {msg}";
+            testBtn.IsEnabled = true; testBtn.Content = "Test key";
+        });
+        var keyButtons = Ui.H(8, Ui.Btn("Lưu key", () => { S.openAIKey = key.Password.Trim(); result.Text = "Đã lưu"; keyChanged(); }, primary: true), testBtn,
+            Ui.Btn("Xoá key", () => { S.openAIKey = ""; key.Password = ""; result.Text = ""; keyChanged(); }));
+        return Ui.Section("OpenAI API (trả phí)",
+            Ui.V(3, Ui.Caption("API key (platform.openai.com/api-keys)"), key),
+            keyButtons, result,
+            Ui.H(8, Ui.Text("Model"), modelBox),
+            Ui.Slider("Timeout phụ đề", 2, 10, 0.5, () => S.openAITimeout, v => S.openAITimeout = v, v => $"{v:0.0}s"),
+            Ui.Caption("Dùng khi chọn engine OpenAI ở trên (phụ đề) hoặc ở mục Dịch màn hình. Tính tiền theo token. gpt-5.4-nano rẻ nhất (~1 s/câu) nhưng hay dịch lủng củng; gpt-5.4-mini tự nhiên hơn, gần như cùng tốc độ; gpt-5.4 hay nhất (~1,7 s/câu), đắt nhất. Xem giá ở trang Pricing của OpenAI. Lỗi, hết tiền hoặc mất mạng thì tự dùng Google Translate. Key được mã hoá bằng DPAPI, chỉ tài khoản Windows hiện tại đọc được."));
     }
 
     // MARK: Capture & OCR
@@ -278,63 +325,12 @@ public sealed class SettingsWindow : Window
 
     // MARK: Thuật ngữ
 
-    sealed class GlossaryRow
-    {
-        public Guid id { get; set; }
-        public string term { get; set; } = "";
-        public string translation { get; set; } = "";
-        public bool keepAsIs { get; set; }
-    }
-
     UIElement Glossary()
     {
-        var rows = new System.Collections.ObjectModel.ObservableCollection<GlossaryRow>(
-            S.glossary.Select(g => new GlossaryRow { id = g.id, term = g.term, translation = g.translation, keepAsIs = g.keepAsIs }));
-        var grid = new DataGrid
-        {
-            ItemsSource = rows, AutoGenerateColumns = false, CanUserAddRows = false, HeadersVisibility = DataGridHeadersVisibility.Column,
-            GridLinesVisibility = DataGridGridLinesVisibility.Horizontal, Background = Brushes.White, RowHeaderWidth = 0,
-        };
-        grid.Columns.Add(new DataGridTextColumn { Header = "Thuật ngữ gốc", Binding = new System.Windows.Data.Binding("term") { UpdateSourceTrigger = System.Windows.Data.UpdateSourceTrigger.PropertyChanged }, Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
-        grid.Columns.Add(new DataGridTextColumn { Header = "Dịch thành (trống = giữ nguyên)", Binding = new System.Windows.Data.Binding("translation") { UpdateSourceTrigger = System.Windows.Data.UpdateSourceTrigger.PropertyChanged }, Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
-        grid.Columns.Add(new DataGridCheckBoxColumn { Header = "Giữ nguyên", Binding = new System.Windows.Data.Binding("keepAsIs") { UpdateSourceTrigger = System.Windows.Data.UpdateSourceTrigger.PropertyChanged }, Width = 90 });
-        void Save() => S.glossary = rows.Where(r => r.term.Trim().Length > 0 || r.translation.Length > 0)
-            .Select(r => new GlossaryEntry { id = r.id, term = r.term, translation = r.translation, keepAsIs = r.keepAsIs }).ToList();
-        grid.CellEditEnding += (_, _) => Dispatcher.BeginInvoke(Save, System.Windows.Threading.DispatcherPriority.Background);
-        grid.CurrentCellChanged += (_, _) => Save();
-        var add = Ui.IconBtn("", () => { rows.Add(new GlossaryRow { id = Guid.NewGuid() }); grid.ScrollIntoView(rows[^1]); }, "Thêm dòng");
-        var del = Ui.IconBtn("", () => { foreach (var r in grid.SelectedItems.Cast<GlossaryRow>().ToList()) rows.Remove(r); Save(); }, "Xoá dòng đã chọn");
-        var import = Ui.Btn("Nhập CSV…", () =>
-        {
-            var dlg = new Microsoft.Win32.OpenFileDialog { Filter = "CSV (*.csv;*.txt)|*.csv;*.txt|Tất cả|*.*" };
-            if (dlg.ShowDialog() != true) return;
-            foreach (var line in File.ReadAllLines(dlg.FileName, Encoding.UTF8))
-            {
-                var parts = line.Split(',', 2);
-                var term = parts[0].Trim();
-                if (term.Length == 0) continue;
-                var tr = parts.Length > 1 ? parts[1].Trim() : "";
-                rows.Add(new GlossaryRow { id = Guid.NewGuid(), term = term, translation = tr, keepAsIs = tr.Length == 0 });
-            }
-            Save();
-        });
-        var export = Ui.Btn("Xuất CSV…", () =>
-        {
-            Save();
-            var dlg = new Microsoft.Win32.SaveFileDialog { FileName = "glossary.csv", Filter = "CSV (*.csv)|*.csv" };
-            if (dlg.ShowDialog() != true) return;
-            File.WriteAllText(dlg.FileName, string.Join("\n", S.glossary.Select(g => $"{g.term},{(g.keepAsIs ? "" : g.translation)}")), new UTF8Encoding(false));
-        });
-        var dock = new DockPanel { Margin = new Thickness(20, 16, 20, 16) };
-        var head = Ui.Caption($"Thuật ngữ của game “{S.activeProfile.name}”. Gemini sẽ giữ nguyên hoặc dịch đúng như bảng này. Để trống bản dịch = giữ nguyên.");
-        head.Margin = new Thickness(0, 0, 0, 8);
-        DockPanel.SetDock(head, Dock.Top);
-        var bar = Ui.Row(Ui.H(6, add, del), import, export);
-        bar.Margin = new Thickness(0, 8, 0, 0);
-        DockPanel.SetDock(bar, Dock.Bottom);
-        dock.Children.Add(head); dock.Children.Add(bar); dock.Children.Add(grid);
-        saveGlossary = Save;
-        return dock;
+        var editor = new GlossaryEditor(() => S.globalGlossary, v => S.globalGlossary = v, "thuat-ngu-chung.csv",
+            "Thuật ngữ chung, dùng cho mọi game. Thuật ngữ riêng của từng game nằm ở tab Thuật ngữ trong cửa sổ chính và được ưu tiên khi trùng. Để trống bản dịch = giữ nguyên.");
+        saveGlossary = editor.Save;
+        return editor;
     }
 
     // MARK: Game

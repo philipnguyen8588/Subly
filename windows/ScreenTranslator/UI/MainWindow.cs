@@ -10,13 +10,13 @@ using System.Windows.Media.Imaging;
 
 namespace ScreenTranslator;
 
-/// Cửa sổ chính: header, thanh tab (Màn hình / Nhật ký / Nhân vật), modal ảnh dịch màn hình.
+/// Cửa sổ chính: header, thanh tab (Màn hình / Nhật ký / Nhân vật / Thuật ngữ), modal ảnh dịch màn hình.
 public sealed class MainWindow : Window
 {
     readonly ContentControl content = new();
     readonly StackPanel tabBar = new() { Orientation = Orientation.Horizontal, Margin = new Thickness(12, 0, 12, 8) };
     readonly HeaderBar header = new();
-    SourceTab? sourceTab; LogTab? logTab; SpeakersTab? speakersTab;
+    SourceTab? sourceTab; LogTab? logTab; SpeakersTab? speakersTab; GlossaryTab? glossaryTab;
     public bool reallyClose;
 
     public MainWindow()
@@ -78,14 +78,20 @@ public sealed class MainWindow : Window
     {
         tabBar.Children.Clear();
         var s = AppSettings.shared;
-        foreach (var (t, glyph, title) in new[] { (AppNav.Tab.source, "", "Màn hình"), (AppNav.Tab.log, "", "Nhật ký"), (AppNav.Tab.speakers, "", "Nhân vật") })
+        foreach (var (t, glyph, title) in new[] { (AppNav.Tab.source, "", "Màn hình"), (AppNav.Tab.log, "", "Nhật ký"), (AppNav.Tab.speakers, "", "Nhân vật"), (AppNav.Tab.glossary, "", "Thuật ngữ") })
         {
             bool sel = AppNav.shared.tab == t;
             var label = Ui.H(6, Ui.Icon(glyph, 12, sel ? Brushes.White : null), Ui.Text(title, 13, sel, sel ? Brushes.White : null, wrap: false));
-            if (t == AppNav.Tab.speakers && s.showsSpeakerNames && s.speakers.Count > 0)
+            int badge = t switch
+            {
+                AppNav.Tab.speakers => s.showsSpeakerNames ? s.speakers.Count : 0,
+                AppNav.Tab.glossary => s.glossary.Count,
+                _ => 0,
+            };
+            if (badge > 0)
                 label.Children.Add(new Border { CornerRadius = new CornerRadius(8), Padding = new Thickness(5, 0, 5, 0), Margin = new Thickness(6, 0, 0, 0),
                     Background = sel ? new SolidColorBrush(Color.FromArgb(64, 255, 255, 255)) : Ui.Res("CardFill"),
-                    Child = Ui.Text($"{s.speakers.Count}", 10.5, true, sel ? Brushes.White : null) });
+                    Child = Ui.Text($"{badge}", 10.5, true, sel ? Brushes.White : null) });
             var b = new Border { Child = label, Padding = new Thickness(12, 6, 12, 6), CornerRadius = new CornerRadius(8), Margin = new Thickness(0, 0, 4, 0),
                 Background = sel ? Ui.AccentGradient : Brushes.Transparent, Cursor = Cursors.Hand };
             var tab = t;
@@ -101,6 +107,7 @@ public sealed class MainWindow : Window
         {
             AppNav.Tab.source => sourceTab ??= new SourceTab(),
             AppNav.Tab.log => logTab ??= new LogTab(),
+            AppNav.Tab.glossary => glossaryTab ??= new GlossaryTab(),
             _ => speakersTab ??= new SpeakersTab(),
         };
     }
@@ -281,6 +288,18 @@ public sealed class SpeakersTab : ScrollViewer
                 ("", "Không đọc tên khi phát voice; Gemini giữ nguyên tên, không dịch."),
                 ("", "Mỗi nhân vật có một màu riêng; tên hiện theo màu đó ở phụ đề, overlay và nhật ký."),
             }) top.Children.Add(Ui.H(8, Ui.Icon(g, 13, Ui.Secondary), Ui.Text(t, color: Ui.Secondary)));
+            top.Children.Add(Ui.Divider());
+            var place = Ui.V(4, Ui.Text("Tên hiện ở đâu", bold: true));
+            foreach (var (above, text) in new[] { (false, "Cùng dòng: “Tên: câu thoại”"), (true, "Dòng riêng phía trên câu thoại") })
+            {
+                var rb = new RadioButton { Content = Ui.Text(text), GroupName = "speakerAbove", IsChecked = s.speakerAbove == above };
+                var v0 = above;
+                rb.Checked += (_, _) => { if (s.speakerAbove != v0) s.speakerAbove = v0; };
+                place.Children.Add(rb);
+            }
+            if (s.speakerAbove)
+                place.Children.Add(Ui.Caption("Dòng đầu trong khung phụ đề, nếu ngắn (1–4 từ Viết Hoa, không dấu câu) hoặc là tên đã học, được coi là tên của câu bên dưới. Nhớ vẽ khung phụ đề bao cả dòng tên."));
+            top.Children.Add(place);
         }
         var v = Ui.V(0, Ui.Card(top));
         if (on)
@@ -315,5 +334,54 @@ public sealed class SpeakersTab : ScrollViewer
         }
         v.Margin = new Thickness(16);
         Content = v;
+    }
+}
+
+// MARK: - Tab: Thuật ngữ
+
+/// Phong cách dịch + ghi chú cho người dịch, bên dưới là bảng thuật ngữ riêng của game đang chọn.
+public sealed class GlossaryTab : DockPanel
+{
+    (Guid id, string name)? shown;
+
+    public GlossaryTab()
+    {
+        Margin = new Thickness(16);
+        // Chỉ dựng lại khi đổi game hoặc đổi tên game; sửa thuật ngữ / ghi chú cũng ghi vào "profiles" nhưng không cần dựng lại.
+        AppSettings.shared.Changed += k => { if (k is "activeProfileID" or "profiles" or "activeProfile") Dispatcher.BeginInvoke(() => { if (Key() != shown) Rebuild(); }); };
+        Rebuild();
+    }
+
+    static (Guid id, string name) Key() { var p = AppSettings.shared.activeProfile; return (p.id, p.name); }
+
+    void Rebuild()
+    {
+        Children.Clear();
+        shown = Key();
+        var s = AppSettings.shared;
+        var (id, name) = shown.Value;
+        var box = TranslationStyleBox();
+        SetDock(box, Dock.Top);
+        Children.Add(box);
+        // Bảng cũ còn ghi khi bị gỡ (Unloaded) sau lúc đã đổi game: chỉ ghi vào đúng game của nó.
+        Children.Add(new GlossaryEditor(() => s.glossary, v => { if (s.activeProfile.id == id) s.glossary = v; }, $"thuat-ngu-{name}.csv",
+            $"Thuật ngữ riêng của game “{name}”: tên riêng, địa danh, chiêu thức… Khi trùng với thuật ngữ chung (Cài đặt → Thuật ngữ chung) thì bảng này được ưu tiên. Để trống bản dịch = giữ nguyên."));
+    }
+
+    /// Phong cách dịch và ghi chú cho người dịch của game đang chọn (đầu tab Thuật ngữ).
+    static UIElement TranslationStyleBox()
+    {
+        var s = AppSettings.shared;
+        var guess = Labels.Of(TranslationStyles.Guess(s.activeProfile.name));
+        var picker = Ui.Picker("", Enum.GetValues<TranslationStyle>().Select(x => (x, x == TranslationStyle.auto ? $"{Labels.Of(x)} (đang là: {guess})" : Labels.Of(x))),
+            () => s.translationStyle, v => s.translationStyle = v, 320);
+        var note = new TextBox { Text = s.translationNote, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Height = 54, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+        note.TextChanged += (_, _) => { if (note.Text != s.translationNote) s.translationNote = note.Text; };
+        return Ui.Card(Ui.V(8,
+            Ui.H(10, Ui.Text("Phong cách dịch", 14, true, wrap: false), picker),
+            Ui.Caption("Quyết định giọng văn và cách xưng hô khi dịch: hiện đại (tôi – cậu, tao – mày), kỳ ảo trung cổ (tôi – ngài, ta – ngươi, Sir → ngài), thần thoại (ta – ngươi, cha – con)."),
+            Ui.Text("Ghi chú cho người dịch (tuỳ chọn)", weight: FontWeights.Medium),
+            note,
+            Ui.Caption("Ví dụ: “Clive và Jill xưng anh – em”, “Cid gọi Clive là cậu”. Gửi kèm mỗi câu dịch, nên viết ngắn.")), 12);
     }
 }

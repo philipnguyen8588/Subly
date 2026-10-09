@@ -31,6 +31,12 @@ public sealed class WebServer : INotifyPropertyChanged
     public Status status { get => _status; private set { _status = value; App.RunOnUI(() => PropertyChanged?.Invoke(this, new(nameof(status)))); } }
     int _clients;
     public int clientCount { get => _clients; private set { _clients = value; App.RunOnUI(() => PropertyChanged?.Invoke(this, new(nameof(clientCount)))); } }
+    /// Số máy đang xem PHÁT ĐƯỢC giọng đọc (app Subtitle TV). Trang web trên điện thoại không phát âm thanh
+    /// nên không tính, để giọng đọc không bị chuyển đi mất khi chỉ có điện thoại đang xem.
+    int _audioClients;
+    public int audioClientCount { get => _audioClients; private set { _audioClients = value; App.RunOnUI(() => PropertyChanged?.Invoke(this, new(nameof(audioClientCount)))); } }
+    /// Có máy nào đang xem mà phát được giọng đọc (app Subtitle TV) không.
+    public bool hasViewers => audioClientCount > 0;
 
     TcpListener? listener;
     CancellationTokenSource? cts;
@@ -38,6 +44,7 @@ public sealed class WebServer : INotifyPropertyChanged
     bool observing;
     readonly object lk = new();
     readonly List<Stream> streams = new();      // các máy đang mở /events
+    readonly HashSet<Stream> audioStreams = new(); // trong số đó: máy xin nhận giọng đọc (app TV)
     Timer? heartbeat;
     byte[]? lastSubtitle, lastState, icon;
     string? sentState, sentProfileID;
@@ -109,9 +116,11 @@ public sealed class WebServer : INotifyPropertyChanged
         {
             foreach (var s in streams) { try { s.Dispose(); } catch { } }
             streams.Clear();
+            audioStreams.Clear();
         }
         heartbeat?.Dispose(); heartbeat = null;
         clientCount = 0;
+        audioClientCount = 0;
         Log.Info("Web: đã tắt");
     }
 
@@ -176,7 +185,10 @@ public sealed class WebServer : INotifyPropertyChanged
             clips[id] = (data, mime);
             foreach (var k in clips.Keys.Where(k => k <= id - 30).ToList()) clips.Remove(k);
         }
-        Broadcast("audio", J(new { id, mime, flush, text }));
+        List<Stream> targets;
+        lock (lk) targets = streams.Where(audioStreams.Contains).ToList();
+        var msg = J(new { id, mime, flush, text });
+        foreach (var t in targets) Send("audio", msg, t);
     }
 
     void Broadcast(string ev, byte[] data)
@@ -207,7 +219,7 @@ public sealed class WebServer : INotifyPropertyChanged
     void Drop(Stream s)
     {
         bool removed;
-        lock (lk) removed = streams.Remove(s);
+        lock (lk) { removed = streams.Remove(s); audioStreams.Remove(s); }
         try { s.Dispose(); } catch { }
         if (removed) ReportClients();
     }
@@ -277,7 +289,11 @@ public sealed class WebServer : INotifyPropertyChanged
         if (method == "GET" && (path == "/" || path == "/index.html"))
             await Respond(c, s, "text/html; charset=utf-8", WebPage.Html);
         else if (method == "GET" && path == "/events")
-            OpenStream(c, s);
+        {
+            // App TV xin nhận giọng đọc bằng ?audio=1; bản app TV cũ chưa có tham số này thì nhận ra qua User-Agent Tizen.
+            var ua = lines.FirstOrDefault(l => l.ToLowerInvariant().StartsWith("user-agent:"))?.ToLowerInvariant() ?? "";
+            OpenStream(c, s, audio: query.Contains("audio=1") || ua.Contains("tizen"));
+        }
         else if (method == "GET" && path == "/icon.png")
         {
             icon ??= IconPNG();
@@ -393,12 +409,12 @@ public sealed class WebServer : INotifyPropertyChanged
         finally { c.Dispose(); }
     }
 
-    void OpenStream(TcpClient c, Stream s)
+    void OpenStream(TcpClient c, Stream s, bool audio = false)
     {
         var head = $"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-store\r\n{CorsHeader}Connection: keep-alive\r\n\r\nretry: 2000\n\n";
         Write(s, Encoding.UTF8.GetBytes(head));
         byte[]? st, sub;
-        lock (lk) { streams.Add(s); st = lastState; sub = lastSubtitle; }
+        lock (lk) { streams.Add(s); if (audio) audioStreams.Add(s); st = lastState; sub = lastSubtitle; }
         // Máy vừa mở trang thấy ngay trạng thái và câu phụ đề gần nhất.
         if (st != null) Send("state", st, s);
         if (sub != null) Send("subtitle", sub, s);
@@ -425,7 +441,7 @@ public sealed class WebServer : INotifyPropertyChanged
         }
     }
 
-    void ReportClients() { lock (lk) clientCount = streams.Count; }
+    void ReportClients() { lock (lk) { clientCount = streams.Count; audioClientCount = audioStreams.Count; } }
 
     // MARK: địa chỉ
 

@@ -57,6 +57,12 @@ public sealed class AppSettings : INotifyPropertyChanged
             queueMode = QueueMode.fifo;
             SetFlag("readAllMigrated");
         }
+        // 10/2026: model Gemini 2.x không còn cho tài khoản mới → chuyển sang 3.5 flash lite (một lần).
+        if (!GetFlag("gemini3Migrated"))
+        {
+            if (geminiModel.StartsWith("gemini-2")) geminiModel = "gemini-3.5-flash-lite";
+            SetFlag("gemini3Migrated");
+        }
     }
 
     // MARK: lưu trữ
@@ -152,10 +158,43 @@ public sealed class AppSettings : INotifyPropertyChanged
     /// App ngoài: khung toàn bộ màn hình game và khung phụ đề.
     public Region? externalArea => regions.FirstOrDefault(r => !r.embedded && r.kind == RegionKind.manual);
     public Region? externalSubtitle => regions.FirstOrDefault(r => !r.embedded && r.kind == RegionKind.subtitle);
+    /// Phong cách dịch của game đang chọn (tab Thuật ngữ).
+    public TranslationStyle translationStyle
+    {
+        get => activeProfile.translationStyle;
+        set { var p = activeProfile; p.translationStyle = value; activeProfile = p; OnPropertyChanged(nameof(translationStyle)); }
+    }
+    public string translationNote
+    {
+        get => activeProfile.translationNote;
+        set { var p = activeProfile; p.translationNote = value; activeProfile = p; OnPropertyChanged(nameof(translationNote)); }
+    }
+    /// Phong cách thật sự dùng: "Tự động" thì đoán theo tên game.
+    public TranslationStyle effectiveTranslationStyle =>
+        translationStyle == TranslationStyle.auto ? TranslationStyles.Guess(activeProfile.name) : translationStyle;
+    /// Thuật ngữ riêng của game đang chọn (tab Thuật ngữ ở cửa sổ chính).
     public List<GlossaryEntry> glossary
     {
         get => activeProfile.glossary;
         set { var p = activeProfile; p.glossary = value; activeProfile = p; OnPropertyChanged(nameof(glossary)); }
+    }
+    /// Thuật ngữ chung cho mọi game (Cài đặt → Thuật ngữ chung).
+    public List<GlossaryEntry> globalGlossary { get => Get("globalGlossary", new List<GlossaryEntry>()); set => Set("globalGlossary", value); }
+    /// Thuật ngữ áp dụng khi dịch: của game trước, rồi thuật ngữ chung chưa bị game định nghĩa lại.
+    public List<GlossaryEntry> effectiveGlossary
+    {
+        get
+        {
+            var own = glossary.Where(g => g.term.Trim().Length > 0).ToList();
+            var ownTerms = own.Select(g => g.term.Trim().ToLowerInvariant()).ToHashSet();
+            return own.Concat(globalGlossary.Where(g => !ownTerms.Contains(g.term.Trim().ToLowerInvariant()))).ToList();
+        }
+    }
+    /// Game hiện tên nhân vật ở dòng riêng phía trên câu thoại ("Footpad Leader" / "The Blessing of the Phoenix…?").
+    public bool speakerAbove
+    {
+        get => activeProfile.speakerAbove;
+        set { var p = activeProfile; p.speakerAbove = value; activeProfile = p; OnPropertyChanged(nameof(speakerAbove)); }
     }
     public bool showsSpeakerNames
     {
@@ -213,7 +252,7 @@ public sealed class AppSettings : INotifyPropertyChanged
 
     // MARK: Dịch
     public string targetLanguage { get => Get("targetLanguage", "vi"); set => Set("targetLanguage", value); }
-    public string geminiModel { get => Get("geminiModel", "gemini-2.5-flash-lite"); set => Set("geminiModel", value); }
+    public string geminiModel { get => Get("geminiModel", "gemini-3.5-flash-lite"); set => Set("geminiModel", value); }
     public string geminiBaseURL { get => Get("geminiBaseURL", "https://generativelanguage.googleapis.com/v1beta"); set => Set("geminiBaseURL", value); }
     public int rpm { get => Get("rpm", 10); set => Set("rpm", value); }
     public int rpd { get => Get("rpd", 500); set => Set("rpd", value); }
@@ -225,6 +264,7 @@ public sealed class AppSettings : INotifyPropertyChanged
     public QueueMode queueMode { get => Get("queueMode", QueueMode.latestWins); set => Set("queueMode", value); }
 
     // MARK: Phân tích màn hình (thủ công)
+    public ScreenEngine screenEngine { get => Get("screenEngine", ScreenEngine.gemini); set => Set("screenEngine", value); }
     public bool analyzeSpeakSummary { get => Get("analyzeSpeakSummary", false); set => Set("analyzeSpeakSummary", value); }
     public double analyzeTimeout { get => Get("analyzeTimeout", 20.0); set => Set("analyzeTimeout", value); }
 
@@ -274,6 +314,15 @@ public sealed class AppSettings : INotifyPropertyChanged
 
     // MARK: Cửa sổ
     public double[]? mainWindowFrame { get => Get<double[]?>("mainWindowFrame", null); set => Set("mainWindowFrame", value); }
+
+    // MARK: OpenAI (trả phí)
+    public string openAIModel { get => Get("openAIModel", "gpt-5.4-nano"); set => Set("openAIModel", value); }
+    public double openAITimeout { get => Get("openAITimeout", 4.0); set => Set("openAITimeout", value); }
+    public string openAIKey
+    {
+        get => SecretStore.Get("openai-api-key") ?? "";
+        set { SecretStore.Set(value, "openai-api-key"); OnPropertyChanged(nameof(openAIKey)); Changed?.Invoke(nameof(openAIKey)); }
+    }
 
     public string geminiAPIKey
     {

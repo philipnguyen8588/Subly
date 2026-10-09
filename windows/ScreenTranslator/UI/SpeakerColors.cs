@@ -68,7 +68,7 @@ public static class SpeakerColors
             var line = lines[i];
             if (i > 0) outp.Add(new LineBreak());
             var m = colorize ? NamePrefix.Match(line) : Match.Empty;
-            if (m.Success && m.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length <= 3)
+            if (m.Success && m.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length <= 6)
             {
                 var name = m.Value[..^1].Trim();
                 outp.Add(new Run(m.Value) { FontWeight = FontWeights.Bold, Foreground = new SolidColorBrush(ColorFor(name, onDark, speakers)) });

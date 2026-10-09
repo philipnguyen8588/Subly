@@ -190,12 +190,15 @@ public sealed class ShotModal : Border
         dock.Children.Add(bar);
         if (shot.summary.Length > 0)
         {
+            // Tóm tắt cốt truyện / nhân vật có thể dài: hiện đủ, cuộn được khi vượt quá chiều cao.
             var sum = new TextBox
             {
                 Text = shot.summary, IsReadOnly = true, Background = Brushes.Transparent, BorderThickness = new Thickness(0),
                 Foreground = new SolidColorBrush(Color.FromArgb(217, 255, 255, 255)), TextWrapping = TextWrapping.Wrap,
-                TextAlignment = TextAlignment.Center, Margin = new Thickness(24, 10, 24, 10), MaxHeight = 80, FontSize = 13,
+                TextAlignment = TextAlignment.Left, Margin = new Thickness(24, 10, 24, 10), MaxHeight = 150, MaxWidth = 900, FontSize = 13,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalAlignment = HorizontalAlignment.Center,
             };
+            TextBlock.SetLineHeight(sum, 13 * 1.33 + 3);
             DockPanel.SetDock(sum, Dock.Bottom);
             dock.Children.Add(sum);
         }

@@ -22,6 +22,7 @@ public sealed class SubtitleStrip : Border
         BorderBrush = Ui.Res("CardStroke"); BorderThickness = new Thickness(0, 1, 0, 0);
         Pipeline.shared.PropertyChanged += (_, _) => Dispatcher.BeginInvoke(Refresh);
         Pipeline.shared.router.PropertyChanged += (_, _) => Dispatcher.BeginInvoke(Refresh);
+        Pipeline.shared.analyzer.PropertyChanged += (_, e) => { if (e.PropertyName is "lastError" or "isRunning") Dispatcher.BeginInvoke(Refresh); };
         Refresh();
     }
 
@@ -30,6 +31,11 @@ public sealed class SubtitleStrip : Border
         var p = Pipeline.shared;
         var v = Ui.V(4);
         if (p.router.lastError is string e) v.Children.Add(Ui.H(6, Ui.Icon("", 12, Ui.Danger), Ui.Text(e, 11.5, color: Ui.Danger)));
+        // Luồng chụp / nhận dạng chữ hỏng (ví dụ OCR treo) và lỗi của lần Dịch màn hình gần nhất.
+        foreach (var we in p.workerErrors.Values.OfType<string>().OrderBy(x => x, StringComparer.Ordinal))
+            v.Children.Add(Ui.H(6, Ui.Icon("", 12, Ui.Danger), Ui.Text(we, 11.5, color: Ui.Danger)));
+        if (p.analyzer.lastError is string ae && !p.analyzer.isRunning)
+            v.Children.Add(Ui.H(6, Ui.Icon("", 12, Ui.Danger), Ui.Text($"Dịch màn hình: {ae}", 11.5, color: Ui.Danger)));
         if (p.skippedUI.Values.FirstOrDefault() is string skipped)
             v.Children.Add(Ui.H(6, Ui.Icon("", 12, Ui.Secondary), Ui.Text($"Đang bỏ qua chữ giao diện (menu/cài đặt): {(skipped.Length > 70 ? skipped[..70] : skipped)}", 11.5, color: Ui.Secondary, wrap: false)));
         if (p.lastTranslated.Length == 0)

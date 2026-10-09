@@ -19,9 +19,30 @@ public enum ProfileSource { external, ps5 }
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum QueueMode { latestWins, fifo }
 
-/// Windows: Gemini → Google Translate (thay Apple Translation); hoặc chỉ Google Translate.
+/// Windows: Gemini → Google Translate (thay Apple Translation); chỉ Google Translate; hoặc OpenAI (trả phí) → Google Translate.
 [JsonConverter(typeof(JsonStringEnumConverter))]
-public enum TranslationEngine { auto, google }
+public enum TranslationEngine { auto, google, openAI }
+
+/// Engine cho "Dịch màn hình" (chọn riêng với phụ đề: phụ đề cần nhanh, dịch màn hình cần hiểu kỹ).
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum ScreenEngine { gemini, openAI, google }
+
+/// Giọng văn và cách xưng hô khi dịch phụ đề, chọn theo bối cảnh của game.
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum TranslationStyle { auto, modern, fantasy, myth }
+
+public static class TranslationStyles
+{
+    /// Đoán phong cách từ tên game; không nhận ra thì dùng hiện đại.
+    public static TranslationStyle Guess(string gameName)
+    {
+        var n = gameName.ToLowerInvariant();
+        if (new[] { "god of war", "ragnar", "assassin's creed odyssey", "hades" }.Any(n.Contains)) return TranslationStyle.myth;
+        if (new[] { "final fantasy", "ff16", "ffxvi", "witcher", "elden", "dragon", "skyrim", "baldur", "dark souls", "zelda", "kingdom come", "lord of the rings" }.Any(n.Contains))
+            return TranslationStyle.fantasy;
+        return TranslationStyle.modern;
+    }
+}
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum OverlayPosition { belowRegion, aboveRegion, screenBottom }
@@ -39,7 +60,21 @@ public static class Labels
     public static string Of(TranslationEngine e) => e switch
     {
         TranslationEngine.auto => "Tự động: Gemini → Google Translate",
+        TranslationEngine.openAI => "OpenAI (cần mạng, trả phí, ~0,9 s/câu) → dự phòng Google Translate",
         _ => "Google Translate (miễn phí, nhanh, dịch từng câu rời)",
+    };
+    public static string Of(ScreenEngine e) => e switch
+    {
+        ScreenEngine.gemini => "Gemini (cần mạng, miễn phí, ~4–8 s) → dự phòng Google Translate",
+        ScreenEngine.openAI => "OpenAI (cần mạng, trả phí, ~3,5 s) → dự phòng Google Translate",
+        _ => "Google Translate (nhanh, không có tóm tắt)",
+    };
+    public static string Of(TranslationStyle s) => s switch
+    {
+        TranslationStyle.auto => "Tự động theo tên game",
+        TranslationStyle.modern => "Hiện đại / đường phố",
+        TranslationStyle.fantasy => "Kỳ ảo trung cổ (hiệp sĩ, lãnh chúa)",
+        _ => "Thần thoại sử thi",
     };
     public static string Of(OverlayPosition p) => p switch
     {
@@ -144,6 +179,11 @@ public class Profile
     public bool showsSpeakerNames { get; set; } = true;
     /// Tên nhân vật đã học.
     public List<string> speakers { get; set; } = new();
+    /// Tên hiện ở dòng riêng phía trên câu thoại (không có dấu hai chấm).
+    public bool speakerAbove { get; set; }
+    public TranslationStyle translationStyle { get; set; } = TranslationStyle.auto;
+    /// Ghi chú tự do cho người dịch (xưng hô riêng giữa các nhân vật…).
+    public string translationNote { get; set; } = "";
 
     public Profile Clone() => new()
     {
@@ -151,6 +191,7 @@ public class Profile
         regions = regions.Select(r => r.Clone()).ToList(),
         glossary = glossary.Select(g => g.Clone()).ToList(),
         showsSpeakerNames = showsSpeakerNames, speakers = speakers.ToList(),
+        speakerAbove = speakerAbove, translationStyle = translationStyle, translationNote = translationNote,
     };
 }
 
