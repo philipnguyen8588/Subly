@@ -16,21 +16,32 @@ struct EmailPromptView: View {
     }
 
     var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "envelope.badge").font(.system(size: 40)).foregroundStyle(Theme.accentGradient)
+        VStack(spacing: 14) {
+            Image(systemName: "envelope.badge").font(.system(size: 38)).foregroundStyle(Theme.accentGradient)
             Text("Nhập email của bạn").font(.title3.weight(.semibold))
             Text("Nhập email để đăng ký dùng thử app.")
                 .font(.callout).foregroundStyle(.secondary)
-                .multilineTextAlignment(.center).frame(maxWidth: 360)
+                .multilineTextAlignment(.center).frame(maxWidth: 380)
             TextField("ban@example.com", text: $email)
-                .textFieldStyle(.roundedBorder).frame(width: 280).focused($focused)
+                .textFieldStyle(.roundedBorder).frame(width: 300).focused($focused)
                 .onSubmit { if valid { save() } }
             Button("Tiếp tục", action: save)
                 .buttonStyle(.borderedProminent).disabled(!valid).keyboardShortcut(.defaultAction)
-                .padding(.top, 4)
+
+            // Thông báo hỗ trợ nổi bật.
+            Text(.init(AppInfo.supportMarkdown))
+                .font(.callout.weight(.semibold))
+                .multilineTextAlignment(.center)
+                .tint(Theme.accentStart)
+                .padding(.horizontal, 14).padding(.vertical, 10)
+                .frame(maxWidth: 400)
+                .background(RoundedRectangle(cornerRadius: 10).fill(Theme.accentStart.opacity(0.12)))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.accentStart.opacity(0.3)))
+            Text(AppInfo.versionLabel).font(.caption).foregroundStyle(.tertiary)
         }
-        .padding(40)
-        .frame(width: 460, height: 320)
+        .padding(28)
+        .frame(width: 460)
+        .fixedSize(horizontal: false, vertical: true)
         .onAppear { focused = true }
     }
 

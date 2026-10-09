@@ -38,7 +38,7 @@ final class WindowManager {
 
     /// Hỏi email lần đầu (bản phát hành): modal đè lên cửa sổ chính, chưa nhập thì không thao tác được app.
     func showEmailPrompt(onDone: @escaping () -> Void) {
-        let sheet = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 320),
+        let sheet = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 450),
                              styleMask: [.titled, .fullSizeContentView], backing: .buffered, defer: false)
         sheet.titlebarAppearsTransparent = true
         sheet.isReleasedWhenClosed = false
@@ -104,7 +104,11 @@ final class WindowManager {
             w.titleVisibility = .hidden
             w.isReleasedWhenClosed = false
             w.minSize = NSSize(width: 860, height: 560)
-            w.contentView = NSHostingView(rootView: MainWindowView())
+            // Không để NSHostingView ép chiều cao/ngang "lý tưởng" của SwiftUI thành kích thước tối thiểu của
+            // cửa sổ (nếu không, nội dung dài sẽ khiến cửa sổ cao hết màn hình và không kéo ngắn lại được).
+            let host = NSHostingView(rootView: MainWindowView())
+            host.sizingOptions = []
+            w.contentView = host
             w.setFrameAutosaveName("MainWindowV3")
             if !w.setFrameUsingName("MainWindowV3") { w.center() }
             main = w

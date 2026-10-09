@@ -43,4 +43,17 @@ enum AppInfo {
     static var version: String {
         (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "0"
     }
+    static var build: String {
+        (Bundle.main.infoDictionary?["CFBundleVersion"] as? String) ?? "0"
+    }
+    /// Nhãn phiên bản hiện ở header / cài đặt, ví dụ "v0.1.0 (1)".
+    static var versionLabel: String { "v\(version) (\(build))" }
+
+    // Hỗ trợ: app miễn phí, liên hệ Telegram.
+    static let telegramGroup = "subly_ps"
+    static let telegramOwner = "lipnguyen"
+    static let supportLine = "Đây là app miễn phí. Cần hỗ trợ cài đặt, liên hệ Telegram @\(telegramGroup) hoặc @\(telegramOwner)."
+    /// Dạng Markdown có link bấm được (mở t.me).
+    static let supportMarkdown =
+        "Đây là app **miễn phí**. Cần hỗ trợ cài đặt, liên hệ Telegram [@\(telegramGroup)](https://t.me/\(telegramGroup)) hoặc [@\(telegramOwner)](https://t.me/\(telegramOwner))."
 }
