@@ -33,6 +33,9 @@ app: build
 	cp $(BIN) $(APP)/Contents/MacOS/ScreenTranslator
 	cp Resources/Info.plist $(APP)/Contents/Info.plist
 	@[ -f Resources/AppIcon.icns ] && cp Resources/AppIcon.icns $(APP)/Contents/Resources/AppIcon.icns || true
+	# Thuật ngữ game đóng kèm: tạo sẵn profile cho các game thông dụng ở lần chạy đầu.
+	mkdir -p $(APP)/Contents/Resources/glossaries
+	cp glossaries/*.csv $(APP)/Contents/Resources/glossaries/
 	mkdir -p $(APP)/Contents/Frameworks
 	cp Vendor/sherpa-onnx/lib/libsherpa-onnx-c-api.dylib Vendor/sherpa-onnx/lib/libonnxruntime.dylib $(APP)/Contents/Frameworks/
 	# Bỏ bảng ký hiệu khỏi file chạy (khó đọc hơn khi dịch ngược). Ký là bước cuối cùng.

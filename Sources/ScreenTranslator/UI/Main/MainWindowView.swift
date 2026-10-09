@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct MainWindowView: View {
     @ObservedObject var nav = AppNav.shared
@@ -8,6 +9,7 @@ struct MainWindowView: View {
     var body: some View {
         VStack(spacing: 0) {
             HeaderBar()
+            SupportBanner()
             TabBar(tab: $nav.tab, badges: [
                 .speakers: settings.showsSpeakerNames && !settings.speakers.isEmpty ? "\(settings.speakers.count)" : nil,
                 .glossary: settings.glossary.isEmpty ? nil : "\(settings.glossary.count)",
@@ -107,7 +109,10 @@ struct HeaderBar: View {
         HStack(spacing: 10) {
             HStack(spacing: 8) {
                 Image(systemName: "captions.bubble.fill").font(.system(size: 17)).foregroundStyle(Theme.accentGradient)
-                Text("ScreenTranslator").font(.headline)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("ScreenTranslator").font(.headline)
+                    Text(AppInfo.versionLabel).font(.system(size: 9)).foregroundStyle(.tertiary).monospacedDigit()
+                }
             }
             .padding(.leading, 70)   // chừa chỗ nút đèn giao thông
 
@@ -155,6 +160,23 @@ struct HeaderBar: View {
     }
 }
 
+/// Dải hỗ trợ nổi bật dưới header: app miễn phí + liên hệ Telegram (link bấm được).
+struct SupportBanner: View {
+    var body: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "gift.fill").font(.system(size: 12)).foregroundStyle(Theme.accentStart)
+            Text(.init(AppInfo.supportMarkdown))
+                .font(.callout.weight(.semibold)).tint(Theme.accentStart)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14).padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.accentStart.opacity(0.12))
+        .overlay(alignment: .bottom) { Rectangle().fill(Theme.accentStart.opacity(0.25)).frame(height: 1) }
+    }
+}
+
 struct TabBar: View {
     @Binding var tab: MainTab
     let badges: [MainTab: String?]
@@ -199,6 +221,7 @@ struct ProfilePicker: View {
             }
             Divider()
             Button { AppNav.shared.showNewProfile = true } label: { Label("Game mới…", systemImage: "plus") }
+            Button { addSamples() } label: { Label("Thêm game mẫu có sẵn", systemImage: "square.stack.3d.down.right") }
             Button("Đổi tên, xoá game…") { WindowManager.shared.showSettings() }
         } label: {
             Label(settings.activeProfile.name, systemImage: "gamecontroller").lineLimit(1)
@@ -206,6 +229,20 @@ struct ProfilePicker: View {
         .menuStyle(.borderedButton)
         .fixedSize()
         .help("Game đang dịch. Mỗi game có nguồn hình, khung phụ đề, thuật ngữ và tên nhân vật riêng")
+    }
+
+    /// Thêm các game mẫu còn thiếu rồi báo kết quả.
+    private func addSamples() {
+        let added = settings.addMissingSampleGames()
+        let alert = NSAlert()
+        if added.isEmpty {
+            alert.messageText = "Đã có đủ game mẫu"
+            alert.informativeText = "Tất cả game mẫu có sẵn đều đã nằm trong danh sách của bạn."
+        } else {
+            alert.messageText = "Đã thêm \(added.count) game"
+            alert.informativeText = added.joined(separator: ", ") + ".\nMỗi game đã có sẵn thuật ngữ; bạn chỉ cần chọn nguồn hình và vẽ khung phụ đề."
+        }
+        alert.runModal()
     }
 }
 

@@ -181,17 +181,36 @@ final class AppSettings: ObservableObject {
     /// Chuyển dữ liệu v1 (key "regions") sang profile "Mặc định".
     private func migrateIfNeeded() {
         if profiles.isEmpty {
-            var p = Profile(name: "Mặc định")
+            var created: [Profile] = []
+            // Dữ liệu v1 (key "regions") → giữ thành profile "Mặc định".
             if let data = UserDefaults.standard.data(forKey: "regions"),
                let old = try? JSONDecoder().decode([Region].self, from: data) {
-                p.regions = old
+                created.append(Profile(name: "Mặc định", regions: old))
                 UserDefaults.standard.removeObject(forKey: "regions")
             }
-            profiles = [p]
-            activeProfileID = p.id
+            // Lần đầu cài: tạo sẵn một profile cho mỗi game thông dụng (thuật ngữ đóng kèm app).
+            for g in GameGlossaries.bundled() where !created.contains(where: { $0.name.lowercased() == g.name.lowercased() }) {
+                created.append(Profile(name: g.name, glossary: g.entries))
+            }
+            if created.isEmpty { created = [Profile(name: "Mặc định")] }
+            Log.info("Tạo \(created.count) profile lần đầu: \(created.map(\.name).joined(separator: ", "))")
+            profiles = created
+            activeProfileID = created.first?.id
         } else if activeProfileID == nil || !profiles.contains(where: { $0.id == activeProfileID }) {
             activeProfileID = profiles.first?.id
         }
+    }
+
+    /// Thêm các game mẫu (thuật ngữ đóng kèm app) chưa có trong danh sách, không đụng profile hiện có. Trả về tên đã thêm.
+    @discardableResult
+    func addMissingSampleGames() -> [String] {
+        var added: [String] = []
+        for g in GameGlossaries.bundled() where !profiles.contains(where: { $0.name.lowercased() == g.name.lowercased() }) {
+            profiles.append(Profile(name: g.name, glossary: g.entries))
+            added.append(g.name)
+        }
+        if !added.isEmpty { Log.info("Thêm \(added.count) game mẫu: \(added.joined(separator: ", "))") }
+        return added
     }
 
     // MARK: Capture
