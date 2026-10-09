@@ -135,7 +135,7 @@
     var mode = cfg.speakerColor;
     var out = text.split('\n').map(function (line) {
       var m = rt.names && mode !== 'off' ? /^([^:：]{1,30}[:：])(.*)$/.exec(line) : null;
-      if (m && m[1].split(' ').length <= 3) {
+      if (m && m[1].split(' ').length <= 6) {
         speaker = m[1].slice(0, -1).trim();
         var c = colorFor(speaker);
         return '<span class="name" style="color:' + c + '">' + esc(m[1]) + '</span>' +

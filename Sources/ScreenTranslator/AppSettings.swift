@@ -82,6 +82,11 @@ final class AppSettings: ObservableObject {
             queueMode = .fifo
             UserDefaults.standard.set(true, forKey: "readAllMigrated")
         }
+        // 10/2026: model Gemini 2.x không còn cho tài khoản mới → chuyển sang 3.5 flash lite (một lần).
+        if !UserDefaults.standard.bool(forKey: "gemini3Migrated") {
+            if geminiModel.hasPrefix("gemini-2") { geminiModel = "gemini-3.5-flash-lite" }
+            UserDefaults.standard.set(true, forKey: "gemini3Migrated")
+        }
         // v3.1: "Ưu tiên tốc độ" trở thành lựa chọn engine dịch.
         if !UserDefaults.standard.bool(forKey: "engineMigrated") {
             if legacyPreferSpeed { translationEngine = .appleTranslation }
@@ -128,13 +133,40 @@ final class AppSettings: ObservableObject {
     /// App ngoài: khung toàn bộ màn hình game và khung phụ đề.
     var externalArea: Region? { regions.first { !$0.embedded && $0.kind == .manual } }
     var externalSubtitle: Region? { regions.first { !$0.embedded && $0.kind == .subtitle } }
+    /// Phong cách dịch của game đang chọn (tab Thuật ngữ).
+    var translationStyle: TranslationStyle {
+        get { activeProfile.translationStyle }
+        set { var p = activeProfile; p.translationStyle = newValue; activeProfile = p }
+    }
+    var translationNote: String {
+        get { activeProfile.translationNote }
+        set { var p = activeProfile; p.translationNote = newValue; activeProfile = p }
+    }
+    /// Phong cách thật sự dùng: "Tự động" thì đoán theo tên game.
+    var effectiveTranslationStyle: TranslationStyle {
+        translationStyle == .auto ? TranslationStyle.guess(activeProfile.name) : translationStyle
+    }
+    /// Thuật ngữ riêng của game đang chọn (tab Thuật ngữ ở cửa sổ chính).
     var glossary: [GlossaryEntry] {
         get { activeProfile.glossary }
         set { var p = activeProfile; p.glossary = newValue; activeProfile = p }
     }
+    /// Thuật ngữ chung cho mọi game (Cài đặt → Thuật ngữ).
+    @Stored("globalGlossary") var globalGlossary: [GlossaryEntry] = []
+    /// Thuật ngữ áp dụng khi dịch: của game trước, rồi thuật ngữ chung chưa bị game định nghĩa lại.
+    var effectiveGlossary: [GlossaryEntry] {
+        let own = glossary.filter { !$0.term.trimmingCharacters(in: .whitespaces).isEmpty }
+        let ownTerms = Set(own.map { $0.term.lowercased().trimmingCharacters(in: .whitespaces) })
+        return own + globalGlossary.filter { !ownTerms.contains($0.term.lowercased().trimmingCharacters(in: .whitespaces)) }
+    }
     var showsSpeakerNames: Bool {
         get { activeProfile.showsSpeakerNames }
         set { var p = activeProfile; p.showsSpeakerNames = newValue; activeProfile = p }
+    }
+    /// Game hiện tên nhân vật ở dòng riêng phía trên câu thoại ("Footpad Leader" / "The Blessing of the Phoenix…?").
+    var speakerAbove: Bool {
+        get { activeProfile.speakerAbove }
+        set { var p = activeProfile; p.speakerAbove = newValue; activeProfile = p }
     }
     var speakers: [String] {
         get { activeProfile.speakers }
@@ -180,7 +212,7 @@ final class AppSettings: ObservableObject {
 
     // MARK: Dịch
     @Stored("targetLanguage") var targetLanguage: String = "vi"
-    @Stored("geminiModel") var geminiModel: String = "gemini-2.5-flash-lite"
+    @Stored("geminiModel") var geminiModel: String = "gemini-3.5-flash-lite"
     @Stored("geminiBaseURL") var geminiBaseURL: String = "https://generativelanguage.googleapis.com/v1beta"
     @Stored("rpm") var rpm: Int = 10
     @Stored("rpd") var rpd: Int = 500
@@ -197,6 +229,7 @@ final class AppSettings: ObservableObject {
     @Stored("queueMode") var queueMode: QueueMode = .latestWins
 
     // MARK: Phân tích màn hình (thủ công)
+    @Stored("screenEngine") var screenEngine: ScreenEngine = .gemini
     @Stored("analyzeSpeakSummary") var analyzeSpeakSummary: Bool = false
     @Stored("analyzeTimeout") var analyzeTimeout: Double = 20.0
 
@@ -243,6 +276,14 @@ final class AppSettings: ObservableObject {
     @Stored("hotkeyVoice") var hotkeyVoice: KeyCombo = KeyCombo(keyCode: 9, modifiers: KeyCombo.cmd | KeyCombo.option)      // ⌥⌘V
     @Stored("hotkeyOverlay") var hotkeyOverlay: KeyCombo = KeyCombo(keyCode: 31, modifiers: KeyCombo.cmd | KeyCombo.option)  // ⌥⌘O
     @Stored("hotkeysEnabled") var hotkeysEnabled: Bool = true
+
+    // MARK: OpenAI (trả phí)
+    @Stored("openAIModel") var openAIModel: String = "gpt-5.4-nano"
+    @Stored("openAITimeout") var openAITimeout: Double = 4.0
+    var openAIKey: String {
+        get { SecretStore.get("openai-api-key") ?? "" }
+        set { objectWillChange.send(); SecretStore.set(newValue, name: "openai-api-key") }
+    }
 
     var geminiAPIKey: String {
         get { SecretStore.get("gemini-api-key") ?? "" }

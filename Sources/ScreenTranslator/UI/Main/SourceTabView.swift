@@ -90,8 +90,14 @@ struct GameScreenView<Placeholder: View>: View {
     @Binding var editing: Bool
     let onDraw: (CGRect) -> Void
     @ViewBuilder var placeholder: Placeholder
-    @State private var dragStart: CGPoint?
-    @State private var dragNow: CGPoint?
+
+    /// Kéo chuột trên hình: vẽ khung mới (khi bật "Vẽ khung phụ đề"), kéo khung đang có để di chuyển,
+    /// hoặc kéo một góc của khung để phóng to / thu nhỏ.
+    private enum DragMode { case draw, move, resize(anchor: CGPoint) }
+    @State private var mode: DragMode?
+    @State private var liveRect: CGRect?       // khung đang kéo, theo toạ độ của view
+    @State private var hovering = false
+    private let handle: CGFloat = 14           // vùng bắt góc (pt)
 
     var body: some View {
         GeometryReader { geo in
@@ -99,6 +105,11 @@ struct GameScreenView<Placeholder: View>: View {
             let scale = min(geo.size.width / vs.width, geo.size.height / vs.height)
             let fit = CGSize(width: vs.width * scale, height: vs.height * scale)
             let origin = CGPoint(x: (geo.size.width - fit.width) / 2, y: (geo.size.height - fit.height) / 2)
+            let image = CGRect(origin: origin, size: fit)
+            let frame = subtitleRect.map { r in
+                CGRect(x: origin.x + r.minX * fit.width, y: origin.y + r.minY * fit.height, width: r.width * fit.width, height: r.height * fit.height)
+            }
+            let shown = liveRect ?? frame
             ZStack(alignment: .topLeading) {
                 Color.black
                 if let broadcaster { FrameDisplayView(broadcaster: broadcaster) }
@@ -107,21 +118,30 @@ struct GameScreenView<Placeholder: View>: View {
                         .frame(width: fit.width, height: fit.height).offset(x: origin.x, y: origin.y)
                 }
                 if !live { placeholder.frame(maxWidth: .infinity, maxHeight: .infinity) }
-                if live, let r = subtitleRect, dragStart == nil {
+                if live, let f = shown {
+                    let active = editing || liveRect != nil || hovering
                     Rectangle()
-                        .strokeBorder(style: StrokeStyle(lineWidth: editing ? 2 : 1, dash: [6, 4]))
-                        .foregroundStyle(editing ? Color.yellow : Color.yellow.opacity(0.45))
-                        .frame(width: r.width * fit.width, height: r.height * fit.height)
-                        .offset(x: origin.x + r.minX * fit.width, y: origin.y + r.minY * fit.height)
+                        .fill(Color.yellow.opacity(liveRect != nil ? 0.12 : 0))
+                        .overlay(Rectangle().strokeBorder(style: StrokeStyle(lineWidth: active ? 2 : 1, dash: liveRect != nil ? [] : [6, 4])))
+                        .foregroundStyle(active ? Color.yellow : Color.yellow.opacity(0.45))
+                        .frame(width: f.width, height: f.height)
+                        .offset(x: f.minX, y: f.minY)
                         .allowsHitTesting(false)
-                }
-                if let a = dragStart, let b = dragNow {
-                    let rect = CGRect(x: min(a.x, b.x), y: min(a.y, b.y), width: abs(a.x - b.x), height: abs(a.y - b.y))
-                    Rectangle().fill(Color.yellow.opacity(0.15))
-                        .overlay(Rectangle().stroke(Color.yellow, lineWidth: 2))
-                        .frame(width: rect.width, height: rect.height)
-                        .offset(x: rect.minX, y: rect.minY)
-                        .allowsHitTesting(false)
+                    // Bốn ô vuông ở góc: kéo để đổi cỡ.
+                    ForEach(0..<4, id: \.self) { k in
+                        let c = CGPoint(x: k % 2 == 0 ? f.minX : f.maxX, y: k < 2 ? f.minY : f.maxY)
+                        Rectangle().fill(Color.yellow.opacity(active ? 0.95 : 0.5))
+                            .frame(width: 8, height: 8)
+                            .offset(x: c.x - 4, y: c.y - 4)
+                            .allowsHitTesting(false)
+                    }
+                    if liveRect == nil, !editing, hovering {
+                        Text("Kéo để di chuyển · kéo góc để đổi cỡ")
+                            .font(.caption2.weight(.medium)).padding(.horizontal, 6).padding(.vertical, 2)
+                            .background(.black.opacity(0.6), in: Capsule()).foregroundStyle(.yellow)
+                            .offset(x: f.minX + 4, y: max(origin.y, f.minY - 22))
+                            .allowsHitTesting(false)
+                    }
                 }
                 if editing, live {
                     Text("Kéo chuột quanh chỗ phụ đề xuất hiện")
@@ -131,25 +151,57 @@ struct GameScreenView<Placeholder: View>: View {
                 }
             }
             .contentShape(Rectangle())
-            .gesture(DragGesture(minimumDistance: 4, coordinateSpace: .local)
+            .onContinuousHover { phase in
+                guard case .active(let p) = phase, live, let f = frame else { hovering = false; return }
+                hovering = f.insetBy(dx: -handle, dy: -handle).contains(p)
+            }
+            .gesture(DragGesture(minimumDistance: 3, coordinateSpace: .local)
                 .onChanged { v in
-                    guard editing, live else { return }
-                    if dragStart == nil { dragStart = v.startLocation }
-                    dragNow = v.location
+                    guard live else { return }
+                    if mode == nil { mode = startMode(at: v.startLocation, frame: frame) }
+                    guard let mode else { return }
+                    switch mode {
+                    case .draw:
+                        liveRect = Self.rect(v.startLocation, v.location).intersection(image)
+                    case .move:
+                        guard let f = frame else { return }
+                        var r = f.offsetBy(dx: v.translation.width, dy: v.translation.height)
+                        r.origin.x = min(max(r.minX, image.minX), image.maxX - r.width)
+                        r.origin.y = min(max(r.minY, image.minY), image.maxY - r.height)
+                        liveRect = r
+                    case .resize(let anchor):
+                        let p = CGPoint(x: min(max(v.location.x, image.minX), image.maxX), y: min(max(v.location.y, image.minY), image.maxY))
+                        liveRect = Self.rect(anchor, p)
+                    }
                 }
-                .onEnded { v in
-                    guard editing, live, let a = dragStart else { return }
-                    let b = v.location
-                    dragStart = nil; dragNow = nil
-                    var n = CGRect(x: (min(a.x, b.x) - origin.x) / fit.width, y: (min(a.y, b.y) - origin.y) / fit.height,
-                                   width: abs(a.x - b.x) / fit.width, height: abs(a.y - b.y) / fit.height)
+                .onEnded { _ in
+                    defer { mode = nil; liveRect = nil }
+                    guard live, let m = mode, let r = liveRect else { return }
+                    var n = CGRect(x: (r.minX - origin.x) / fit.width, y: (r.minY - origin.y) / fit.height,
+                                   width: r.width / fit.width, height: r.height / fit.height)
                     n = n.intersection(CGRect(x: 0, y: 0, width: 1, height: 1))
                     guard n.width > 0.05, n.height > 0.03 else { return }
                     onDraw(n)
-                    editing = false
+                    if case .draw = m { editing = false }
                 })
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// Bắt đầu kéo ở đâu: góc khung → đổi cỡ (giữ góc đối diện), trong khung → di chuyển, ngoài khung → vẽ mới (nếu đang bật vẽ).
+    private func startMode(at p: CGPoint, frame: CGRect?) -> DragMode? {
+        if let f = frame {
+            let corners = [CGPoint(x: f.minX, y: f.minY), CGPoint(x: f.maxX, y: f.minY), CGPoint(x: f.minX, y: f.maxY), CGPoint(x: f.maxX, y: f.maxY)]
+            if let k = corners.indices.first(where: { abs(corners[$0].x - p.x) <= handle && abs(corners[$0].y - p.y) <= handle }) {
+                return .resize(anchor: corners[3 - k])
+            }
+            if f.contains(p) { return .move }
+        }
+        return editing ? .draw : nil
+    }
+
+    private static func rect(_ a: CGPoint, _ b: CGPoint) -> CGRect {
+        CGRect(x: min(a.x, b.x), y: min(a.y, b.y), width: abs(a.x - b.x), height: abs(a.y - b.y))
     }
 }
 

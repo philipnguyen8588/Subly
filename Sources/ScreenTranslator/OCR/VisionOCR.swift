@@ -126,6 +126,41 @@ final class VisionOCR {
         }.flatMap { $0 }
     }
 
+    /// Như `centered` cho cả khung: giữ cụm chạm dải giữa, cộng thêm dòng tiếp nối của phụ đề bị xuống dòng
+    /// ("…Are you here" / "alone?"): cụm nằm sát ngay trên/dưới một cụm đã giữ và gọn trong bề ngang của cụm đó.
+    /// Nút bấm ở mép không nằm trong bề ngang của phụ đề nên vẫn bị bỏ.
+    private static func centeredRows(_ groups: [[(String, Float, CGRect)]]) -> [[(String, Float, CGRect)]] {
+        typealias Obs = (String, Float, CGRect)
+        let rows: [[[Obs]]] = groups.map { row in
+            var clusters: [[Obs]] = []
+            for o in row.sorted(by: { $0.2.minX < $1.2.minX }) {
+                if let last = clusters.last?.last, o.2.minX - last.2.maxX < 0.05 { clusters[clusters.count - 1].append(o) }
+                else { clusters.append([o]) }
+            }
+            return clusters
+        }
+        func box(_ c: [Obs]) -> CGRect { c.map(\.2).reduce(c[0].2) { $0.union($1) } }
+        var keep = rows.map { $0.map { c in let b = box(c); return b.minX <= centerBand.upperBound && b.maxX >= centerBand.lowerBound } }
+        var changed = true
+        while changed {
+            changed = false
+            for i in rows.indices {
+                for j in rows[i].indices where !keep[i][j] {
+                    let b = box(rows[i][j])
+                    for n in [i - 1, i + 1] where rows.indices.contains(n) {
+                        for k in rows[n].indices where keep[n][k] {
+                            let kb = box(rows[n][k])
+                            let gap = max(kb.minY - b.maxY, b.minY - kb.maxY)
+                            let inside = b.minX >= kb.minX - 0.02 && b.maxX <= kb.maxX + 0.02
+                            if inside, gap < max(kb.height, b.height) * 1.2 { keep[i][j] = true; changed = true }
+                        }
+                    }
+                }
+            }
+        }
+        return rows.indices.map { i in rows[i].indices.filter { keep[i][$0] }.flatMap { rows[i][$0] } }.filter { !$0.isEmpty }
+    }
+
     private func run(_ handler: VNImageRequestHandler, level: VNRequestTextRecognitionLevel, centerOnly: Bool = false, minRowHeight: CGFloat = 0) -> Result? {
         let req = VNRecognizeTextRequest()
         req.recognitionLevel = level
@@ -156,7 +191,7 @@ final class VisionOCR {
                 groups.append([o])
             }
         }
-        if centerOnly { groups = groups.map(Self.centered).filter { !$0.isEmpty } }
+        if centerOnly { groups = Self.centeredRows(groups) }
         if minRowHeight > 0 { groups = groups.filter { g in (g.map(\.2.height).max() ?? 0) >= minRowHeight } }
         guard !groups.isEmpty else { return Result(text: "", lines: [], confidence: 0, level: level, ms: 0) }
         let obs = groups.flatMap { $0 }

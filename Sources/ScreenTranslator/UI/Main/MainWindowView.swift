@@ -10,6 +10,7 @@ struct MainWindowView: View {
             HeaderBar()
             TabBar(tab: $nav.tab, badges: [
                 .speakers: settings.showsSpeakerNames && !settings.speakers.isEmpty ? "\(settings.speakers.count)" : nil,
+                .glossary: settings.glossary.isEmpty ? nil : "\(settings.glossary.count)",
             ])
             Divider()
             Group {
@@ -17,6 +18,13 @@ struct MainWindowView: View {
                 case .source: SourceTabView()
                 case .log: LogTabView()
                 case .speakers: SpeakersTab()
+                case .glossary:
+                    VStack(alignment: .leading, spacing: 10) {
+                        TranslationStyleBox()
+                        GlossaryEditor(entries: $settings.glossary, fileName: "thuat-ngu-\(settings.activeProfile.name).csv",
+                                   note: "Thuật ngữ riêng của game “\(settings.activeProfile.name)”: tên riêng, địa danh, chiêu thức… Khi trùng với thuật ngữ chung (Cài đặt → Thuật ngữ chung) thì bảng này được ưu tiên. Để trống bản dịch = giữ nguyên.")
+                    }
+                    .padding(16)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -201,6 +209,34 @@ struct ProfilePicker: View {
     }
 }
 
+/// Phong cách dịch và ghi chú cho người dịch của game đang chọn (đầu tab Thuật ngữ).
+struct TranslationStyleBox: View {
+    @ObservedObject var settings = AppSettings.shared
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Phong cách dịch").font(.headline)
+                Picker("", selection: $settings.translationStyle) {
+                    ForEach(TranslationStyle.allCases) { s in
+                        Text(s == .auto ? "\(s.label) (đang là: \(TranslationStyle.guess(settings.activeProfile.name).label))" : s.label).tag(s)
+                    }
+                }
+                .labelsHidden().fixedSize()
+            }
+            Text("Quyết định giọng văn và cách xưng hô khi dịch: hiện đại (tôi – cậu, tao – mày), kỳ ảo trung cổ (tôi – ngài, ta – ngươi, Sir → ngài), thần thoại (ta – ngươi, cha – con).")
+                .font(.caption).foregroundStyle(.secondary)
+            Text("Ghi chú cho người dịch (tuỳ chọn)").font(.callout.weight(.medium))
+            TextEditor(text: $settings.translationNote)
+                .font(.callout).frame(height: 54)
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.primary.opacity(0.15)))
+            Text("Ví dụ: “Clive và Jill xưng anh – em”, “Cid gọi Clive là cậu”. Gửi kèm mỗi câu dịch, nên viết ngắn.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .card(padding: 12)
+    }
+}
+
 // MARK: - Tab: Nhân vật
 
 struct SpeakersTab: View {
@@ -219,6 +255,17 @@ struct SpeakersTab: View {
                         }
                     }
                     .toggleStyle(.switch)
+                    if settings.showsSpeakerNames {
+                        Picker("Tên hiện ở đâu", selection: $settings.speakerAbove) {
+                            Text("Cùng dòng: “Tên: câu thoại”").tag(false)
+                            Text("Dòng riêng phía trên câu thoại").tag(true)
+                        }
+                        .pickerStyle(.radioGroup)
+                        if settings.speakerAbove {
+                            Text("Dòng đầu trong khung phụ đề, nếu ngắn (1–4 từ Viết Hoa, không dấu câu) hoặc là tên đã học, được coi là tên của câu bên dưới. Nhớ vẽ khung phụ đề bao cả dòng tên.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
                     if settings.showsSpeakerNames {
                         Divider()
                         VStack(alignment: .leading, spacing: 4) {

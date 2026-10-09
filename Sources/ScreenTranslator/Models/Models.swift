@@ -87,6 +87,27 @@ struct GlossaryEntry: Codable, Identifiable, Equatable {
     var keepAsIs: Bool = false
 }
 
+/// Giọng văn và cách xưng hô khi dịch phụ đề, chọn theo bối cảnh của game.
+enum TranslationStyle: String, Codable, CaseIterable, Identifiable {
+    case auto, modern, fantasy, myth
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .auto: return "Tự động theo tên game"
+        case .modern: return "Hiện đại / đường phố"
+        case .fantasy: return "Kỳ ảo trung cổ (hiệp sĩ, lãnh chúa)"
+        case .myth: return "Thần thoại sử thi"
+        }
+    }
+    /// Đoán phong cách từ tên game; không nhận ra thì dùng hiện đại.
+    static func guess(_ gameName: String) -> TranslationStyle {
+        let n = gameName.lowercased()
+        if ["god of war", "ragnar", "assassin's creed odyssey", "hades"].contains(where: n.contains) { return .myth }
+        if ["final fantasy", "ff16", "ffxvi", "witcher", "elden", "dragon", "skyrim", "baldur", "dark souls", "zelda", "kingdom come", "lord of the rings"].contains(where: n.contains) { return .fantasy }
+        return .modern
+    }
+}
+
 /// Nguồn hình của một profile: app/cửa sổ trên máy này, hoặc PS5 nhúng trong app.
 enum ProfileSource: String, Codable, CaseIterable, Identifiable {
     case external, ps5
@@ -103,6 +124,9 @@ struct Profile: Codable, Identifiable, Equatable {
     var glossary: [GlossaryEntry] = []
     var showsSpeakerNames: Bool = true     // game có hiện "Tên: câu thoại" không
     var speakers: [String] = []            // tên nhân vật đã học
+    var speakerAbove = false               // tên hiện ở dòng riêng phía trên câu thoại (không có dấu hai chấm)
+    var translationStyle: TranslationStyle = .auto
+    var translationNote = ""               // ghi chú tự do cho người dịch (xưng hô riêng giữa các nhân vật…)
 
     init(id: UUID = UUID(), name: String, source: ProfileSource = .external, regions: [Region] = [], glossary: [GlossaryEntry] = [],
          showsSpeakerNames: Bool = true, speakers: [String] = []) {
@@ -110,7 +134,7 @@ struct Profile: Codable, Identifiable, Equatable {
         self.showsSpeakerNames = showsSpeakerNames; self.speakers = speakers
     }
 
-    enum CodingKeys: String, CodingKey { case id, name, source, regions, glossary, showsSpeakerNames, speakers }
+    enum CodingKeys: String, CodingKey { case id, name, source, regions, glossary, showsSpeakerNames, speakers, speakerAbove, translationStyle, translationNote }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
@@ -119,6 +143,9 @@ struct Profile: Codable, Identifiable, Equatable {
         glossary = try c.decodeIfPresent([GlossaryEntry].self, forKey: .glossary) ?? []
         showsSpeakerNames = try c.decodeIfPresent(Bool.self, forKey: .showsSpeakerNames) ?? true
         speakers = try c.decodeIfPresent([String].self, forKey: .speakers) ?? []
+        speakerAbove = try c.decodeIfPresent(Bool.self, forKey: .speakerAbove) ?? false
+        translationStyle = try c.decodeIfPresent(TranslationStyle.self, forKey: .translationStyle) ?? .auto
+        translationNote = try c.decodeIfPresent(String.self, forKey: .translationNote) ?? ""
         // Profile cũ chưa có nguồn: có vùng PS5 nhúng thì coi là PS5.
         source = try c.decodeIfPresent(ProfileSource.self, forKey: .source) ?? (regions.contains { $0.embedded } ? .ps5 : .external)
     }
@@ -131,13 +158,28 @@ enum QueueMode: String, Codable, CaseIterable, Identifiable {
 }
 
 enum TranslationEngine: String, Codable, CaseIterable, Identifiable {
-    case auto, appleIntelligence, appleTranslation
+    case auto, appleIntelligence, appleTranslation, openAI
     var id: String { rawValue }
     var label: String {
         switch self {
+        case .openAI: return "OpenAI (cần mạng, trả phí, ~0,9 s/câu) → dự phòng Apple Intelligence"
         case .auto: return "Tự động: Gemini → Apple Translation"
         case .appleIntelligence: return "Apple Intelligence (offline, có ngữ cảnh, ~0,8 s/câu)"
         case .appleTranslation: return "Apple Translation (offline, nhanh nhất ~30 ms)"
+        }
+    }
+}
+
+/// Engine cho "Dịch màn hình" (chọn riêng với phụ đề: phụ đề cần nhanh, dịch màn hình cần hiểu kỹ).
+enum ScreenEngine: String, Codable, CaseIterable, Identifiable {
+    case gemini, openAI, appleIntelligence, appleTranslation
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .gemini: return "Gemini (cần mạng, miễn phí, ~4–8 s) → dự phòng trên máy"
+        case .openAI: return "OpenAI (cần mạng, trả phí, ~3,5 s) → dự phòng trên máy"
+        case .appleIntelligence: return "Apple Intelligence (offline)"
+        case .appleTranslation: return "Apple Translation (offline, nhanh, tóm tắt bằng Apple Intelligence)"
         }
     }
 }

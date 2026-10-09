@@ -114,6 +114,11 @@ final class AppleIntelligenceBackend: TranslationBackend {
         return out
     }
 
+    /// Gọi model với lời dặn và nội dung tuỳ ý. Cửa sổ ngữ cảnh chỉ 4096 token: người gọi tự chia nhỏ nội dung dài.
+    func generate(system: String, prompt: String, timeout: TimeInterval) async throws -> String {
+        try await respond(system: system, prompt: prompt, timeout: timeout)
+    }
+
     private func respond(system: String, prompt: String, timeout: TimeInterval) async throws -> String {
         guard #available(macOS 26.0, *) else { throw AIError.unavailable("cần macOS 26") }
         guard isAvailable else { throw AIError.unavailable(status.label) }

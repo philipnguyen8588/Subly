@@ -44,7 +44,7 @@ enum SpeakerColors {
             var a = AttributedString(line)
             a.font = .system(size: size, weight: weight)
             if colorize, let r = line.range(of: #"^[^:：]{1,30}[:：]"#, options: .regularExpression),
-               line[r].split(separator: " ").count <= 3, let ar = Range(NSRange(r, in: line), in: a) {
+               line[r].split(separator: " ").count <= 6, let ar = Range(NSRange(r, in: line), in: a) {
                 let name = String(line[r].dropLast()).trimmingCharacters(in: .whitespaces)
                 a[ar].font = .system(size: size, weight: .bold)
                 a[ar].foregroundColor = color(for: name, onDark: onDark)

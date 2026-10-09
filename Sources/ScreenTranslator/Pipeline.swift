@@ -8,7 +8,8 @@ final class RegionWorker {
     let region: Region
     private let capture: FrameCapture
     private let gate: FrameGate
-    private let ocr = VisionOCR()
+    private let ocr = VisionOCR()                 // chỉ giữ tuỳ chọn; OCR thật chạy trong tiến trình phụ (`helper`)
+    private let helper: OCRClient
     // .workItem: object tạm của Vision/CoreVideo được giải phóng sau mỗi khung, không dồn lại tới khi luồng rảnh.
     private let ocrQueue = DispatchQueue(label: "ocr", qos: .userInitiated, autoreleaseFrequency: .workItem)
     private let gateQueue = DispatchQueue(label: "gate", qos: .userInitiated, autoreleaseFrequency: .workItem)
@@ -51,6 +52,7 @@ final class RegionWorker {
     /// Tên nhân vật đã học + game có hiện tên không (đọc trực tiếp từ settings mỗi lần OCR vì danh sách tăng dần).
     var speakerNames: () -> [String] = { [] }
     var usesNames: () -> Bool = { true }
+    var namesAbove: () -> Bool = { false }
     private var appActive = true
 
     init(region: Region, settings: AppSettings) {
@@ -58,6 +60,7 @@ final class RegionWorker {
         capture = region.embedded ? PS5FrameCapture(region: region, fps: settings.fps)
                                   : RegionCapture(region: region, fps: settings.fps, scale: settings.captureScale)
         gate = FrameGate(threshold: settings.diffThreshold)
+        helper = OCRClient(name: region.name)
         ocr.minTextHeight = Float(settings.minTextHeight)
         ocr.level = settings.ocrAccurate ? .accurate : .fast
         ocr.centerOnly = settings.centerOnlySubtitles
@@ -132,6 +135,7 @@ final class RegionWorker {
         gateQueue.sync { stopped = true }
         await capture.stop()
         gateQueue.sync { stableTimer?.cancel(); stableTimer = nil; pendingPB = nil }
+        ocrQueue.async { [helper] in helper.stop() }
     }
 
     /// Chạy trên gateQueue. Frame đổi → đợi `stableDelay` không có thay đổi nữa rồi mới OCR.
@@ -219,11 +223,17 @@ final class RegionWorker {
                 }
             }
             ocr.minRowHeight = CGFloat((subtitleHeight ?? 0) * 0.6)
-            guard let r = ocr.recognize(pb) else { return }
+            // OCR trong tiến trình phụ: Vision treo thì tiến trình phụ bị tắt và mở lại, app vẫn chạy tiếp.
+            guard let r = helper.recognize(pb, accurate: ocr.level == .accurate, minTextHeight: ocr.minTextHeight,
+                                           centerOnly: ocr.centerOnly, minRowHeight: ocr.minRowHeight) else { return }
             let lag = min(2.5, Date().timeIntervalSince(lastLookAt))
             lastLookAt = Date()
             onOCR?()
-            let text = r.text
+            // Game hiện tên ở dòng riêng phía trên: ghép "Tên" + câu bên dưới thành "Tên: câu".
+            var rows = r.lines
+            var nameJoined = false
+            if namesAbove() { (rows, nameJoined) = SpeakerNames.joinNameAbove(rows, speakers: speakerNames()) }
+            let text = nameJoined ? rows.joined(separator: " ") : r.text
             if text.isEmpty || TextUtils.letterCount(text) < 2 {
                 RegionPreviewProvider.shared.reportOCR(regionID: region.id, ms: r.ms, text: text)
                 if !lastText.isEmpty { lastText = ""; onEmpty?(region) }
@@ -234,7 +244,10 @@ final class RegionWorker {
             }
             // Chữ giao diện (menu, cài đặt, danh sách) → không dịch, không đọc.
             if skipUI {
-                let v = SubtitleClassifier.classify(r)
+                // Dòng tên riêng (Viết Hoa, không dấu câu, cỡ chữ khác câu thoại) không được tính là dấu hiệu chữ giao diện.
+                let v = nameJoined
+                    ? SubtitleClassifier.classify(text: r.lines.dropFirst().joined(separator: " "), rows: max(1, r.rows - 1), maxPerRow: r.maxPerRow, heightRatio: 1)
+                    : SubtitleClassifier.classify(r)
                 if v.isUI {
                     RegionPreviewProvider.shared.reportOCR(regionID: region.id, ms: r.ms, text: "⏸ " + text)
                     if !TextUtils.sameLine(text, lastText, threshold: dedup) {
@@ -253,13 +266,13 @@ final class RegionWorker {
             // Chỉ nhớ những câu ĐANG nằm trên màn hình: câu còn hiện liên tục thì không đọc lại, dù đứng yên bao lâu.
             // Câu OCR không còn thấy quá `Self.forgetAfter` giây, hoặc đã bị câu mới thay thế (xem dưới), thì quên:
             // A → B → A đọc lại A. Thời gian vắng mặt chỉ tính từ lần OCR thấy câu đã biến mất, không theo đồng hồ.
-            let onScreen = SubtitleSplitter.utterances(rows: r.lines, speakers: speakerNames(), useNames: usesNames())
+            let onScreen = SubtitleSplitter.utterances(rows: rows, speakers: speakerNames(), useNames: usesNames())
             recent.removeAll { $0.missingSince.map { now.timeIntervalSince($0) > Self.forgetAfter } ?? false }
             for i in recent.indices {
                 if SubtitleSplitter.score(recent[i].text, recent: onScreen) >= dedup { recent[i].missingSince = nil }
                 else if recent[i].missingSince == nil { recent[i].missingSince = now }
             }
-            var fresh = SubtitleSplitter.fresh(rows: r.lines, speakers: speakerNames(), useNames: usesNames(),
+            var fresh = SubtitleSplitter.fresh(rows: rows, speakers: speakerNames(), useNames: usesNames(),
                                                recent: recent.map(\.text), threshold: dedup)
             let changed = text != lastText
             lastText = text
@@ -416,6 +429,7 @@ final class Pipeline: ObservableObject {
             let st = settings
             w.speakerNames = { st.speakers }
             w.usesNames = { st.showsSpeakerNames }
+            w.namesAbove = { st.showsSpeakerNames && st.speakerAbove }
             w.onUI = { [weak self] text, region in
                 Task { @MainActor in
                     guard let self else { return }

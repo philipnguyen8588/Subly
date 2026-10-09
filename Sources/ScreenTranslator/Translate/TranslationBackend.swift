@@ -6,13 +6,14 @@ struct TranslationPair: Equatable {
 }
 
 enum BackendKind: String, Codable {
-    case gemini, apple, appleAI
+    case gemini, apple, appleAI, openAI
     /// Câu quá đơn giản: chỉ ghi vào nhật ký, không dịch, không đọc.
     case skipped
     var label: String {
         switch self {
         case .skipped: return "Không dịch"
         case .gemini: return "Gemini"
+        case .openAI: return "OpenAI"
         case .apple: return "Apple"
         case .appleAI: return "Apple Intelligence"
         }
