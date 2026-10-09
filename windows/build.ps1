@@ -2,10 +2,12 @@
 #   .\build.ps1                 tải thư viện phụ (sherpa-onnx, danh sách từ), dựng PS5 (nếu có MSYS2) rồi build Release
 #   .\build.ps1 -SkipPS5        bỏ qua phần PS5 (st_chiaki.dll)
 #   .\build.ps1 -Publish        xuất bản thư mục chạy được: windows\dist\ScreenTranslator
+#   .\build.ps1 -SingleFile     một file exe duy nhất, kèm sẵn .NET (máy khác không cần cài gì): windows\dist\ScreenTranslator.exe
 #   .\build.ps1 -Run            build rồi mở app
 param(
     [switch]$SkipPS5,
     [switch]$Publish,
+    [switch]$SingleFile,
     [switch]$Run,
     [string]$Configuration = "Release",
     [string]$Msys = "C:\msys64"
@@ -45,6 +47,18 @@ try {
         dotnet publish (Join-Path $root "ScreenTranslator\ScreenTranslator.csproj") -c $Configuration -o $dist
         if ($LASTEXITCODE -ne 0) { throw "dotnet publish lỗi" }
         $exe = Join-Path $dist "ScreenTranslator.exe"
+    }
+    if ($SingleFile) {
+        # Gom cả .NET, WPF và thư viện native (giọng offline, PS5) vào một file; lúc chạy tự giải nén vào thư mục tạm.
+        Write-Host "== dotnet publish một file → dist\ScreenTranslator.exe" -ForegroundColor Cyan
+        $single = Join-Path $root "dist\single"
+        Remove-Item -Recurse -Force $single -ErrorAction SilentlyContinue
+        dotnet publish (Join-Path $root "ScreenTranslator\ScreenTranslator.csproj") -c $Configuration -r win-x64 --self-contained true `
+            -p:PublishSingleFile=true -p:IncludeAllContentForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:DebugType=none -o $single
+        if ($LASTEXITCODE -ne 0) { throw "dotnet publish (một file) lỗi" }
+        $exe = Join-Path $root "dist\ScreenTranslator.exe"
+        Move-Item (Join-Path $single "ScreenTranslator.exe") $exe -Force
+        Remove-Item -Recurse -Force $single
     }
     Write-Host "Xong: $exe" -ForegroundColor Green
     if ($Run) { Start-Process $exe }
