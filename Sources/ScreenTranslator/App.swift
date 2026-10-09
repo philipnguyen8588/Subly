@@ -5,6 +5,9 @@ import AppKit
 struct ScreenTranslatorApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
+    /// Chính file chạy này cũng là tiến trình phụ làm OCR (`--ocr-helper`), xem OCRHelper.
+    init() { if OCRHelper.isHelper { OCRHelper.runHelper() } }
+
     // Không còn icon trên thanh menu (trước đây cập nhật theo thời gian thực, tốn tài nguyên của MenuBarAgent).
     // App chỉ có cửa sổ chính + icon Dock; scene Settings rỗng chỉ để SwiftUI có một scene và gắn menu lệnh.
     var body: some Scene {
@@ -148,7 +151,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if args.contains("--quiet") { settings.suppressAlerts = true }
         if let i = args.firstIndex(of: "--tab"), i + 1 < args.count {
             // Tên tab cũ vẫn dùng được: ps5/regions → Màn hình, live/analysis → Nhật ký.
-            let map: [String: MainTab] = ["source": .source, "ps5": .source, "regions": .source, "log": .log, "live": .log, "analysis": .log, "speakers": .speakers]
+            let map: [String: MainTab] = ["source": .source, "ps5": .source, "regions": .source, "log": .log, "live": .log, "analysis": .log, "speakers": .speakers, "glossary": .glossary]
             if let t = map[args[i + 1]] { AppNav.shared.tab = t }
         }
         if args.contains("--no-overlay") { settings.forceNoOverlay = true }

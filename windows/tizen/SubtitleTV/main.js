@@ -115,7 +115,7 @@
   function styled(text) {
     return text.split('\n').map(function (line) {
       var m = rt.names ? /^([^:：]{1,30}[:：])(.*)$/.exec(line) : null;
-      if (m && m[1].split(' ').length <= 3) {
+      if (m && m[1].split(' ').length <= 6) {
         var name = m[1].slice(0, -1).trim();
         return '<span class="name" style="color:' + colorFor(name) + '">' + esc(m[1]) + '</span>' + esc(m[2]);
       }

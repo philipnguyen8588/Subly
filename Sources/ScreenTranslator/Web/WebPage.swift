@@ -215,7 +215,7 @@ function fill(el, text) {
   for (const line of text.split('\n')) {
     const div = document.createElement('div');
     const m = state.names && line.match(/^[^:：]{1,30}[:：]/);
-    if (m && m[0].trim().split(/\s+/).length <= 3) {
+    if (m && m[0].trim().split(/\s+/).length <= 6) {
       const name = document.createElement('span');
       name.className = 'name'; name.textContent = m[0];
       name.style.color = nameColor(m[0].slice(0, -1).trim());

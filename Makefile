@@ -9,7 +9,11 @@ ifeq ($(SIGN_IDENTITY),)
 SIGN_IDENTITY = -
 endif
 
-.PHONY: build app run clean debug icon
+# Nơi cài app (make install): mở từ Launchpad / Spotlight / thư mục Applications như app bình thường.
+INSTALL_DIR ?= /Applications
+INSTALLED = $(INSTALL_DIR)/ScreenTranslator.app
+
+.PHONY: build app install run clean debug icon
 
 # Sinh icon app (chỉ cần chạy lại khi đổi thiết kế icon)
 icon:
@@ -34,8 +38,18 @@ app: build
 	codesign --force --sign $(SIGN_IDENTITY) --identifier com.lipnguyen.ScreenTranslator $(APP)
 	@echo "Built $(APP) (signed with: $(SIGN_IDENTITY))"
 
-run: app
-	open $(APP)
+# Build rồi cài vào /Applications. Chép sang bản tạm rồi mới thay, để không bao giờ để lại một app cài dở.
+# App đang mở vẫn chạy bản cũ cho tới khi thoát và mở lại.
+install: app
+	rm -rf "$(INSTALLED).new"
+	ditto $(APP) "$(INSTALLED).new"
+	rm -rf "$(INSTALLED)"
+	mv "$(INSTALLED).new" "$(INSTALLED)"
+	@echo "Đã cài $(INSTALLED)"
+	@if pgrep -x ScreenTranslator >/dev/null; then echo "App đang chạy bản cũ: thoát (⌘Q) rồi mở lại để dùng bản mới."; fi
+
+run: install
+	open "$(INSTALLED)"
 
 # Chạy từ terminal để xem log trực tiếp
 debug: app

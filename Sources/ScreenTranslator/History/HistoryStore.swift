@@ -49,6 +49,22 @@ struct ScreenAnalysis: Identifiable, Equatable {
     var hasImage = false
 }
 
+/// Một lần người dùng chọn nhiều câu phụ đề trong nhật ký và bấm "Tóm tắt". Giữ kèm các câu đã chọn để đọc lại được
+/// cả khi nhật ký phụ đề đã bị xoá.
+struct StorySummary: Identifiable, Equatable {
+    let id: Int64
+    let timestamp: Date
+    var profile: String
+    let title: String
+    let summary: String
+    let lines: [AnalysisLine]
+    /// Thời điểm câu đầu và câu cuối của đoạn được tóm tắt.
+    let from: Date
+    let to: Date
+    let backend: String
+    let latencyMs: Int
+}
+
 /// Lịch sử dịch + phân tích màn hình, SQLite thuần. Mỗi dòng gắn với một game (profile);
 /// `entries` / `analyses` chỉ chứa dữ liệu của game đang chọn và tự nạp lại khi đổi game.
 @MainActor
@@ -57,6 +73,7 @@ final class HistoryStore: ObservableObject {
 
     @Published private(set) var entries: [TranslationEntry] = []     // mới nhất trước
     @Published private(set) var analyses: [ScreenAnalysis] = []      // mới nhất trước
+    @Published private(set) var summaries: [StorySummary] = []       // mới nhất trước
     /// Game (UUID của profile) mà `entries` / `analyses` đang chứa.
     private(set) var scope = ""
     /// Số dòng có từ trước khi nhật ký được tách theo game (không gắn với game nào).
@@ -90,6 +107,10 @@ final class HistoryStore: ObservableObject {
         CREATE TABLE IF NOT EXISTS analyses(
             id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL, region TEXT NOT NULL,
             thumbnail BLOB, summary TEXT NOT NULL, lines TEXT NOT NULL, backend TEXT NOT NULL, latency INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS summaries(
+            id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL, profile TEXT NOT NULL, title TEXT NOT NULL,
+            summary TEXT NOT NULL, lines TEXT NOT NULL, t_from REAL NOT NULL, t_to REAL NOT NULL,
+            backend TEXT NOT NULL, latency INTEGER NOT NULL);
         PRAGMA journal_mode=WAL;
         """)
         // Bản cũ lưu ảnh chụp màn hình kèm mỗi lần dịch → xoá một lần cho nhẹ file.
@@ -110,6 +131,7 @@ final class HistoryStore: ObservableObject {
         scope = AppSettings.shared.activeProfile.id.uuidString
         entries = loadEntries(profile: scope)
         analyses = loadAnalyses(profile: scope)
+        summaries = loadSummaries(profile: scope)
         legacyCount = count("SELECT (SELECT COUNT(*) FROM history WHERE profile = '') + (SELECT COUNT(*) FROM analyses WHERE profile = '')")
         // Đổi game (ở bất kỳ đâu trong app) → nạp lại nhật ký của game mới.
         scopeObserver = AppSettings.shared.objectWillChange
@@ -123,6 +145,7 @@ final class HistoryStore: ObservableObject {
         scope = active
         entries = loadEntries(profile: active)
         analyses = loadAnalyses(profile: active)
+        summaries = loadSummaries(profile: active)
     }
 
     private func count(_ sql: String) -> Int {
@@ -297,5 +320,59 @@ final class HistoryStore: ObservableObject {
         }
         exec("DELETE FROM analyses WHERE profile = '\(scope)';")
         analyses.removeAll()
+    }
+
+    // MARK: summaries
+    private func loadSummaries(profile: String) -> [StorySummary] {
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT id, ts, profile, title, summary, lines, t_from, t_to, backend, latency FROM summaries WHERE profile = ? ORDER BY id DESC", -1, &stmt, nil) == SQLITE_OK else { return [] }
+        sqlite3_bind_text(stmt, 1, profile, -1, transient)
+        var out: [StorySummary] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            let lines = (try? JSONDecoder().decode([AnalysisLine].self, from: Data(text(stmt, 5).utf8))) ?? []
+            out.append(StorySummary(id: sqlite3_column_int64(stmt, 0), timestamp: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 1)),
+                                    profile: text(stmt, 2), title: text(stmt, 3), summary: text(stmt, 4), lines: lines,
+                                    from: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 6)),
+                                    to: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 7)),
+                                    backend: text(stmt, 8), latencyMs: Int(sqlite3_column_int(stmt, 9))))
+        }
+        sqlite3_finalize(stmt)
+        return out
+    }
+
+    @discardableResult
+    func addSummary(title: String, summary: String, lines: [AnalysisLine], from: Date, to: Date,
+                    backend: BackendKind, ms: Int, profile: String) -> StorySummary {
+        let now = Date()
+        let linesJSON = String(data: (try? JSONEncoder().encode(lines)) ?? Data("[]".utf8), encoding: .utf8) ?? "[]"
+        var stmt: OpaquePointer?
+        if sqlite3_prepare_v2(db, "INSERT INTO summaries(ts, profile, title, summary, lines, t_from, t_to, backend, latency) VALUES(?,?,?,?,?,?,?,?,?)", -1, &stmt, nil) == SQLITE_OK {
+            sqlite3_bind_double(stmt, 1, now.timeIntervalSince1970)
+            sqlite3_bind_text(stmt, 2, profile, -1, transient)
+            sqlite3_bind_text(stmt, 3, title, -1, transient)
+            sqlite3_bind_text(stmt, 4, summary, -1, transient)
+            sqlite3_bind_text(stmt, 5, linesJSON, -1, transient)
+            sqlite3_bind_double(stmt, 6, from.timeIntervalSince1970)
+            sqlite3_bind_double(stmt, 7, to.timeIntervalSince1970)
+            sqlite3_bind_text(stmt, 8, backend.rawValue, -1, transient)
+            sqlite3_bind_int(stmt, 9, Int32(ms))
+            if sqlite3_step(stmt) != SQLITE_DONE { Log.error("SQLite insert summary: \(String(cString: sqlite3_errmsg(db)))") }
+            sqlite3_finalize(stmt)
+        }
+        let s = StorySummary(id: sqlite3_last_insert_rowid(db), timestamp: now, profile: profile, title: title, summary: summary,
+                             lines: lines, from: from, to: to, backend: backend.rawValue, latencyMs: ms)
+        if profile == scope { summaries.insert(s, at: 0) }
+        return s
+    }
+
+    func deleteSummary(_ id: Int64) {
+        exec("DELETE FROM summaries WHERE id = \(id);")
+        summaries.removeAll { $0.id == id }
+    }
+
+    /// Xoá mọi bản tóm tắt của game đang chọn.
+    func clearSummaries() {
+        exec("DELETE FROM summaries WHERE profile = '\(scope)';")
+        summaries.removeAll()
     }
 }

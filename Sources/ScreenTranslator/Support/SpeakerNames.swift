@@ -2,9 +2,10 @@ import Foundation
 
 /// Học và nhận diện tên người nói ở đầu câu phụ đề ("Atreus: ...").
 enum SpeakerNames {
-    private static let learnPattern = #"^([A-Z][A-Za-z'\-]{0,20}(?: [A-Z][A-Za-z'\-]{1,20}){0,2}):\s+\S"#
+    /// Tên 1–5 từ Viết Hoa; giữa tên được có từ nối viết thường ("Guardian of the Flame", "Dion Lesage", "Geralt of Rivia").
+    private static let learnPattern = #"^([A-Z][A-Za-z'\-]{0,20}(?: (?:(?:of|the|de|von|van|da|du|la|le|del|al|el) )*[A-Z][A-Za-z'\-]{1,20}){0,4}):\s+\S"#
 
-    /// Trả về tên nếu câu có dạng "Tên: nội dung" (tên 1–3 từ, viết hoa chữ đầu; tên một chữ cái như "V" cũng nhận).
+    /// Trả về tên nếu câu có dạng "Tên: nội dung" (tên 1–5 từ, viết hoa chữ đầu, cho phép từ nối "of/the"; tên một chữ cái như "V" cũng nhận).
     static func learn(from source: String) -> String? {
         guard let r = source.range(of: learnPattern, options: .regularExpression) else { return nil }
         let head = source[r]
@@ -14,6 +15,29 @@ enum SpeakerNames {
         let blacklist: Set<String> = ["Note", "Warning", "Tip", "Hint", "Objective", "Quest", "Mission", "Chapter", "Press", "Error", "Info"]
         if blacklist.contains(name) { return nil }
         return name
+    }
+
+    /// Game hiện tên ở dòng riêng phía trên câu thoại: nếu hàng đầu là một cụm ngắn trông như tên (tên đã học, hoặc 1–4 từ
+    /// đều Viết Hoa, không dấu câu, không dấu hai chấm) và có câu bên dưới, ghép thành "Tên: câu…" để mọi xử lý tên dùng lại được.
+    /// Trả về các hàng mới và cờ đã ghép hay chưa.
+    static func joinNameAbove(_ rows: [String], speakers: [String]) -> (rows: [String], joined: Bool) {
+        guard rows.count >= 2 else { return (rows, false) }
+        let first = rows[0].trimmingCharacters(in: .whitespaces)
+        let words = first.split(separator: " ")
+        guard (1...5).contains(words.count), !first.contains(":"), !first.contains("："),
+              first.rangeOfCharacter(from: CharacterSet(charactersIn: ".,!?…;\"")) == nil else { return (rows, false) }
+        let known = canonical(first, speakers: speakers) != nil
+        let nameLike = words.allSatisfy { w in
+            guard let f = w.unicodeScalars.first else { return false }
+            return CharacterSet.uppercaseLetters.contains(f) || ["of", "the", "de", "von", "van"].contains(w.lowercased())
+        }
+        guard known || nameLike else { return (rows, false) }
+        let body = rows[1].trimmingCharacters(in: .whitespaces)
+        // Dòng dưới phải trông như câu thoại (từ 3 từ, hoặc có dấu câu), để hai nút xếp chồng ("Quick Save" / "Back")
+        // không bị ghép thành "Quick Save: Back" rồi học nhầm thành tên nhân vật.
+        let sentence = body.split(separator: " ").count >= 3 || body.rangeOfCharacter(from: CharacterSet(charactersIn: ".,!?…")) != nil
+        guard TextUtils.letterCount(body) >= 2, sentence else { return (rows, false) }
+        return (["\(first): \(body)"] + rows.dropFirst(2), true)
     }
 
     struct Match {

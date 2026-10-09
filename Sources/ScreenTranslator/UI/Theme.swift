@@ -15,6 +15,7 @@ enum Theme {
         switch backend {
         case "gemini": return gemini
         case "appleAI": return Color.purple
+        case "openAI": return Color(red: 0.06, green: 0.64, blue: 0.5)
         default: return apple
         }
     }

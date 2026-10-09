@@ -14,7 +14,7 @@ struct SettingsView: View {
         var title: String {
             switch self {
             case .translate: return "Dịch"; case .capture: return "Capture & OCR"; case .voice: return "Voice"
-            case .overlay: return "Overlay"; case .glossary: return "Thuật ngữ"; case .profile: return "Game"; case .hotkeys: return "Phím tắt"
+            case .overlay: return "Overlay"; case .glossary: return "Thuật ngữ chung"; case .profile: return "Game"; case .hotkeys: return "Phím tắt"
             case .web: return "iPhone / Web"
             }
         }
@@ -95,6 +95,7 @@ struct TranslateSettings: View {
                 Text("Apple Intelligence là model ngôn ngữ chạy ngay trên máy: miễn phí, không cần mạng, dùng được ngữ cảnh, thuật ngữ và tên nhân vật. Đo trên máy này: 0,4–1,3 s mỗi câu (Apple Translation ~30 ms, Gemini ~1 s). Lỗi hay quá thời gian thì tự rơi về Apple Translation.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            OpenAISettings(settings: settings)
             Section("Gemini API (free tier)") {
                 SecureField("API key (aistudio.google.com/apikey)", text: $key)
                 HStack {
@@ -136,7 +137,20 @@ struct TranslateSettings: View {
                 }
                 LanguageDownloadButton(backend: pipeline.apple)
             }
-            Section("Phân tích màn hình (thủ công)") {
+            Section("Dịch màn hình (thủ công)") {
+                Picker("Engine", selection: $settings.screenEngine) {
+                    ForEach(ScreenEngine.allCases) { Text($0.label).tag($0) }
+                }
+                if settings.screenEngine == .openAI, settings.openAIKey.isEmpty {
+                    Text("Chưa có OpenAI API key (nhập ở mục OpenAI phía trên) nên sẽ dùng engine trên máy.")
+                        .font(.caption).foregroundStyle(.orange)
+                }
+                if settings.screenEngine == .gemini, settings.geminiAPIKey.isEmpty {
+                    Text("Chưa có Gemini API key (nhập ở mục Gemini phía trên) nên sẽ dùng engine trên máy.")
+                        .font(.caption).foregroundStyle(.orange)
+                }
+                Text("Chọn riêng với engine phụ đề: phụ đề cần nhanh, còn dịch màn hình (nhật ký, tiểu sử nhân vật, nhiệm vụ) cần hiểu và tóm tắt kỹ. Gemini lỗi, hết quota hoặc mất mạng thì tự dùng engine trên máy.")
+                    .font(.caption).foregroundStyle(.secondary)
                 Toggle("Đọc tóm tắt bằng giọng nói", isOn: $settings.analyzeSpeakSummary)
                 HStack {
                     Text("Timeout")
@@ -182,6 +196,52 @@ struct TranslateSettings: View {
             switch await GeminiBackend.test(apiKey: k, model: m) {
             case .success(let s): testResult = "OK: \(s)"
             case .failure(let e): testResult = "Lỗi: \(e.localizedDescription)"
+            }
+            testing = false
+        }
+    }
+}
+
+/// Mục OpenAI trong Cài đặt → Dịch: key, model, thời gian chờ.
+struct OpenAISettings: View {
+    @ObservedObject var settings: AppSettings
+    @State private var key = ""
+    @State private var result = ""
+    @State private var testing = false
+
+    var body: some View {
+        Section("OpenAI API (trả phí)") {
+            SecureField("API key (platform.openai.com/api-keys)", text: $key)
+            HStack {
+                Button("Lưu key") { settings.openAIKey = key.trimmingCharacters(in: .whitespacesAndNewlines); result = "Đã lưu" }
+                Button(testing ? "Đang test…" : "Test key") { test() }.disabled(testing || key.isEmpty)
+                if !settings.openAIKey.isEmpty {
+                    Button("Xoá key", role: .destructive) { settings.openAIKey = ""; key = ""; result = "" }
+                }
+            }
+            if !result.isEmpty { Text(result).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
+            Picker("Model", selection: $settings.openAIModel) {
+                ForEach(OpenAIBackend.models, id: \.self) { Text($0).tag($0) }
+                if !OpenAIBackend.models.contains(settings.openAIModel) { Text(settings.openAIModel).tag(settings.openAIModel) }
+            }
+            HStack {
+                Text("Timeout phụ đề")
+                Slider(value: $settings.openAITimeout, in: 2...10, step: 0.5)
+                Text("\(settings.openAITimeout, specifier: "%.1f")s").monospacedDigit()
+            }
+            Text("Dùng khi chọn engine OpenAI ở trên (phụ đề) hoặc ở mục Dịch màn hình. Tính tiền theo token. gpt-5.4-nano rẻ nhất (~1 s/câu) nhưng hay dịch lủng củng; gpt-5.4-mini tự nhiên hơn, gần như cùng tốc độ; gpt-5.4 hay nhất (~1,7 s/câu), đắt nhất. Xem giá ở trang Pricing của OpenAI. Lỗi, hết tiền hoặc mất mạng thì tự dùng Apple Intelligence. Key lưu trong file chỉ tài khoản của bạn đọc được.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .onAppear { key = settings.openAIKey }
+    }
+
+    private func test() {
+        testing = true; result = ""
+        let k = key.trimmingCharacters(in: .whitespacesAndNewlines), m = settings.openAIModel
+        Task {
+            switch await OpenAIBackend.test(apiKey: k, model: m) {
+            case .success(let s): result = "OK: \(s)"
+            case .failure(let e): result = "Lỗi: \(e.localizedDescription)"
             }
             testing = false
         }
@@ -400,21 +460,34 @@ struct OverlaySettings: View {
 
 struct GlossarySettings: View {
     @ObservedObject var settings: AppSettings
+    var body: some View {
+        GlossaryEditor(entries: $settings.globalGlossary, fileName: "thuat-ngu-chung.csv",
+                       note: "Thuật ngữ chung, dùng cho mọi game. Thuật ngữ riêng của từng game nằm ở tab Thuật ngữ trong cửa sổ chính và được ưu tiên khi trùng. Để trống bản dịch = giữ nguyên.")
+    }
+}
+
+/// Bảng thuật ngữ dùng chung cho thuật ngữ chung (Cài đặt) và thuật ngữ của từng game (tab Thuật ngữ).
+struct GlossaryEditor: View {
+    @Binding var entries: [GlossaryEntry]
+    let fileName: String
+    let note: String
     @State private var selection = Set<UUID>()
+    @State private var message = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Thuật ngữ của profile “\(settings.activeProfile.name)”. Gemini sẽ giữ nguyên hoặc dịch đúng như bảng này. Để trống bản dịch = giữ nguyên.")
-                .font(.caption).foregroundStyle(.secondary)
-            Table($settings.glossary, selection: $selection) {
+            Text(note).font(.caption).foregroundStyle(.secondary)
+            Table($entries, selection: $selection) {
                 TableColumn("Thuật ngữ gốc") { $e in TextField("", text: $e.term) }
                 TableColumn("Dịch thành") { $e in TextField("(giữ nguyên)", text: $e.translation) }
                 TableColumn("Giữ nguyên") { $e in Toggle("", isOn: $e.keepAsIs).labelsHidden() }.width(70)
             }
             HStack {
-                Button { settings.glossary.append(GlossaryEntry(term: "")) } label: { Image(systemName: "plus") }
-                Button { settings.glossary.removeAll { selection.contains($0.id) }; selection = [] } label: { Image(systemName: "minus") }
+                Button { entries.append(GlossaryEntry(term: "")) } label: { Image(systemName: "plus") }
+                Button { entries.removeAll { selection.contains($0.id) }; selection = [] } label: { Image(systemName: "minus") }
                     .disabled(selection.isEmpty)
+                Text("\(entries.count) thuật ngữ").font(.caption).foregroundStyle(.secondary)
+                if !message.isEmpty { Text(message).font(.caption).foregroundStyle(.secondary) }
                 Spacer()
                 Button("Nhập CSV…") { importCSV() }
                 Button("Xuất CSV…") { exportCSV() }
@@ -423,23 +496,33 @@ struct GlossarySettings: View {
         .padding(.top, 8)
     }
 
+    /// CSV `thuật ngữ,bản dịch` (bản dịch trống = giữ nguyên). Bỏ dòng tiêu đề và dòng chú thích `#`;
+    /// thuật ngữ đã có thì được cập nhật, không thêm trùng.
     private func importCSV() {
         let p = NSOpenPanel(); p.allowedContentTypes = [.commaSeparatedText, .plainText]
         guard p.runModal() == .OK, let url = p.url, let s = try? String(contentsOf: url, encoding: .utf8) else { return }
-        var added: [GlossaryEntry] = []
+        var added = 0, updated = 0
         for line in s.split(whereSeparator: \.isNewline) {
-            let parts = line.split(separator: ",", maxSplits: 1, omittingEmptySubsequences: false).map { $0.trimmingCharacters(in: .whitespaces) }
+            let raw = line.trimmingCharacters(in: .whitespaces)
+            if raw.isEmpty || raw.hasPrefix("#") { continue }
+            let parts = raw.split(separator: ",", maxSplits: 1, omittingEmptySubsequences: false)
+                .map { $0.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "\"")) }
             guard let term = parts.first, !term.isEmpty else { continue }
+            if ["term", "thuật ngữ", "thuat ngu"].contains(term.lowercased()) { continue }
             let tr = parts.count > 1 ? parts[1] : ""
-            added.append(GlossaryEntry(term: term, translation: tr, keepAsIs: tr.isEmpty))
+            if let i = entries.firstIndex(where: { $0.term.lowercased() == term.lowercased() }) {
+                entries[i].translation = tr; entries[i].keepAsIs = tr.isEmpty; updated += 1
+            } else {
+                entries.append(GlossaryEntry(term: term, translation: tr, keepAsIs: tr.isEmpty)); added += 1
+            }
         }
-        settings.glossary += added
+        message = "Đã nhập: \(added) mới, \(updated) cập nhật"
     }
 
     private func exportCSV() {
-        let p = NSSavePanel(); p.nameFieldStringValue = "glossary.csv"; p.allowedContentTypes = [.commaSeparatedText]
+        let p = NSSavePanel(); p.nameFieldStringValue = fileName; p.allowedContentTypes = [.commaSeparatedText]
         guard p.runModal() == .OK, let url = p.url else { return }
-        let s = settings.glossary.map { "\($0.term),\($0.keepAsIs ? "" : $0.translation)" }.joined(separator: "\n")
+        let s = entries.map { "\($0.term),\($0.keepAsIs ? "" : $0.translation)" }.joined(separator: "\n")
         try? s.write(to: url, atomically: true, encoding: .utf8)
     }
 }

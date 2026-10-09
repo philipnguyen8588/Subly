@@ -48,7 +48,8 @@ Dịch thủ công: SCScreenshotManager → Vision OCR (.accurate, từng dòng)
 
 ```bash
 make app     # swift build -c release + đóng gói build/ScreenTranslator.app (kèm icon)
-make run     # mở app
+make install # build rồi cài vào /Applications/ScreenTranslator.app (mở từ Launchpad/Spotlight)
+make run     # cài rồi mở app
 make debug   # chạy từ terminal để xem log
 make icon    # sinh lại Resources/AppIcon.icns từ Scripts/make-icon.swift
 ```
