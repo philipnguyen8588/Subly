@@ -88,3 +88,26 @@ html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; backgro
 /* Hướng dẫn phím: tiêu đề nhóm + phím ở cột phải. */
 #menu .group { margin: 26px 0 8px 6px; font-size: 22px; letter-spacing: 1px; text-transform: uppercase; opacity: .55; }
 #menu .item.key .val { font-weight: 700; color: #ffd36b; }
+
+/* ===== Đè lên hình game (tvwindow BEHIND): nền trang trong suốt, game hiện qua. ===== */
+html.ovl, body.ovl { background: transparent; }
+#sub.ov { height: auto; bottom: 70px; padding: 0 140px; overflow: visible; }
+#sub.ov.top { bottom: auto; }
+#sub.ov .box { display: inline-block; max-width: 1640px; padding: 8px 26px 10px; border-radius: 12px; }
+#sub.ov .tr { line-height: 1.22; font-weight: 600; }
+#sub.ov .src { line-height: 1.2; margin-top: 4px; opacity: .8; }
+#sub.ov.bg-box .box { background: rgba(0,0,0,.55); }
+#sub.ov.bg-solid .box { background: rgba(0,0,0,.88); }
+#sub.ov.bg-none .box { background: none;
+  text-shadow: -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000, 0 0 8px #000, 0 0 3px #000; }
+/* Icon trạng thái + thông báo: viên nhỏ ở góc trái dưới. */
+#st.ov { left: 22px; bottom: 18px; top: auto; height: 40px; min-width: 40px; justify-content: center; font-size: 24px;
+         background: rgba(0,0,0,.5); border-radius: 20px; padding: 0 10px; box-sizing: border-box; }
+#st.ov.none { display: none; }
+#toast.ov { left: 80px; bottom: 18px; top: auto; height: 40px; line-height: 40px; max-width: 900px; font-size: 22px;
+            background: rgba(0,0,0,.6); border-radius: 20px; padding: 0 18px; }
+/* Bản dịch màn hình vẽ thẳng lên game (không có ảnh chụp). */
+#shot.live { background: transparent; }
+#shot.live.dimimg { background: rgba(0,0,0,.45); }
+#shot .livebar { position: absolute; left: 50%; top: 18px; transform: translateX(-50%); white-space: nowrap; font-size: 22px;
+                 padding: 8px 22px; border-radius: 20px; background: rgba(0,0,0,.6); }
