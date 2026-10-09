@@ -9,8 +9,8 @@
   'use strict';
 
   // ---------- Chẩn đoán: in nhật ký lên màn hình TV (bản điều tra lỗi) ----------
-  // Dòng CUỐI còn hiện trước khi app tự thoát = chỗ gây crash. Tắt bằng cách đặt DBG = false.
-  var DBG = true;
+  // Dòng CUỐI còn hiện trước khi app tự thoát = chỗ gây crash. Bật = true khi cần điều tra lỗi.
+  var DBG = false;
   var dbgLines = [];
   function dbg(m) {
     if (!DBG) return;
@@ -324,9 +324,9 @@
       // Đè lên game: cỡ chữ cố định theo người chọn, khung ôm sát chữ (tối đa 2 dòng rộng gần hết màn hình).
       sub.innerHTML = '<div class="box">' + inner + '</div>';
       var t = sub.querySelector('.tr'), sc = sub.querySelector('.src'), pv = sub.querySelector('.prev');
-      t.style.fontSize = Math.round(46 * cfg.fontScale) + 'px';
-      if (pv) pv.style.fontSize = Math.round(29 * cfg.fontScale) + 'px';
-      if (sc) sc.style.fontSize = Math.round(27 * cfg.fontScale) + 'px';
+      t.style.fontSize = (46 * cfg.fontScale).toFixed(1) + 'px';
+      if (pv) pv.style.fontSize = (29 * cfg.fontScale).toFixed(1) + 'px';
+      if (sc) sc.style.fontSize = (27 * cfg.fontScale).toFixed(1) + 'px';
       // Câu vừa (tới ~60 ký tự) giữ một dòng; câu dài hơn mới tách 2 dòng dài gần bằng nhau.
       balanceLines(t, 34 * parseFloat(t.style.fontSize));
       if (pv) balanceLines(pv, 52 * parseFloat(pv.style.fontSize));
@@ -1028,7 +1028,7 @@
         var up = e.keyCode === 38 ? 1 : -1;
         cfg.subY = Math.max(0, Math.min(900, cfg.subY + (cfg.position === 'top' ? -up : up) * 20)); save(); applyBand(); previewSub(); return;
       case 37: case 39:   // ◀▶: cỡ chữ
-        cfg.fontScale = Math.round(Math.max(0.5, Math.min(2, cfg.fontScale + (e.keyCode === 39 ? 0.05 : -0.05))) * 20) / 20; save(); previewSub(); return;
+        cfg.fontScale = Math.round(Math.max(0.5, Math.min(2, cfg.fontScale + (e.keyCode === 39 ? 0.02 : -0.02))) * 50) / 50; save(); previewSub(); return;
     }
     switch (e.keyCode) {
       case 37: setCollapsed(false); cfg.band = Math.max(20, cfg.band - (cfg.band > 60 ? 10 : 5)); save(); applyBand(); showVideo(); if (rt.last) showSubtitle(rt.last); toast('Dải phụ đề ' + cfg.band + ' px'); break;
