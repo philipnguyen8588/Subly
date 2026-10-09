@@ -139,6 +139,7 @@ public sealed class HeaderBar : Border
         overlayBtn.Click += (_, _) => { s.overlayEnabled = overlayBtn.IsChecked == true; if (!s.overlayEnabled) pipeline.overlay.Hide(); };
         var moon = Ui.IconBtn("", () => DisplayPower.shared.SleepDisplay(), "Tắt màn hình để tiết kiệm điện (app vẫn dịch và đọc). Di chuột hoặc gõ phím để bật lại");
         var gear = Ui.IconBtn("", App.ShowSettings, "Cài đặt: ngôn ngữ, Gemini, voice, overlay, thuật ngữ, phím tắt");
+        var help = Ui.IconBtn("", OpenGuide, "Hướng dẫn sử dụng app");
         profileBtn.Click += (_, _) => ProfileMenu().Also(m => { m.PlacementTarget = profileBtn; m.IsOpen = true; });
         profileBtn.ToolTip = "Game đang dịch. Mỗi game có nguồn hình, khung phụ đề, thuật ngữ và tên nhân vật riêng";
 
@@ -147,7 +148,7 @@ public sealed class HeaderBar : Border
         titleStack.Children.Add(Ui.Text(AppInfo.VersionLabel, 9, color: Ui.Tertiary, wrap: false));
         var logo = Ui.H(8, new Image { Source = new BitmapImage(new Uri("pack://application:,,,/Resources/AppIcon.png")), Width = 22, Height = 22 }, titleStack);
         var left = Ui.H(10, logo, startBtn, analyzeBtn, pill);
-        Child = Ui.Row(left, profileBtn, voiceBtn, overlayBtn, moon, gear);
+        Child = Ui.Row(left, profileBtn, voiceBtn, overlayBtn, moon, help, gear);
 
         pipeline.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(Pipeline.isRunning)) Dispatcher.BeginInvoke(Refresh); };
         pipeline.analyzer.PropertyChanged += (_, _) => Dispatcher.BeginInvoke(Refresh);
@@ -200,6 +201,14 @@ public sealed class HeaderBar : Border
         manage.Click += (_, _) => App.ShowSettings("profile");
         m.Items.Add(manage);
         return m;
+    }
+
+    /// Mở file hướng dẫn HTML đóng kèm app bằng trình duyệt mặc định.
+    static void OpenGuide()
+    {
+        var path = System.IO.Path.Combine(AppContext.BaseDirectory, "guide", "index.html");
+        if (System.IO.File.Exists(path)) App.OpenUrl(path);
+        else { Log.Warn($"Không thấy file hướng dẫn: {path}"); App.OpenUrl("https://t.me/subly_ps"); }
     }
 
     /// Thêm các game mẫu còn thiếu rồi báo kết quả.

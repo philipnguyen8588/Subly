@@ -54,6 +54,11 @@
     <None Include="..\..\glossaries\*.csv" CopyToOutputDirectory="PreserveNewest" Link="glossaries\%(Filename)%(Extension)" />
   </ItemGroup>
 
+  <!-- Hướng dẫn sử dụng HTML đóng kèm; nút Help (?) trên header mở bằng trình duyệt. -->
+  <ItemGroup>
+    <None Include="Resources\guide\index.html" CopyToOutputDirectory="PreserveNewest" Link="guide\index.html" />
+  </ItemGroup>
+
   <!-- Thư viện native: sherpa-onnx (giọng offline) và st_chiaki (PS5). Chưa có thì app vẫn build, tính năng báo "chưa cài". -->
   <ItemGroup>
     <None Include="..\Vendor\sherpa-onnx\lib\*.dll" CopyToOutputDirectory="PreserveNewest" Link="%(Filename)%(Extension)" Condition="Exists('..\Vendor\sherpa-onnx\lib')" />
