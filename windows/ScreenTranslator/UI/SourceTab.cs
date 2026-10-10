@@ -114,7 +114,9 @@ public sealed class ExternalSourceView : DockPanel
         SetDock(tb, Dock.Top);
         Children.Add(tb);
         Children.Add(body);
-        screen.onDraw = RegionActions.SetExternalSubtitle;
+        // App ngoài chỉ có một khung phụ đề: vẽ mới hay kéo / đổi cỡ đều đặt lại khung đó.
+        screen.onDrawNew = RegionActions.SetExternalSubtitle;
+        screen.onUpdate = (_, r) => RegionActions.SetExternalSubtitle(r);
         screen.onEditingEnded = () => drawToggle.IsChecked = false;
         drawToggle.Checked += (_, _) => screen.Editing = true;
         drawToggle.Unchecked += (_, _) => screen.Editing = false;
@@ -173,7 +175,7 @@ public sealed class ExternalSourceView : DockPanel
             return;
         }
         screen.SetStill(mirror.image, mirror.imageSize);
-        screen.SetSubtitle(SubtitleRect());
+        screen.SetFrames(SubtitleRect() is RectD sr && s.externalSubtitle is Region sub ? new[] { new EditableFrame(sub.id, sr, true, "Phụ đề") } : Array.Empty<EditableFrame>());
         screen.Placeholder = Ui.V(8, Ui.Icon("", 40, new SolidColorBrush(Color.FromArgb(128, 255, 255, 255))),
             Ui.Text(mirror.error ?? (mirror.capturing ? "Đang chụp…" : "Bấm “Chụp màn hình game” để lấy hình hiện tại"), color: new SolidColorBrush(Color.FromArgb(190, 255, 255, 255))))
             .Also(x => { foreach (FrameworkElement c in x.Children) c.HorizontalAlignment = HorizontalAlignment.Center; });
@@ -194,7 +196,11 @@ public sealed class ExternalSourceView : DockPanel
 public sealed class PS5SourceView : DockPanel
 {
     readonly GameScreenView screen = new();
-    readonly ToggleButton drawToggle = new() { Content = Ui.IconLabel("", "Vẽ khung phụ đề"), ToolTip = "Bật rồi kéo chuột trên hình để chọn chỗ phụ đề xuất hiện" };
+    readonly ToggleButton drawToggle = new()
+    {
+        Content = Ui.IconLabel("", "Thêm khu vực dịch"),
+        ToolTip = "Bật rồi kéo chuột trên hình để thêm một khu vực dịch (chỉ dịch chữ trong khung, không lấy tên, bản dịch hiện ngay tại đó)",
+    };
     readonly ContentControl toolbarSlot = new();
     readonly ContentControl body = new();
     readonly SubtitleStrip strip;
@@ -209,10 +215,14 @@ public sealed class PS5SourceView : DockPanel
         SetDock(tb, Dock.Top);
         Children.Add(tb);
         Children.Add(body);
-        screen.onDraw = PS5Coordinator.SetSubtitleRect;
+        screen.Hint = "Kéo chuột quanh vùng chữ muốn dịch thêm";
+        screen.onDrawNew = r => PS5Coordinator.AddSubtitleRegion(r);
+        screen.onUpdate = PS5Coordinator.UpdateSubtitleRect;
+        screen.onSelectionChanged = _ => RefreshToolbar();
         screen.onEditingEnded = () => drawToggle.IsChecked = false;
         drawToggle.Checked += (_, _) => screen.Editing = true;
         drawToggle.Unchecked += (_, _) => screen.Editing = false;
+        Pipeline.shared.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(Pipeline.regionCaptions)) Dispatcher.BeginInvoke(PushCaptions); };
         lastKind = stream.state.kind;
         stream.PropertyChanged += (_, e) => Dispatcher.BeginInvoke(() =>
         {
@@ -252,6 +262,9 @@ public sealed class PS5SourceView : DockPanel
         }
         drawToggle.IsEnabled = stream.isStreaming;
         right.Add(drawToggle);
+        // Khu vực dịch thêm đang chọn → cho xoá (không xoá được khung phụ đề chính).
+        if (SubtitleRegions().FirstOrDefault(r => r.id == screen.Selection && r.extra) is Region selExtra)
+            right.Add(Ui.Btn(Ui.IconLabel("", "Xoá khu vực"), () => PS5Coordinator.RemoveSubtitleRegion(selExtra.id), tip: $"Xoá khu vực dịch “{selExtra.name}”"));
         // Menu chất lượng
         var menuBtn = Ui.IconBtn("", () => { }, "Chất lượng hình có hiệu lực ở lần kết nối sau");
         var menu = new ContextMenu();
@@ -281,9 +294,9 @@ public sealed class PS5SourceView : DockPanel
             if (body.Content is not PS5SetupView) body.Content = new PS5SetupView();
             return;
         }
-        var sub = AppSettings.shared.regions.FirstOrDefault(r => r.embedded && r.kind == RegionKind.subtitle);
         screen.SetLive(stream.isStreaming);
-        screen.SetSubtitle(sub?.rect);
+        screen.SetFrames(SubtitleRegions().Select(r => new EditableFrame(r.id, r.rect, !r.extra, r.extra ? r.name : "Phụ đề chính")).ToList());
+        PushCaptions();
         var dim = new SolidColorBrush(Color.FromArgb(190, 255, 255, 255));
         screen.Placeholder = Ui.V(8, Ui.Icon("", 42, new SolidColorBrush(Color.FromArgb(128, 255, 255, 255))),
             Ui.Text(stream.state.kind == PS5Stream.StateKind.idle ? "Bấm Kết nối để lấy hình từ PS5" : stream.state.label, color: dim).Also(t => { t.TextAlignment = TextAlignment.Center; t.MaxWidth = 520; }),
@@ -299,6 +312,13 @@ public sealed class PS5SourceView : DockPanel
         }
         strip.Refresh();
     }
+
+    static System.Collections.Generic.List<Region> SubtitleRegions() =>
+        AppSettings.shared.regions.Where(r => r.embedded && r.kind == RegionKind.subtitle).ToList();
+
+    /// Bản dịch của từng khu vực dịch thêm → vẽ ngay tại khung trên hình.
+    void PushCaptions() =>
+        screen.SetCaptions(Pipeline.shared.regionCaptions.ToDictionary(k => k.Key, k => k.Value.translated));
 }
 
 /// Chưa có máy: nhập từ chiaki-ng hoặc đăng ký mới bằng mã PIN.

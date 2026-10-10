@@ -249,15 +249,44 @@ public static class PS5Coordinator
         }
     }
 
-    public static void SetSubtitleRect(RectD r)
+    /// Dời / đổi cỡ một khung đã có (khung phụ đề chính hoặc khu vực dịch thêm) theo id.
+    public static void UpdateSubtitleRect(Guid id, RectD r)
     {
         var settings = AppSettings.shared;
         var regions = settings.regions;
-        var sub = regions.FirstOrDefault(x => x.embedded && x.kind == RegionKind.subtitle);
-        if (sub != null) sub.rect = r;
-        else regions.Add(new Region { name = "Phụ đề PS5", x = r.X, y = r.Y, width = r.Width, height = r.Height, embedded = true });
+        var x = regions.FirstOrDefault(q => q.id == id);
+        if (x == null) return;
+        x.rect = r;
         settings.regions = regions;
-        Log.Info($"PS5: vùng phụ đề = x {r.X:0.00} y {r.Y:0.00} w {r.Width:0.00} h {r.Height:0.00}");
+        Log.Info($"PS5: khung '{x.name}' = x {r.X:0.00} y {r.Y:0.00} w {r.Width:0.00} h {r.Height:0.00}");
+        Pipeline.shared.RestartIfRunning();
+    }
+
+    /// Thêm một khu vực dịch mới trên hình PS5: chỉ dịch chữ trong khung, không lấy tên, không đọc thành tiếng,
+    /// bản dịch hiện ngay tại khung. Nếu chưa có khung phụ đề chính nào thì khung đầu tiên làm khung chính.
+    public static Guid AddSubtitleRegion(RectD r)
+    {
+        var settings = AppSettings.shared;
+        var regions = settings.regions;
+        bool hasPrimary = regions.Any(q => q.embedded && q.kind == RegionKind.subtitle && !q.extra);
+        int count = regions.Count(q => q.embedded && q.kind == RegionKind.subtitle);
+        var n = new Region { name = hasPrimary ? $"Khu vực {count + 1}" : "Phụ đề PS5", x = r.X, y = r.Y, width = r.Width, height = r.Height, embedded = true, extra = hasPrimary };
+        regions.Add(n);
+        settings.regions = regions;
+        Log.Info($"PS5: thêm {(n.extra ? "khu vực dịch" : "khung phụ đề chính")} '{n.name}' = x {r.X:0.00} y {r.Y:0.00} w {r.Width:0.00} h {r.Height:0.00}");
+        Pipeline.shared.RestartIfRunning();
+        return n.id;
+    }
+
+    /// Xoá một khu vực dịch thêm (không cho xoá khung phụ đề chính).
+    public static void RemoveSubtitleRegion(Guid id)
+    {
+        var settings = AppSettings.shared;
+        var r = settings.regions.FirstOrDefault(q => q.id == id);
+        if (r == null || !r.extra) return;
+        settings.regions = settings.regions.Where(q => q.id != id).ToList();
+        Pipeline.shared.ClearRegionCaption(id);
+        Log.Info($"PS5: xoá khu vực dịch '{r.name}'");
         Pipeline.shared.RestartIfRunning();
     }
 }

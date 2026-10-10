@@ -107,7 +107,7 @@ public struct RectD : IEquatable<RectD>
     public bool Equals(RectD o) => X == o.X && Y == o.Y && Width == o.Width && Height == o.Height;
     public override bool Equals(object? obj) => obj is RectD r && Equals(r);
     public override int GetHashCode() => HashCode.Combine(X, Y, Width, Height);
-    public override string ToString() => $"({X:0},{Y:0} {Width:0}×{Height:0})";
+    public override string ToString() => $"({X:0.##},{Y:0.##} {Width:0.##}×{Height:0.##})";
 }
 
 /// Vùng màn hình. Toạ độ pixel vật lý toàn cục của Windows (gốc trên-trái màn hình chính).
@@ -134,6 +134,9 @@ public class Region
     public double? winHeight { get; set; }
     public RegionAppMode appMode { get; set; } = RegionAppMode.followWindow;
     public bool embedded { get; set; }
+    /// Khu vực dịch thêm (ngoài khung phụ đề chính): không lấy tên nhân vật, không đọc thành tiếng,
+    /// bản dịch hiện ngay tại khung thay vì ở dải phụ đề chung.
+    public bool extra { get; set; }
 
     [JsonIgnore]
     public RectD rect

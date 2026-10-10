@@ -377,6 +377,9 @@ public sealed class RegionWorker
     static string Head(string s, int n) => s.Length > n ? s[..n] : s;
 }
 
+/// Bản dịch mới nhất của một khu vực dịch thêm, hiện ngay tại khung đó trên hình PS5.
+public sealed record RegionCaption(string source, string translated, DateTime at);
+
 /// Điều phối: các RegionWorker → hàng đợi dịch có thứ tự → giọng đọc + overlay + web + nhật ký. Dùng trên UI thread.
 public sealed class Pipeline : INotifyPropertyChanged
 {
@@ -398,6 +401,8 @@ public sealed class Pipeline : INotifyPropertyChanged
     /// vùng đang hiện chữ giao diện (bị bỏ qua)
     public Dictionary<Guid, string> skippedUI { get; private set; } = new();
     public int skippedCount { get; private set; }
+    /// Bản dịch mới nhất của từng khu vực dịch thêm (hiện ngay tại khung trên hình PS5).
+    public Dictionary<Guid, RegionCaption> regionCaptions { get; private set; } = new();
 
     readonly AppSettings settings = AppSettings.shared;
     public readonly TranslationRouter router;
@@ -454,11 +459,18 @@ public sealed class Pipeline : INotifyPropertyChanged
                 workerErrors[r.id] = msg;
                 Raise(nameof(workerErrors));
             });
-            w.onEmpty = region => App.RunOnUI(() => { skippedUI.Remove(region.id); overlay.Hide(); Raise(nameof(skippedUI)); });
+            w.onEmpty = region => App.RunOnUI(() =>
+            {
+                skippedUI.Remove(region.id);
+                if (region.extra) { if (regionCaptions.Remove(region.id)) Raise(nameof(regionCaptions)); }   // chữ trong khu vực đã biến mất → bỏ bản dịch tại khung
+                else overlay.Hide();
+                Raise(nameof(skippedUI));
+            });
             var st = settings;
+            // Khu vực dịch thêm (r.extra): không lấy tên nhân vật, chỉ OCR rồi dịch.
             w.speakerNames = () => st.speakers;
-            w.usesNames = () => st.showsSpeakerNames;
-            w.namesAbove = () => st.showsSpeakerNames && st.speakerAbove;
+            w.usesNames = () => st.showsSpeakerNames && !r.extra;
+            w.namesAbove = () => st.showsSpeakerNames && st.speakerAbove && !r.extra;
             w.onUI = (text, region) => App.RunOnUI(() =>
             {
                 if (!skippedUI.ContainsKey(region.id)) skippedCount++;
@@ -529,8 +541,16 @@ public sealed class Pipeline : INotifyPropertyChanged
         overlay.Hide();
         skippedUI = new();
         Raise(nameof(skippedUI));
+        regionCaptions = new();
+        Raise(nameof(regionCaptions));
         Task.Run(() => { foreach (var w in ws) w.Stop(); });
         Log.Info("Pipeline stopped");
+    }
+
+    /// Xoá bản dịch đang hiện của một khu vực (khi người dùng xoá khu vực đó).
+    public void ClearRegionCaption(Guid id)
+    {
+        if (regionCaptions.Remove(id)) Raise(nameof(regionCaptions));
     }
 
     public void RestartIfRunning()
@@ -603,7 +623,7 @@ public sealed class Pipeline : INotifyPropertyChanged
         {
             var text = rawText;
             string? speakerName = null;
-            if (settings.showsSpeakerNames)
+            if (settings.showsSpeakerNames && !region.extra)
             {
                 if (SpeakerNames.Learn(rawText) is string name) settings.LearnSpeaker(name);
                 var n = SpeakerNames.Normalize(rawText, settings.speakers);
@@ -661,6 +681,22 @@ public sealed class Pipeline : INotifyPropertyChanged
 
     void Emit(Job job, TranslationRouter.Output outp)
     {
+        if (job.region.extra)
+        {
+            // Khu vực dịch thêm: chỉ hiện bản dịch ngay tại khung (không vào dải phụ đề chung, không đọc, không gửi web / TV).
+            if (!utteranceParts.TryGetValue(job.utterance, out var xp)) utteranceParts[job.utterance] = xp = new();
+            xp.Add(outp.text);
+            utteranceMs[job.utterance] = utteranceMs.GetValueOrDefault(job.utterance) + outp.ms;
+            utteranceBackend[job.utterance] = outp.backend;
+            translateCount++;
+            Log.Info($"TR[{outp.backend}] {outp.ms}ms [{job.region.name}]: {outp.text}");
+            var prev = regionCaptions.GetValueOrDefault(job.region.id);
+            bool append = !job.firstOfBatch && prev != null;
+            regionCaptions[job.region.id] = new RegionCaption(append ? prev!.source + "\n" + job.text : job.text,
+                                                              append ? prev!.translated + "\n" + outp.text : outp.text, DateTime.Now);
+            Raise(nameof(regionCaptions));
+            return;
+        }
         if (job.firstOfBatch) { batchSource = ""; batchOutput = ""; }
         // Các đoạn của cùng một câu nối liền bằng khoảng trắng; câu thoại khác thì xuống dòng.
         var sep = batchOutput.Length == 0 ? "" : (job.utterance == lastEmittedUtterance ? " " : "\n");
@@ -708,7 +744,7 @@ public sealed class Pipeline : INotifyPropertyChanged
         foreach (var raw in batch.Split('\n'))
         {
             var text = raw;
-            if (settings.showsSpeakerNames)
+            if (settings.showsSpeakerNames && !region.extra)
             {
                 if (SpeakerNames.Learn(raw) is string name) settings.LearnSpeaker(name);
                 text = SpeakerNames.Normalize(raw, settings.speakers).text;

@@ -57,6 +57,8 @@ public sealed class PS5Stream : INotifyPropertyChanged
     Timer? fpsTimer;
     int generation;
     bool needKeyframe;
+    // Lần kết nối gần nhất (để tự nối lại khi PS5 còn giữ phiên cũ) và số lần đã thử lại.
+    int lastResolution = 4, lastFps = 30, busyRetries;
     // Giữ delegate sống trong suốt phiên (tránh GC thu hồi khi code native còn gọi).
     readonly ChiakiNative.VideoCb videoCb;
     readonly ChiakiNative.EventCb eventCb;
@@ -214,6 +216,7 @@ public sealed class PS5Stream : INotifyPropertyChanged
         var h0 = host;
         if (h0 == null || session != IntPtr.Zero || state.isBusy) return;
         if (!ChiakiNative.Available) { SetState(new State(StateKind.failed, ChiakiNative.LoadError ?? "Thiếu st_chiaki.dll")); return; }
+        lastResolution = resolution; lastFps = fps;
         int gen = Interlocked.Increment(ref generation);
         SetState(new State(StateKind.searching, $"Đang tìm {h0.nickname}…"));
         work.Async(() =>
@@ -315,6 +318,7 @@ public sealed class PS5Stream : INotifyPropertyChanged
                 if (msg.Contains("rror") || msg.Contains("ailed")) Log.Warn($"chiaki: {msg}");
                 break;
             case ChiakiNative.ST_EVENT_CONNECTED:
+                busyRetries = 0;
                 SetState(new State(StateKind.streaming));
                 break;
             case ChiakiNative.ST_EVENT_PIN_REQUEST:
@@ -326,9 +330,22 @@ public sealed class PS5Stream : INotifyPropertyChanged
                 var text = parts.Length > 1 ? parts[1] : msg;
                 Log.Info($"PS5: phiên kết thúc ({msg})");
                 // Không được join luồng phiên ngay trong callback của nó → dọn ở hàng đợi khác.
+                int gen = generation;
                 work.Async(() =>
                 {
                     Teardown();
+                    // Mã 4 ngay sau khi vừa ngắt: PS5 chưa kịp đóng phiên trước của chính app này (mất vài giây).
+                    // Tự đợi rồi nối lại thay vì báo lỗi; chỉ báo khi thử lại vẫn bị (có app Remote Play khác đang dùng).
+                    if (code == 4 && busyRetries < 3 && gen == generation)
+                    {
+                        busyRetries++;
+                        SetState(new State(StateKind.searching, $"PS5 còn giữ phiên trước, thử lại sau 4 giây ({busyRetries}/3)…"));
+                        for (int i = 0; i < 8; i++) { Thread.Sleep(500); if (gen != generation) return; }
+                        SetState(new State(StateKind.idle));
+                        App.RunOnUI(() => Connect(lastResolution, lastFps));
+                        return;
+                    }
+                    busyRetries = 0;
                     SetState(code switch
                     {
                         1 => new State(StateKind.idle),
@@ -351,6 +368,7 @@ public sealed class PS5Stream : INotifyPropertyChanged
     public void Disconnect()
     {
         Interlocked.Increment(ref generation);
+        busyRetries = 0;
         work.Async(() =>
         {
             Teardown();
