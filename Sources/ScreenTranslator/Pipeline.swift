@@ -339,6 +339,13 @@ final class RegionWorker {
     }
 }
 
+/// Bản dịch mới nhất của một khu vực dịch thêm, hiện ngay tại khung đó trên hình PS5.
+struct RegionCaption: Equatable {
+    var source: String
+    var translated: String
+    var at: Date
+}
+
 @MainActor
 final class Pipeline: ObservableObject {
     static let shared = Pipeline()
@@ -355,6 +362,8 @@ final class Pipeline: ObservableObject {
     @Published private(set) var inactiveRegions: [UUID: Bool] = [:]   // true = app gắn không ở phía trước
     @Published private(set) var skippedUI: [UUID: String] = [:]        // vùng đang hiện chữ giao diện (bị bỏ qua)
     @Published private(set) var skippedCount = 0
+    /// Bản dịch mới nhất của từng khu vực dịch thêm (hiện ngay tại khung trên hình PS5).
+    @Published private(set) var regionCaptions: [UUID: RegionCaption] = [:]
 
     let settings = AppSettings.shared
     let apple: AppleTranslationBackend
@@ -428,9 +437,10 @@ final class Pipeline: ObservableObject {
                 Task { @MainActor in self?.skippedUI.removeValue(forKey: region.id); self?.overlay.hide() }
             }
             let st = settings
+            // Khu vực dịch thêm (r.extra): không lấy tên nhân vật, chỉ OCR rồi dịch.
             w.speakerNames = { st.speakers }
-            w.usesNames = { st.showsSpeakerNames }
-            w.namesAbove = { st.showsSpeakerNames && st.speakerAbove }
+            w.usesNames = { st.showsSpeakerNames && !r.extra }
+            w.namesAbove = { st.showsSpeakerNames && st.speakerAbove && !r.extra }
             w.onUI = { [weak self] text, region in
                 Task { @MainActor in
                     guard let self else { return }
@@ -495,6 +505,7 @@ final class Pipeline: ObservableObject {
         speaker.releaseResources()
         overlay.hide()
         skippedUI = [:]
+        regionCaptions = [:]
         Task { for w in ws { await w.stop() } }
         Log.info("Pipeline stopped")
     }
@@ -504,6 +515,9 @@ final class Pipeline: ObservableObject {
         stop()
         Task { try? await Task.sleep(nanoseconds: 300_000_000); await start() }
     }
+
+    /// Xoá bản dịch đang hiện của một khu vực (khi người dùng xoá khu vực đó).
+    func clearRegionCaption(_ id: UUID) { regionCaptions.removeValue(forKey: id) }
 
     /// Dịch thủ công toàn bộ vùng manual đang bật.
     func analyzeScreen() {
@@ -577,7 +591,7 @@ final class Pipeline: ObservableObject {
         for rawText in batch.split(separator: "\n").map(String.init) {
             var text = rawText
             var speakerName: String? = nil
-            if settings.showsSpeakerNames {
+            if settings.showsSpeakerNames && !region.extra {
                 if let name = SpeakerNames.learn(from: rawText) { settings.learnSpeaker(name) }
                 let n = SpeakerNames.normalize(rawText, speakers: settings.speakers)
                 text = n.text
@@ -637,12 +651,17 @@ final class Pipeline: ObservableObject {
         utteranceMs[job.utterance, default: 0] += out.ms
         utteranceBackend[job.utterance] = out.backend
         translateCount += 1
+        Log.info("TR[\(out.backend.rawValue)] \(out.ms)ms: \(out.text)")
+        // Khu vực dịch thêm: chỉ hiện bản dịch ngay tại khung (không vào dải phụ đề chung, không đọc, không gửi web).
+        if job.region.extra {
+            regionCaptions[job.region.id] = RegionCaption(source: batchSource, translated: batchOutput, at: Date())
+            return
+        }
         lastSource = batchSource
         lastTranslated = batchOutput
         lastBackend = out.backend
         lastMs = out.ms
         lastAt = Date()
-        Log.info("TR[\(out.backend.rawValue)] \(out.ms)ms: \(out.text)")
         WebServer.shared.subtitle(source: batchSource, translated: batchOutput, first: job.firstOfBatch)
         if settings.voiceOn {
             applyVoiceSettings()

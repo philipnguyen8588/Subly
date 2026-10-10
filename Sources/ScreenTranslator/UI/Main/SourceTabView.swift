@@ -80,20 +80,31 @@ struct FrameDisplayView: NSViewRepresentable {
 
 // MARK: - Thành phần dùng chung cho PS5 và app ngoài
 
-/// Hình trực tiếp của game + khung phụ đề; bật `editing` rồi kéo chuột để vẽ lại khung phụ đề.
+/// Một khung có thể chỉnh trên hình game: khung phụ đề chính hoặc một khu vực dịch thêm.
+struct EditableFrame: Identifiable, Equatable {
+    let id: UUID
+    var rect: CGRect       // chuẩn hoá 0...1 theo hình
+    var primary: Bool      // true = khung phụ đề chính; false = khu vực dịch thêm
+    var label: String
+}
+
+/// Hình trực tiếp của game + các khung dịch; bật `editing` rồi kéo chuột để vẽ thêm khu vực,
+/// bấm vào một khung để chọn, kéo khung để di chuyển, kéo góc để đổi cỡ.
+/// `captions` là bản dịch mới nhất của mỗi khu vực dịch thêm, hiện ngay tại khung đó.
 struct GameScreenView<Placeholder: View>: View {
     var broadcaster: FrameBroadcaster? = nil    // video trực tiếp (PS5)
     var stillImage: CGImage? = nil              // hoặc ảnh chụp tĩnh (app ngoài)
     let contentSize: CGSize
     let live: Bool
-    let subtitleRect: CGRect?          // chuẩn hoá 0...1 theo hình
-    @Binding var editing: Bool
-    let onDraw: (CGRect) -> Void
+    var frames: [EditableFrame] = []            // mọi khung cần vẽ (chuẩn hoá 0...1)
+    @Binding var selection: UUID?               // khung đang chọn (có thể nil)
+    var captions: [UUID: RegionCaption] = [:]   // bản dịch hiện tại của từng khu vực dịch thêm
+    @Binding var editing: Bool                  // đang bật "vẽ khung mới"
+    var onDrawNew: (CGRect) -> Void             // vẽ xong một khung mới (chuẩn hoá)
+    var onUpdate: (UUID, CGRect) -> Void        // dời / đổi cỡ một khung đã có
     @ViewBuilder var placeholder: Placeholder
 
-    /// Kéo chuột trên hình: vẽ khung mới (khi bật "Vẽ khung phụ đề"), kéo khung đang có để di chuyển,
-    /// hoặc kéo một góc của khung để phóng to / thu nhỏ.
-    private enum DragMode { case draw, move, resize(anchor: CGPoint) }
+    private enum DragMode { case draw, move(UUID), resize(UUID, anchor: CGPoint) }
     @State private var mode: DragMode?
     @State private var liveRect: CGRect?       // khung đang kéo, theo toạ độ của view
     @State private var hovering = false
@@ -106,10 +117,13 @@ struct GameScreenView<Placeholder: View>: View {
             let fit = CGSize(width: vs.width * scale, height: vs.height * scale)
             let origin = CGPoint(x: (geo.size.width - fit.width) / 2, y: (geo.size.height - fit.height) / 2)
             let image = CGRect(origin: origin, size: fit)
-            let frame = subtitleRect.map { r in
-                CGRect(x: origin.x + r.minX * fit.width, y: origin.y + r.minY * fit.height, width: r.width * fit.width, height: r.height * fit.height)
+            let px: (CGRect) -> CGRect = { n in
+                CGRect(x: origin.x + n.minX * fit.width, y: origin.y + n.minY * fit.height,
+                       width: n.width * fit.width, height: n.height * fit.height)
             }
-            let shown = liveRect ?? frame
+            let draggingID: UUID? = {
+                switch mode { case .move(let id), .resize(let id, _): return id; default: return nil }
+            }()
             ZStack(alignment: .topLeading) {
                 Color.black
                 if let broadcaster { FrameDisplayView(broadcaster: broadcaster) }
@@ -118,58 +132,48 @@ struct GameScreenView<Placeholder: View>: View {
                         .frame(width: fit.width, height: fit.height).offset(x: origin.x, y: origin.y)
                 }
                 if !live { placeholder.frame(maxWidth: .infinity, maxHeight: .infinity) }
-                if live, let f = shown {
-                    let active = editing || liveRect != nil || hovering
-                    Rectangle()
-                        .fill(Color.yellow.opacity(liveRect != nil ? 0.12 : 0))
-                        .overlay(Rectangle().strokeBorder(style: StrokeStyle(lineWidth: active ? 2 : 1, dash: liveRect != nil ? [] : [6, 4])))
-                        .foregroundStyle(active ? Color.yellow : Color.yellow.opacity(0.45))
-                        .frame(width: f.width, height: f.height)
-                        .offset(x: f.minX, y: f.minY)
-                        .allowsHitTesting(false)
-                    // Bốn ô vuông ở góc: kéo để đổi cỡ.
-                    ForEach(0..<4, id: \.self) { k in
-                        let c = CGPoint(x: k % 2 == 0 ? f.minX : f.maxX, y: k < 2 ? f.minY : f.maxY)
-                        Rectangle().fill(Color.yellow.opacity(active ? 0.95 : 0.5))
-                            .frame(width: 8, height: 8)
-                            .offset(x: c.x - 4, y: c.y - 4)
-                            .allowsHitTesting(false)
+                if live {
+                    ForEach(frames) { ef in
+                        let f = (draggingID == ef.id ? liveRect : nil) ?? px(ef.rect)
+                        let selected = selection == ef.id
+                        let color: Color = ef.primary ? .yellow : .cyan
+                        frameView(ef: ef, f: f, selected: selected, color: color)
                     }
-                    if liveRect == nil, !editing, hovering {
-                        Text("Kéo để di chuyển · kéo góc để đổi cỡ")
-                            .font(.caption2.weight(.medium)).padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(.black.opacity(0.6), in: Capsule()).foregroundStyle(.yellow)
-                            .offset(x: f.minX + 4, y: max(origin.y, f.minY - 22))
+                    // Khung mới đang vẽ (chưa có id).
+                    if case .draw = mode, let f = liveRect {
+                        Rectangle().fill(Color.cyan.opacity(0.12))
+                            .overlay(Rectangle().strokeBorder(Color.cyan, lineWidth: 2))
+                            .frame(width: f.width, height: f.height).offset(x: f.minX, y: f.minY)
                             .allowsHitTesting(false)
                     }
                 }
                 if editing, live {
-                    Text("Kéo chuột quanh chỗ phụ đề xuất hiện")
+                    Text("Kéo chuột quanh vùng chữ muốn dịch thêm")
                         .font(.caption.weight(.medium)).padding(.horizontal, 8).padding(.vertical, 4)
-                        .background(.black.opacity(0.6), in: Capsule()).foregroundStyle(.yellow)
+                        .background(.black.opacity(0.6), in: Capsule()).foregroundStyle(.cyan)
                         .padding(8)
                 }
             }
             .contentShape(Rectangle())
             .onContinuousHover { phase in
-                guard case .active(let p) = phase, live, let f = frame else { hovering = false; return }
-                hovering = f.insetBy(dx: -handle, dy: -handle).contains(p)
+                guard case .active(let p) = phase, live else { hovering = false; return }
+                hovering = frames.contains { px($0.rect).insetBy(dx: -handle, dy: -handle).contains(p) }
             }
-            .gesture(DragGesture(minimumDistance: 3, coordinateSpace: .local)
+            .gesture(DragGesture(minimumDistance: 2, coordinateSpace: .local)
                 .onChanged { v in
                     guard live else { return }
-                    if mode == nil { mode = startMode(at: v.startLocation, frame: frame) }
+                    if mode == nil { mode = startMode(at: v.startLocation, px: px) }
                     guard let mode else { return }
                     switch mode {
                     case .draw:
                         liveRect = Self.rect(v.startLocation, v.location).intersection(image)
-                    case .move:
-                        guard let f = frame else { return }
-                        var r = f.offsetBy(dx: v.translation.width, dy: v.translation.height)
+                    case .move(let id):
+                        guard let ef = frames.first(where: { $0.id == id }) else { return }
+                        var r = px(ef.rect).offsetBy(dx: v.translation.width, dy: v.translation.height)
                         r.origin.x = min(max(r.minX, image.minX), image.maxX - r.width)
                         r.origin.y = min(max(r.minY, image.minY), image.maxY - r.height)
                         liveRect = r
-                    case .resize(let anchor):
+                    case .resize(_, let anchor):
                         let p = CGPoint(x: min(max(v.location.x, image.minX), image.maxX), y: min(max(v.location.y, image.minY), image.maxY))
                         liveRect = Self.rect(anchor, p)
                     }
@@ -180,22 +184,64 @@ struct GameScreenView<Placeholder: View>: View {
                     var n = CGRect(x: (r.minX - origin.x) / fit.width, y: (r.minY - origin.y) / fit.height,
                                    width: r.width / fit.width, height: r.height / fit.height)
                     n = n.intersection(CGRect(x: 0, y: 0, width: 1, height: 1))
-                    guard n.width > 0.05, n.height > 0.03 else { return }
-                    onDraw(n)
-                    if case .draw = m { editing = false }
+                    guard n.width > 0.03, n.height > 0.02 else { return }
+                    switch m {
+                    case .draw: onDrawNew(n); editing = false
+                    case .move(let id), .resize(let id, _): onUpdate(id, n)
+                    }
                 })
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// Bắt đầu kéo ở đâu: góc khung → đổi cỡ (giữ góc đối diện), trong khung → di chuyển, ngoài khung → vẽ mới (nếu đang bật vẽ).
-    private func startMode(at p: CGPoint, frame: CGRect?) -> DragMode? {
-        if let f = frame {
+    /// Vẽ một khung + ô góc + nhãn + bản dịch (nếu là khu vực dịch thêm).
+    @ViewBuilder private func frameView(ef: EditableFrame, f: CGRect, selected: Bool, color: Color) -> some View {
+        let active = selected || editing || hovering
+        Rectangle()
+            .fill(color.opacity(selected ? 0.10 : 0))
+            .overlay(Rectangle().strokeBorder(style: StrokeStyle(lineWidth: active ? 2 : 1, dash: selected ? [] : [6, 4])))
+            .foregroundStyle(active ? color : color.opacity(0.5))
+            .frame(width: f.width, height: f.height).offset(x: f.minX, y: f.minY)
+            .allowsHitTesting(false)
+        if selected {
+            ForEach(0..<4, id: \.self) { k in
+                let c = CGPoint(x: k % 2 == 0 ? f.minX : f.maxX, y: k < 2 ? f.minY : f.maxY)
+                Rectangle().fill(color.opacity(0.95)).frame(width: 8, height: 8)
+                    .offset(x: c.x - 4, y: c.y - 4).allowsHitTesting(false)
+            }
+        }
+        // Nhãn khung.
+        Text(ef.label)
+            .font(.caption2.weight(.semibold)).padding(.horizontal, 5).padding(.vertical, 2)
+            .background(.black.opacity(0.6), in: Capsule()).foregroundStyle(color)
+            .offset(x: f.minX + 2, y: max(0, f.minY - 20)).allowsHitTesting(false)
+        // Bản dịch của khu vực dịch thêm, hiện ngay dưới khung.
+        if !ef.primary, let cap = captions[ef.id], !cap.translated.isEmpty {
+            Text(cap.translated)
+                .font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                .multilineTextAlignment(.leading)
+                .padding(.horizontal, 7).padding(.vertical, 4)
+                .frame(maxWidth: max(90, f.width), alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .background(.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 5))
+                .offset(x: f.minX, y: f.maxY + 3).allowsHitTesting(false)
+        }
+    }
+
+    /// Bắt đầu kéo ở đâu: góc khung đang chọn → đổi cỡ; trong một khung → chọn & di chuyển; chỗ trống → vẽ mới (nếu đang bật).
+    private func startMode(at p: CGPoint, px: (CGRect) -> CGRect) -> DragMode? {
+        // Ưu tiên góc của khung đang chọn (để đổi cỡ không bị nhầm sang chọn khung khác).
+        if let sel = frames.first(where: { $0.id == selection }) {
+            let f = px(sel.rect)
             let corners = [CGPoint(x: f.minX, y: f.minY), CGPoint(x: f.maxX, y: f.minY), CGPoint(x: f.minX, y: f.maxY), CGPoint(x: f.maxX, y: f.maxY)]
             if let k = corners.indices.first(where: { abs(corners[$0].x - p.x) <= handle && abs(corners[$0].y - p.y) <= handle }) {
-                return .resize(anchor: corners[3 - k])
+                return .resize(sel.id, anchor: corners[3 - k])
             }
-            if f.contains(p) { return .move }
+        }
+        // Khung dưới con trỏ (khung vẽ sau nằm trên) → chọn & di chuyển.
+        if let ef = frames.reversed().first(where: { px($0.rect).contains(p) }) {
+            selection = ef.id
+            return .move(ef.id)
         }
         return editing ? .draw : nil
     }
@@ -247,11 +293,14 @@ struct SubtitleStrip: View {
 struct ScreenActions: View {
     @Binding var editing: Bool
     let enabled: Bool
+    var title = "Vẽ khung phụ đề"
+    var icon = "rectangle.dashed"
+    var help = "Bật rồi kéo chuột trên hình để chọn chỗ phụ đề xuất hiện"
 
     var body: some View {
-        Toggle(isOn: $editing) { Label("Vẽ khung phụ đề", systemImage: "rectangle.dashed") }
+        Toggle(isOn: $editing) { Label(title, systemImage: icon) }
             .toggleStyle(.button).disabled(!enabled)
-            .help("Bật rồi kéo chuột trên hình để chọn chỗ phụ đề xuất hiện")
+            .help(help)
     }
 }
 
@@ -287,7 +336,9 @@ struct SourcePicker: View {
 struct PS5SourceView: View {
     @ObservedObject var stream = PS5Stream.shared
     @ObservedObject var settings = AppSettings.shared
+    @ObservedObject var pipeline = Pipeline.shared
     @State private var editing = false
+    @State private var selection: UUID?
     @State private var pin = ""
 
     private var statusColor: Color {
@@ -298,7 +349,12 @@ struct PS5SourceView: View {
         default: return .orange
         }
     }
-    private var subtitleRegion: Region? { settings.regions.first { $0.embedded && $0.kind == .subtitle } }
+    private var subtitleRegions: [Region] { settings.regions.filter { $0.embedded && $0.kind == .subtitle } }
+    private var frames: [EditableFrame] {
+        subtitleRegions.map { EditableFrame(id: $0.id, rect: $0.rect, primary: !$0.extra,
+                                            label: $0.extra ? $0.name : "Phụ đề chính") }
+    }
+    private var selectedExtra: Region? { subtitleRegions.first { $0.id == selection && $0.extra } }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -318,7 +374,15 @@ struct PS5SourceView: View {
                         SecureField("Mã PIN đăng nhập PS5", text: $pin).frame(width: 150)
                         Button("Gửi") { stream.sendPin(pin); pin = "" }.disabled(pin.isEmpty)
                     }
-                    ScreenActions(editing: $editing, enabled: stream.isStreaming)
+                    ScreenActions(editing: $editing, enabled: stream.isStreaming,
+                                  title: "Thêm khu vực dịch", icon: "plus.rectangle.on.rectangle",
+                                  help: "Bật rồi kéo chuột trên hình để thêm một khu vực dịch (chỉ dịch chữ trong khung, không lấy tên, bản dịch hiện ngay tại đó)")
+                    if selectedExtra != nil {
+                        Button(role: .destructive) {
+                            if let id = selection { PS5Coordinator.removeSubtitleRegion(id: id); selection = nil }
+                        } label: { Label("Xoá khu vực", systemImage: "trash") }
+                        .help("Xoá khu vực dịch đang chọn")
+                    }
                     Menu {
                         Picker("Độ phân giải", selection: $settings.ps5Resolution) {
                             Text("1080p (chữ nét nhất)").tag(4)
@@ -348,8 +412,9 @@ struct PS5SourceView: View {
                 PS5SetupView()
             } else {
                 GameScreenView(broadcaster: stream, contentSize: stream.videoSize, live: stream.isStreaming,
-                               subtitleRect: subtitleRegion?.rect, editing: $editing,
-                               onDraw: { PS5Coordinator.setSubtitleRect($0) }) {
+                               frames: frames, selection: $selection, captions: pipeline.regionCaptions, editing: $editing,
+                               onDrawNew: { PS5Coordinator.addSubtitleRegion($0) },
+                               onUpdate: { id, r in PS5Coordinator.updateSubtitleRect(id: id, rect: r) }) {
                     VStack(spacing: 8) {
                         Image(systemName: "playstation.logo").font(.system(size: 42)).foregroundStyle(.white.opacity(0.5))
                         Text(stream.state == .idle ? "Bấm Kết nối để lấy hình từ PS5" : stream.state.label)
@@ -380,6 +445,12 @@ struct ExternalSourceView: View {
         let a = WindowFinder.currentRect(of: area), s = WindowFinder.currentRect(of: sub)
         guard a.width > 1, a.height > 1 else { return nil }
         return CGRect(x: (s.minX - a.minX) / a.width, y: (s.minY - a.minY) / a.height, width: s.width / a.width, height: s.height / a.height)
+    }
+
+    /// App ngoài chỉ có một khung phụ đề; luôn coi là đang chọn để kéo/đổi cỡ được ngay.
+    private var externalFrames: [EditableFrame] {
+        guard let sub = settings.externalSubtitle, let r = subtitleRect else { return [] }
+        return [EditableFrame(id: sub.id, rect: r, primary: true, label: "Phụ đề")]
     }
 
     var body: some View {
@@ -426,8 +497,12 @@ struct ExternalSourceView: View {
             } else {
                 GameScreenView(stillImage: mirror.image,
                                contentSize: mirror.image.map { CGSize(width: $0.width, height: $0.height) } ?? .zero,
-                               live: mirror.image != nil, subtitleRect: subtitleRect, editing: $editing,
-                               onDraw: { RegionActions.setExternalSubtitle(normalized: $0) }) {
+                               live: mirror.image != nil,
+                               frames: externalFrames,
+                               selection: Binding(get: { externalFrames.first?.id }, set: { _ in }),
+                               editing: $editing,
+                               onDrawNew: { RegionActions.setExternalSubtitle(normalized: $0) },
+                               onUpdate: { _, r in RegionActions.setExternalSubtitle(normalized: r) }) {
                     VStack(spacing: 8) {
                         Image(systemName: "camera").font(.system(size: 40)).foregroundStyle(.white.opacity(0.5))
                         Text(mirror.error ?? (mirror.capturing ? "Đang chụp…" : "Bấm “Chụp màn hình game” để lấy hình hiện tại"))

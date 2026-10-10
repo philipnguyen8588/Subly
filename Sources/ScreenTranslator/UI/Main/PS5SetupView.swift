@@ -40,18 +40,40 @@ enum PS5Coordinator {
         }
     }
 
-    static func setSubtitleRect(_ r: CGRect) {
+    /// Dời / đổi cỡ một khung đã có (khung phụ đề chính hoặc khu vực dịch thêm) theo id.
+    static func updateSubtitleRect(id: UUID, rect r: CGRect) {
+        let settings = AppSettings.shared
+        guard let i = settings.regions.firstIndex(where: { $0.id == id }) else { return }
+        settings.regions[i].rect = r
+        Log.info("PS5: khung '\(settings.regions[i].name)' = \(String(format: "x %.2f y %.2f w %.2f h %.2f", r.minX, r.minY, r.width, r.height))")
+        Pipeline.shared.restartIfRunning()
+    }
+
+    /// Thêm một khu vực dịch mới trên hình PS5: chỉ dịch chữ trong khung, không lấy tên, không đọc thành tiếng,
+    /// bản dịch hiện ngay tại khung. Nếu chưa có khung phụ đề chính nào thì khung đầu tiên làm khung chính.
+    @discardableResult
+    static func addSubtitleRegion(_ r: CGRect) -> UUID {
         let settings = AppSettings.shared
         var regions = settings.regions
-        if let i = regions.firstIndex(where: { $0.embedded && $0.kind == .subtitle }) {
-            regions[i].rect = r
-        } else {
-            var n = Region(name: "Phụ đề PS5", displayID: 0, x: r.minX, y: r.minY, width: r.width, height: r.height)
-            n.embedded = true
-            regions.append(n)
-        }
+        let hasPrimary = regions.contains { $0.embedded && $0.kind == .subtitle && !$0.extra }
+        var n = Region(name: hasPrimary ? "Khu vực \(regions.filter { $0.embedded && $0.kind == .subtitle }.count + 1)" : "Phụ đề PS5",
+                       displayID: 0, x: r.minX, y: r.minY, width: r.width, height: r.height)
+        n.embedded = true
+        n.extra = hasPrimary
+        regions.append(n)
         settings.regions = regions
-        Log.info("PS5: vùng phụ đề = \(String(format: "x %.2f y %.2f w %.2f h %.2f", r.minX, r.minY, r.width, r.height))")
+        Log.info("PS5: thêm \(n.extra ? "khu vực dịch" : "khung phụ đề chính") '\(n.name)' = \(String(format: "x %.2f y %.2f w %.2f h %.2f", r.minX, r.minY, r.width, r.height))")
+        Pipeline.shared.restartIfRunning()
+        return n.id
+    }
+
+    /// Xoá một khu vực dịch thêm (không cho xoá khung phụ đề chính).
+    static func removeSubtitleRegion(id: UUID) {
+        let settings = AppSettings.shared
+        guard let r = settings.regions.first(where: { $0.id == id }), r.extra else { return }
+        settings.regions.removeAll { $0.id == id }
+        Pipeline.shared.clearRegionCaption(id)
+        Log.info("PS5: xoá khu vực dịch '\(r.name)'")
         Pipeline.shared.restartIfRunning()
     }
 }

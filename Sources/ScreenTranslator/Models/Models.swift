@@ -32,6 +32,9 @@ struct Region: Codable, Identifiable, Equatable {
     var appMode: RegionAppMode = .followWindow
     /// Vùng trên hình PS5 nhúng trong app: x/y/width/height là tỉ lệ 0...1 của khung hình, không phải toạ độ màn hình.
     var embedded: Bool = false
+    /// Khu vực dịch thêm (ngoài khung phụ đề chính): không lấy tên nhân vật, không đọc thành tiếng,
+    /// bản dịch hiện ngay tại khung thay vì ở dải phụ đề chung.
+    var extra: Bool = false
 
     var rect: CGRect {
         get { CGRect(x: x, y: y, width: width, height: height) }
@@ -45,7 +48,7 @@ struct Region: Codable, Identifiable, Equatable {
         self.enabled = enabled; self.kind = kind
     }
 
-    enum CodingKeys: String, CodingKey { case id, name, displayID, x, y, width, height, enabled, kind, appBundleID, appName, windowID, winOffsetX, winOffsetY, winWidth, winHeight, appMode, embedded }
+    enum CodingKeys: String, CodingKey { case id, name, displayID, x, y, width, height, enabled, kind, appBundleID, appName, windowID, winOffsetX, winOffsetY, winWidth, winHeight, appMode, embedded, extra }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
@@ -64,6 +67,7 @@ struct Region: Codable, Identifiable, Equatable {
         winHeight = try c.decodeIfPresent(Double.self, forKey: .winHeight)
         appMode = try c.decodeIfPresent(RegionAppMode.self, forKey: .appMode) ?? .followWindow
         embedded = try c.decodeIfPresent(Bool.self, forKey: .embedded) ?? false
+        extra = try c.decodeIfPresent(Bool.self, forKey: .extra) ?? false
     }
 
     /// Vùng tính theo góc trên-trái cửa sổ, co giãn theo tỉ lệ nếu cửa sổ đã đổi kích thước so với lúc vẽ.
