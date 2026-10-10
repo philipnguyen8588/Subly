@@ -10,9 +10,11 @@
 
   // ---------- Chẩn đoán: in nhật ký lên màn hình TV (bản điều tra lỗi) ----------
   // Dòng CUỐI còn hiện trước khi app tự thoát = chỗ gây crash. Bật = true khi cần điều tra lỗi.
+  // (Truy vết crashstep trong localStorage vẫn chạy kể cả khi DBG=false.)
   var DBG = false;
   var dbgLines = [];
   function dbg(m) {
+    try { localStorage.setItem('laststep', m); } catch (e) {}   // sống sót qua crash để truy vết
     if (!DBG) return;
     try {
       dbgLines.push(m);
@@ -53,6 +55,9 @@
   function markVideo(step) { try { localStorage.setItem('pendingVideo', step); } catch (e) {} }
   function clearVideo() { try { localStorage.removeItem('pendingVideo'); } catch (e) {} }
   function pendingVideo() { try { return localStorage.getItem('pendingVideo'); } catch (e) { return null; } }
+
+  // Truy vết crash: lưu lại bước CUỐI của lần chạy trước (sống sót qua văng app) để biết chết ở đâu.
+  try { var __ls = localStorage.getItem('laststep'); if (__ls) localStorage.setItem('crashstep', __ls); } catch (e) {}
 
   // ---------- Cài đặt (lưu trên TV) ----------
   var DEFAULTS = {
@@ -154,8 +159,9 @@
     dbg('show ' + r.join());
     markVideo('hiện hình HDMI' + rt.hdmi);
     try {
-      tizen.tvwindow.show(function () { clearVideo(); clearErr(); },
+      tizen.tvwindow.show(function () { dbg('show cb ok'); clearVideo(); clearErr(); },
         function (e) { shownRect = ''; clearVideo(); showErr('Lỗi hiện hình: ' + e.message); }, r, 'MAIN', 'BEHIND');
+      dbg('show call returned');
     } catch (e) { shownRect = ''; clearVideo(); showErr('Lỗi hiện hình: ' + (e && e.message || e)); }
   }
   function hideVideo() { shownRect = ''; try { tizen.tvwindow.hide(function () {}, function () {}, 'MAIN'); } catch (e) {} }

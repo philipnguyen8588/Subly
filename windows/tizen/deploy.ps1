@@ -2,13 +2,15 @@
 #   .\deploy.ps1 -Tv 192.168.8.31            đóng gói + cài + mở app
 #   .\deploy.ps1 -Tv 192.168.8.31 -Debug     mở app ở chế độ debug (in cổng DevTools để soi lỗi)
 #   .\deploy.ps1 -Kit                        chỉ đóng gói thành 1 file zip cài được từ máy không có Tizen Studio
-#   .\deploy.ps1 -IdKit                       gói nhỏ "lấy mã TV": gửi cho người dùng TV mới để họ lấy DUID gửi lại
+#   .\deploy.ps1 -Kit -Profile OIOI -KitName SubtitleTV-OIOI   zip đặt tên riêng (không ghi đè zip mặc định)
+#   .\deploy.ps1 -IdKit                      gói nhỏ "lấy mã TV": gửi cho người dùng TV mới để họ lấy DUID gửi lại
 param(
     [string]$Tv = "192.168.8.31",
     [string]$Profile = "LipNguyen-TV",
     [string]$Tizen = "C:\tizen-studio",
     [switch]$Debug,
     [switch]$Kit,
+    [string]$KitName = "SubtitleTV-Samsung",
     [switch]$IdKit
 )
 $ErrorActionPreference = "Stop"
@@ -46,13 +48,13 @@ Move-Item $wgt.FullName (Join-Path $out "SubtitleTV.wgt") -Force
 
 if ($Kit) {
     # Bộ cài = file .wgt đã ký + sdb.exe (chạy độc lập) + CAI-LEN-TV.bat + LAY-ID-TV.bat + hướng dẫn, nén thành 1 file zip.
-    $kitDir = Join-Path $out "SubtitleTV-Samsung"
+    $kitDir = Join-Path $out $KitName
     New-Item -ItemType Directory $kitDir | Out-Null
     Copy-Item (Join-Path $out "SubtitleTV.wgt"), $sdb, (Join-Path $PSScriptRoot "CAI-LEN-TV.bat"), `
         (Join-Path $PSScriptRoot "LAY-ID-TV.bat"), (Join-Path $PSScriptRoot "HUONG-DAN-CAI-TV.txt") $kitDir
     $dist = Join-Path $PSScriptRoot "..\dist"
     New-Item -ItemType Directory -Force $dist | Out-Null
-    $zip = Join-Path (Resolve-Path $dist) "SubtitleTV-Samsung.zip"
+    $zip = Join-Path (Resolve-Path $dist) "$KitName.zip"
     Compress-Archive -Path $kitDir -DestinationPath $zip -Force
     Write-Host "Bộ cài: $zip"
     return
