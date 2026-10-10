@@ -55,6 +55,26 @@ BƯỚC B — CÀI APP (sau khi nhận lại bộ cài)
 
 
 ────────────────────────────────────────
+BƯỚC C — CÀI ĐẶT TRÊN TV ĐỂ APP CHẠY ỔN (TV đời 2022 trở lên, vd. S95B)
+────────────────────────────────────────
+
+7. APP TỰ THOÁT NGAY KHI HIỆN HÌNH PS5 → tắt Anynet+ (HDMI-CEC):
+   Cài đặt → Tổng quát (và quyền riêng tư) → Trình quản lý thiết bị ngoài
+   → Anynet+ (HDMI-CEC) → Tắt.
+   (Lý do: khi app hiện hình HDMI, TV trao đổi CEC với PS5 rồi tự chuyển hẳn
+    sang nguồn HDMI, đẩy app ra nền và đóng app. Tắt Anynet+ thì PS5 không tự
+    bật TV / đổi nguồn nữa, phải chọn nguồn bằng remote TV.)
+
+8. HÌNH GAME TRONG APP BỊ GIẬT → tắt nội suy chuyển động, chỉnh TRONG LÚC app
+   đang hiện hình (TV lưu cài đặt hình riêng cho chế độ app):
+   Cài đặt → Hình ảnh → Cài đặt chuyên môn → Cài đặt độ rõ hình ảnh
+   (hoặc Auto Motion Plus) → Tắt.
+
+9. HÌNH GAME TRONG APP BỊ MỜ / NHẠT → trên PS5: Settings → Screen and Video
+   → Video Output → HDR → Off (xem qua app TV không xử lý HDR như nguồn gốc).
+
+
+────────────────────────────────────────
 DÀNH CHO NGƯỜI ĐÓNG GÓI (có Tizen Studio + chứng chỉ Samsung)
 ────────────────────────────────────────
 
@@ -69,3 +89,8 @@ DÀNH CHO NGƯỜI ĐÓNG GÓI (có Tizen Studio + chứng chỉ Samsung)
   → ra  windows\dist\SubtitleTV-Samsung.zip  → gửi lại người dùng (Bước B).
 
 - Hoặc cài thẳng từ máy mình:   .\deploy.ps1 -Tv <IP-TV> -Profile <tên-profile>
+
+- TV lạ bị lỗi khó hiểu: cài app test tối giản (chỉ hiện HDMI + 1 câu phụ đề,
+  in nhật ký và dấu vết lần trước lên màn hình) để tách lỗi TV khỏi lỗi app:
+      .\deploy.ps1 -App HdmiTest -Tv <IP-TV> -Profile <tên-profile>
+  Mở app ở chế độ debug để soi từ xa:   .\DEBUG-TV.bat <IP-TV>

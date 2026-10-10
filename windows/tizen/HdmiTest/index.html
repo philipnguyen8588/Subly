@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920, user-scalable=no">
+<title>HDMI Test</title>
+<style>
+  /* Nền TRONG SUỐT để hình HDMI (tvwindow BEHIND) hiện qua. */
+  html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; background: transparent; color: #fff; font-family: sans-serif; }
+  #sub { position: absolute; left: 0; right: 0; bottom: 70px; text-align: center; }
+  #sub span { display: inline-block; max-width: 1640px; padding: 8px 26px 10px; border-radius: 12px; background: rgba(0,0,0,.55);
+              font-size: 46px; font-weight: 600; line-height: 1.22; }
+  #log { position: absolute; left: 8px; top: 8px; max-width: 46%; background: rgba(0,0,0,.75); color: #4ef06a;
+         font: 13px/1.45 monospace; padding: 7px 10px; white-space: pre-wrap; border-radius: 6px; }
+  #prev { position: absolute; right: 8px; top: 8px; max-width: 46%; background: rgba(0,0,0,.75); color: #ffb86b;
+          font: 13px/1.45 monospace; padding: 7px 10px; white-space: pre-wrap; border-radius: 6px; }
+</style>
+</head>
+<body>
+<div id="sub"></div>
+<div id="log"></div>
+<div id="prev"></div>
+<script src="main.js"></script>
+</body>
+</html>
