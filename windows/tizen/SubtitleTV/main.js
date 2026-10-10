@@ -11,7 +11,8 @@
   // ---------- Chẩn đoán: in nhật ký lên màn hình TV (bản điều tra lỗi) ----------
   // Dòng CUỐI còn hiện trước khi app tự thoát = chỗ gây crash. Bật = true khi cần điều tra lỗi.
   // (Truy vết crashstep trong localStorage vẫn chạy kể cả khi DBG=false.)
-  var DBG = false;
+  var DBG = true;
+  var AUDIO_OFF = true;   // tạm tắt hẳn audio (không xin, không phát) để loại trừ nguyên nhân văng
   var dbgLines = [];
   function dbg(m) {
     try { localStorage.setItem('laststep', m); } catch (e) {}   // sống sót qua crash để truy vết
@@ -55,6 +56,12 @@
   function markVideo(step) { try { localStorage.setItem('pendingVideo', step); } catch (e) {} }
   function clearVideo() { try { localStorage.removeItem('pendingVideo'); } catch (e) {} }
   function pendingVideo() { try { return localStorage.getItem('pendingVideo'); } catch (e) { return null; } }
+
+  // Cách hiện hình HDMI (một số TV như S95B văng với cách này mà ổn với cách khác). Tự dò: văng thì nhảy cách sau.
+  //   0 = show BEHIND (mặc định)   1 = chỉ setSource, không show   2 = show FRONT
+  var VIDEO_MODES = 3;
+  function videoMode() { try { return (parseInt(localStorage.getItem('videoMode'), 10) || 0) % VIDEO_MODES; } catch (e) { return 0; } }
+  function setVideoMode(m) { try { localStorage.setItem('videoMode', '' + ((m % VIDEO_MODES + VIDEO_MODES) % VIDEO_MODES)); } catch (e) {} }
 
   // Truy vết crash: lưu lại bước CUỐI của lần chạy trước (sống sót qua văng app) để biết chết ở đâu.
   try { var __ls = localStorage.getItem('laststep'); if (__ls) localStorage.setItem('crashstep', __ls); } catch (e) {}
@@ -156,11 +163,18 @@
     var r = videoRect();
     if (!force && r.join() === shownRect) return;
     shownRect = r.join();
-    dbg('show ' + r.join());
-    markVideo('hiện hình HDMI' + rt.hdmi);
+    var mode = videoMode();
+    dbg('show mode' + mode + ' ' + r.join());
+    if (mode === 1) { dbg('show BO QUA (chi setSource)'); clearVideo(); clearErr(); return; }  // cách 1: không gọi show
+    var zorder = mode === 2 ? 'FRONT' : 'BEHIND';
+    markVideo('hiện hình HDMI' + rt.hdmi + ' (cách ' + mode + ')');
     try {
-      tizen.tvwindow.show(function () { dbg('show cb ok'); clearVideo(); clearErr(); },
-        function (e) { shownRect = ''; clearVideo(); showErr('Lỗi hiện hình: ' + e.message); }, r, 'MAIN', 'BEHIND');
+      // Đánh dấu "vừa gọi show cách N": nếu app chết NGAY sau đây, lần mở sau biết cách N gây văng để nhảy cách khác.
+      try { localStorage.setItem('postShow', 'cách ' + mode); } catch (e) {}
+      tizen.tvwindow.show(function () {
+        dbg('show cb ok'); clearVideo(); clearErr();
+        setTimeout(function () { try { localStorage.removeItem('postShow'); } catch (e) {} }, 4000);   // sống 4s = cách này ổn
+      }, function (e) { shownRect = ''; clearVideo(); showErr('Lỗi hiện hình: ' + e.message); }, r, 'MAIN', zorder);
       dbg('show call returned');
     } catch (e) { shownRect = ''; clearVideo(); showErr('Lỗi hiện hình: ' + (e && e.message || e)); }
   }
@@ -425,7 +439,7 @@
     var s = cfg.servers[cfg.server];
     if (!s) { rt.sse = 'chưa chọn máy'; return; }
     rt.sse = 'đang kết nối…';
-    try { es = new EventSource(s.url + '/events?audio=1'); } catch (e) { rt.sse = 'lỗi: ' + e.message; return; }
+    try { es = new EventSource(s.url + (AUDIO_OFF ? '/events' : '/events?audio=1')); } catch (e) { rt.sse = 'lỗi: ' + e.message; return; }
     var first = true;
     es.onopen = function () {
       rt.sse = 'đã kết nối';
@@ -440,18 +454,24 @@
       if (rt.menuOpen) renderMenu();
     };
     es.addEventListener('state', function (ev) {
+      dbg('ev state');
       try { var st = JSON.parse(ev.data); rt.names = st.names; rt.speakers = st.speakers || []; rt.game = st.profile; rt.running = st.running; rt.analyzing = st.analyzing; } catch (e) {}
       updateStatus();
       if (rt.menuOpen) renderMenu();
     });
     es.addEventListener('subtitle', function (ev) {
+      dbg('ev subtitle');
       try { showSubtitle(JSON.parse(ev.data)); } catch (e) {}
+      dbg('ev subtitle xong');
     });
     es.addEventListener('entry', function (ev) {
+      dbg('ev entry');
       try { onEntry(JSON.parse(ev.data)); } catch (e) {}
     });
     es.addEventListener('cleared', function () { if (rt.histOpen) { hist = []; renderHistory(true); } });
     es.addEventListener('audio', function (ev) {
+      if (AUDIO_OFF) return;
+      dbg('ev audio');
       try { onAudio(JSON.parse(ev.data)); } catch (e) {}
     });
   }
@@ -850,6 +870,9 @@
                  chooseServer(i);
                } };
     });
+    items.push({ label: 'Cách hiện hình (nếu văng / đen)', action: true, val: 'cách ' + videoMode(),
+      sub: 'Bấm ◀ ▶ đổi: 0 = BEHIND, 1 = chỉ setSource, 2 = FRONT. (TV văng thì app tự nhảy cách khác.)',
+      lr: function (d) { setVideoMode(videoMode() + d); if (rt.menuOpen) renderMenu(); } });
     items.push({ label: (scanning ? '🔎 Đang dò… (thấy ' + scanFound + ')' : '🔎 Dò máy trong mạng'), val: '', action: true,
       sub: 'Tự tìm máy tính trong cùng mạng Wi-Fi/LAN đang chạy ScreenTranslator',
       ok: function () { scanLan(); } });
@@ -1053,13 +1076,25 @@
 
   window.onload = function () {
     try {
-      dbg('onload askOnStart=' + cfg.askOnStart + ' server=' + cfg.server);
-      // Dấu crash còn sót → lần trước app thoát ngay khi đang làm việc này. Tắt tự hiện hình và báo lên màn hình.
+      dbg('onload askOnStart=' + cfg.askOnStart + ' server=' + cfg.server + ' cách' + videoMode());
+      // Dọn cửa sổ video HDMI mồ côi còn sót từ lần crash trước (tránh chồng nhiều hình).
+      try { tizen.tvwindow.hide(function () {}, function () {}, 'MAIN'); } catch (e) {}
+      // App chết NGAY sau khi gọi show (lỗi hiển thị native trên TV này) → tự nhảy sang CÁCH hiện hình khác.
+      var post = null; try { post = localStorage.getItem('postShow'); } catch (e) {}
+      if (post) {
+        try { localStorage.removeItem('postShow'); } catch (e) {}
+        var nm = videoMode() + 1;
+        if (nm >= VIDEO_MODES) { setVideoMode(0); cfg.videoDisabled = true; save();
+          showErr('Đã thử hết các cách hiện hình mà TV vẫn thoát. Tạm tắt hiện hình. Bấm số HDMI (1–4) để thử lại.'); }
+        else { setVideoMode(nm);
+          showErr('Cách hiện hình trước làm app thoát. Đã chuyển sang CÁCH ' + nm + '. Chọn lại server để thử.'); }
+      }
+      // Dấu setSource còn sót (chết ở bước chọn nguồn, hiếm).
       var pend = pendingVideo();
-      if (pend) {
+      if (pend && !post) {
         clearVideo();
         cfg.videoDisabled = true; save();
-        showErr('Lần trước app thoát khi đang: ' + pend + '. Đã tắt tự hiện hình HDMI. Bấm số HDMI (1–4) trên remote để thử lại, hoặc mở Menu (Back).');
+        showErr('Lần trước app thoát khi đang: ' + pend + '. Đã tắt tự hiện hình HDMI. Bấm số HDMI (1–4) để thử lại.');
       }
       registerKeys();
       document.body.className = document.documentElement.className = overlay() ? 'ovl' : '';
@@ -1069,7 +1104,7 @@
         else { connect(); startVideo(); }
       });
       // Nguồn HDMI được cắm / rút → cập nhật danh sách (để menu hiện đúng).
-      setInterval(function () { withSources(function () { if (rt.menuOpen) renderMenu(); }); }, 5000);
+      setInterval(function () { dbg('tick 5s'); withSources(function () { if (rt.menuOpen) renderMenu(); }); }, 5000);
     } catch (e) { showErr('Lỗi khởi động: ' + (e && e.message || e)); }
   };
 })();
