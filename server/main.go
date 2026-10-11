@@ -22,6 +22,9 @@ import (
 	"time"
 )
 
+// Phiên đăng nhập trang quản trị: lưu trong DB, hạn trượt 1 năm → đăng nhập một lần là đủ.
+const sessionTTL = 365 * 24 * time.Hour
+
 type App struct {
 	store        *Store
 	key          ed25519.PrivateKey
@@ -113,7 +116,7 @@ func main() {
 		tgToken: os.Getenv("TELEGRAM_TOKEN"), tgChat: os.Getenv("TELEGRAM_CHAT_ID"),
 		apiLimit:   NewRateLimiter(30, time.Minute),
 		loginLimit: NewRateLimiter(10, 15*time.Minute),
-		sessions:   NewSessionStore(12 * time.Hour),
+		sessions:   store.Sessions(sessionTTL),
 		now:        time.Now,
 	}
 	addr := env("LISTEN", ":8080")

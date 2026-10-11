@@ -44,6 +44,14 @@ func (a *App) loggedIn(r *http.Request) bool {
 	return err == nil && a.sessions.Valid(c.Value)
 }
 
+// setSession ghi cookie phiên. Gọi lại mỗi lần mở trang để trình duyệt cũng gia hạn cookie theo phiên (hạn trượt).
+func (a *App) setSession(w http.ResponseWriter, id string) {
+	http.SetCookie(w, &http.Cookie{
+		Name: cookieName, Value: id, Path: "/admin", HttpOnly: true,
+		Secure: a.secureCookie, SameSite: http.SameSiteLaxMode, MaxAge: int(sessionTTL / time.Second),
+	})
+}
+
 // sameOrigin chặn CSRF: yêu cầu POST phải đến từ chính trang này.
 func sameOrigin(r *http.Request) bool {
 	o := r.Header.Get("Origin")
@@ -88,6 +96,9 @@ func (a *App) handleAdmin(w http.ResponseWriter, r *http.Request) {
 		a.render(w, adminPage{})
 		return
 	}
+	if c, err := r.Cookie(cookieName); err == nil {
+		a.setSession(w, c.Value)
+	}
 	status, q := r.URL.Query().Get("status"), r.URL.Query().Get("q")
 	switch status {
 	case statusPending, statusApproved, statusRevoked:
@@ -118,10 +129,7 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 		a.render(w, adminPage{Error: "Sai mật khẩu."})
 		return
 	}
-	http.SetCookie(w, &http.Cookie{
-		Name: cookieName, Value: a.sessions.New(), Path: "/admin", HttpOnly: true,
-		Secure: a.secureCookie, SameSite: http.SameSiteLaxMode, MaxAge: int(12 * time.Hour / time.Second),
-	})
+	a.setSession(w, a.sessions.New())
 	log.Printf("admin login from %s", ip)
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
 }

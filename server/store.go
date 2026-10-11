@@ -1,7 +1,9 @@
 package main
 
 import (
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"strings"
 	"time"
 
@@ -53,7 +55,54 @@ func openStore(path string) (*Store, error) {
 	}
 	// Thêm cột email cho DB tạo trước khi có tính năng này (bỏ qua nếu đã có).
 	db.Exec(`ALTER TABLE devices ADD COLUMN email TEXT NOT NULL DEFAULT ''`)
+	// Phiên đăng nhập trang quản trị lưu trong DB để khởi động lại server vẫn còn đăng nhập.
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS sessions(id TEXT PRIMARY KEY, expires INTEGER NOT NULL)`); err != nil {
+		return nil, err
+	}
 	return &Store{db: db}, nil
+}
+
+// SessionStore: phiên đăng nhập trang quản trị, lưu trong SQLite. Mỗi lần dùng phiên còn hạn thì hạn được gia hạn
+// thêm ttl kể từ lúc đó (hạn trượt), nên đăng nhập một lần rồi dùng đều là không bao giờ phải đăng nhập lại.
+type SessionStore struct {
+	db  *sql.DB
+	ttl time.Duration
+}
+
+func (s *Store) Sessions(ttl time.Duration) *SessionStore { return &SessionStore{db: s.db, ttl: ttl} }
+
+func (s *SessionStore) New() string {
+	b := make([]byte, 32)
+	_, _ = rand.Read(b)
+	id := hex.EncodeToString(b)
+	now := time.Now()
+	s.db.Exec(`DELETE FROM sessions WHERE expires < ?`, now.Unix())
+	s.db.Exec(`INSERT INTO sessions(id, expires) VALUES(?, ?)`, id, now.Add(s.ttl).Unix())
+	return id
+}
+
+func (s *SessionStore) Valid(id string) bool {
+	if len(id) != 64 {
+		return false
+	}
+	var exp int64
+	if err := s.db.QueryRow(`SELECT expires FROM sessions WHERE id = ?`, id).Scan(&exp); err != nil {
+		return false
+	}
+	now := time.Now()
+	if now.Unix() > exp {
+		s.db.Exec(`DELETE FROM sessions WHERE id = ?`, id)
+		return false
+	}
+	// Gia hạn khi đã dùng hết 1/4 hạn (không ghi DB mỗi lần tải trang).
+	if time.Unix(exp, 0).Sub(now) < s.ttl-s.ttl/4 {
+		s.db.Exec(`UPDATE sessions SET expires = ? WHERE id = ?`, now.Add(s.ttl).Unix(), id)
+	}
+	return true
+}
+
+func (s *SessionStore) Delete(id string) {
+	s.db.Exec(`DELETE FROM sessions WHERE id = ?`, id)
 }
 
 const deviceCols = `hash, pub, name, email, user, model, platform, os, app_version, status, note, created, last_seen, last_ip, conflict`

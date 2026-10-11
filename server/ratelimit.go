@@ -1,8 +1,6 @@
 package main
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"sync"
 	"time"
 )
@@ -44,45 +42,4 @@ func (l *RateLimiter) Allow(key string) bool {
 		}
 	}
 	return true
-}
-
-// SessionStore: phiên đăng nhập trang quản trị, giữ trong bộ nhớ (khởi động lại server thì đăng nhập lại).
-type SessionStore struct {
-	mu  sync.Mutex
-	ttl time.Duration
-	m   map[string]time.Time
-}
-
-func NewSessionStore(ttl time.Duration) *SessionStore {
-	return &SessionStore{ttl: ttl, m: map[string]time.Time{}}
-}
-
-func (s *SessionStore) New() string {
-	b := make([]byte, 32)
-	_, _ = rand.Read(b)
-	id := hex.EncodeToString(b)
-	s.mu.Lock()
-	s.m[id] = time.Now().Add(s.ttl)
-	s.mu.Unlock()
-	return id
-}
-
-func (s *SessionStore) Valid(id string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	exp, ok := s.m[id]
-	if !ok {
-		return false
-	}
-	if time.Now().After(exp) {
-		delete(s.m, id)
-		return false
-	}
-	return true
-}
-
-func (s *SessionStore) Delete(id string) {
-	s.mu.Lock()
-	delete(s.m, id)
-	s.mu.Unlock()
 }

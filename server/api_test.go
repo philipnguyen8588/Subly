@@ -30,7 +30,7 @@ func newTestApp(t *testing.T) *App {
 	}
 	return &App{store: st, key: key, ticketTTL: 7 * 24 * time.Hour, adminPass: "correct horse battery",
 		apiLimit: NewRateLimiter(1000, time.Minute), loginLimit: NewRateLimiter(3, time.Minute),
-		sessions: NewSessionStore(time.Hour), now: time.Now}
+		sessions: st.Sessions(time.Hour), now: time.Now}
 }
 
 type testDevice struct {
