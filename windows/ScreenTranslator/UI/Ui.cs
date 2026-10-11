@@ -44,8 +44,6 @@ public static class Ui
         tb.Inlines.Add(new Run("miễn phí") { FontWeight = FontWeights.Bold });
         tb.Inlines.Add(". Cần hỗ trợ cài đặt, liên hệ Telegram ");
         tb.Inlines.Add(TgLink(AppInfo.TelegramGroup));
-        tb.Inlines.Add(" hoặc ");
-        tb.Inlines.Add(TgLink(AppInfo.TelegramOwner));
         tb.Inlines.Add(".");
         return tb;
     }

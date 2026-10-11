@@ -51,9 +51,8 @@ enum AppInfo {
 
     // Hỗ trợ: app miễn phí, liên hệ Telegram.
     static let telegramGroup = "subly_ps"
-    static let telegramOwner = "lipnguyen"
-    static let supportLine = "Đây là app miễn phí. Cần hỗ trợ cài đặt, liên hệ Telegram @\(telegramGroup) hoặc @\(telegramOwner)."
+    static let supportLine = "Đây là app miễn phí. Cần hỗ trợ cài đặt, liên hệ Telegram @\(telegramGroup)."
     /// Dạng Markdown có link bấm được (mở t.me).
     static let supportMarkdown =
-        "Đây là app **miễn phí**. Cần hỗ trợ cài đặt, liên hệ Telegram [@\(telegramGroup)](https://t.me/\(telegramGroup)) hoặc [@\(telegramOwner)](https://t.me/\(telegramOwner))."
+        "Đây là app **miễn phí**. Cần hỗ trợ cài đặt, liên hệ Telegram [@\(telegramGroup)](https://t.me/\(telegramGroup))."
 }

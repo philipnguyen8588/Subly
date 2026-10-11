@@ -75,7 +75,6 @@ public static class AppInfo
 
     // Hỗ trợ: app miễn phí, liên hệ Telegram (khớp bản macOS).
     public const string TelegramGroup = "subly_ps";
-    public const string TelegramOwner = "lipnguyen";
     public static string SupportLine =>
-        $"Đây là app miễn phí. Cần hỗ trợ cài đặt, liên hệ Telegram @{TelegramGroup} hoặc @{TelegramOwner}.";
+        $"Đây là app miễn phí. Cần hỗ trợ cài đặt, liên hệ Telegram @{TelegramGroup}.";
 }
