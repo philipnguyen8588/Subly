@@ -27,7 +27,7 @@ Chỉ cần build app (không có giọng AI offline / PS5) thì `dotnet build w
 | PS5 (`st_chiaki.dll`) | `Scripts\build-chiaki.sh` | Chạy trong [MSYS2](https://www.msys2.org/) MINGW64 (build.ps1 tự gọi). Tự cài gói pacman, clone chiaki-ng, dựng FFmpeg tối giản (chỉ decoder H.264/HEVC + swscale), rồi liên kết `native\st_chiaki` |
 | Icon | `Scripts\make-icon.ps1` | Sinh `AppIcon.png` / `AppIcon.ico` |
 
-Thư viện tải/dựng nằm trong `windows\Vendor\` (không commit) và được chép cạnh `ScreenTranslator.exe` khi build.
+Thư viện tải/dựng nằm trong `windows\Vendor\` (không commit) và được chép cạnh `Subly.exe` khi build.
 
 ### Bản phát hành có duyệt máy (tuỳ chọn)
 
@@ -93,7 +93,7 @@ Không port: `--show-frames` / khung kéo-thả trên màn hình (`RegionFrameEd
 ## Tham số dòng lệnh (test / automation)
 
 ```powershell
-ScreenTranslator.exe --clear-regions --add-region 100,100,1000,120,PhuDe --add-region 100,100,1600,900,ManHinhGame,manual `
+Subly.exe --clear-regions --add-region 100,100,1000,120,PhuDe --add-region 100,100,1600,900,ManHinhGame,manual `
   --autostart --mute --quiet --hidden --analyze-once
 ```
 

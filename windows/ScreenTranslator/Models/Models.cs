@@ -55,7 +55,7 @@ public static class Labels
 {
     public static string Of(RegionAppMode m) => m == RegionAppMode.followWindow ? "Vẫn dịch (bám cửa sổ)" : "Tạm dừng";
     public static string Of(RegionKind k) => k == RegionKind.subtitle ? "Phụ đề" : "Thủ công";
-    public static string Of(ProfileSource s) => s == ProfileSource.external ? "App trên máy này" : "PS5";
+    public static string Of(ProfileSource s) => s == ProfileSource.external ? "App trên máy này" : "PS5 Remote (Chiaki)";
     public static string Of(QueueMode q) => q == QueueMode.latestWins ? "Phụ đề (chỉ giữ câu mới nhất)" : "Hội thoại (đọc lần lượt)";
     public static string Of(TranslationEngine e) => e switch
     {

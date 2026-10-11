@@ -265,6 +265,9 @@ public sealed class PS5SourceView : DockPanel
         // Khu vực dịch thêm đang chọn → cho xoá (không xoá được khung phụ đề chính).
         if (SubtitleRegions().FirstOrDefault(r => r.id == screen.Selection && r.extra) is Region selExtra)
             right.Add(Ui.Btn(Ui.IconLabel("", "Xoá khu vực"), () => PS5Coordinator.RemoveSubtitleRegion(selExtra.id), tip: $"Xoá khu vực dịch “{selExtra.name}”"));
+        // Xem lại cấu hình kết nối đã lưu (IP, MAC, account, khoá đăng ký).
+        right.Add(Ui.Btn(Ui.IconLabel("", "Cấu hình"), () => new PS5ConfigWindow(host, Window.GetWindow(this)).ShowDialog(),
+            tip: "Xem cấu hình kết nối Remote Play (IP, MAC, account, khoá đăng ký)"));
         // Menu chất lượng
         var menuBtn = Ui.IconBtn("", () => { }, "Chất lượng hình có hiệu lực ở lần kết nối sau");
         var menu = new ContextMenu();
