@@ -14,6 +14,40 @@ public partial class App : Application
     static System.Windows.Forms.NotifyIcon? tray;
     static bool hiddenNoticeShown;
     static string[] args = Array.Empty<string>();
+    // Khoá một bản chạy: giữ mutex suốt đời tiến trình; bản thứ hai thấy mutex đã có thì báo bản đầu hiện cửa sổ rồi thoát.
+    static System.Threading.Mutex? singleInstance;
+    const string SingleInstanceName = @"Local\Subly.SingleInstance";
+    const string ShowEventName = @"Local\Subly.ShowMain";
+
+    /// true = đã có bản Subly khác đang chạy (bản này phải thoát). Cờ `--multi` bỏ qua kiểm tra (chỉ dùng khi test tự động).
+    static bool AlreadyRunning()
+    {
+        if (Has("--multi")) return false;
+        try
+        {
+            singleInstance = new System.Threading.Mutex(true, SingleInstanceName, out bool createdNew);
+            if (createdNew)
+            {
+                // Bản đầu: chờ tín hiệu từ bản mở sau để đưa cửa sổ chính lên trước.
+                var ev = new System.Threading.EventWaitHandle(false, System.Threading.EventResetMode.AutoReset, ShowEventName);
+                var t = new System.Threading.Thread(() => { while (true) { ev.WaitOne(); RunOnUI(ShowMain); } }) { IsBackground = true, Name = "single-instance" };
+                t.Start();
+                return false;
+            }
+            singleInstance.Dispose(); singleInstance = null;
+            try
+            {
+                if (System.Threading.EventWaitHandle.TryOpenExisting(ShowEventName, out var ev)) { ev.Set(); ev.Dispose(); }
+            }
+            catch (Exception ex) { Log.Warn($"Không gọi được bản đang chạy: {ex.Message}"); }
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Không kiểm tra được bản đang chạy: {ex.Message}");
+            return false;
+        }
+    }
 
     // MARK: tiện ích luồng UI (thay @MainActor)
 
@@ -73,7 +107,7 @@ public partial class App : Application
     {
         if (hiddenNoticeShown || tray == null) return;
         hiddenNoticeShown = true;
-        tray.ShowBalloonTip(3000, "ScreenTranslator vẫn chạy nền", "Bấm biểu tượng ở khay hệ thống để mở lại. Chọn Thoát trong menu để tắt hẳn.", System.Windows.Forms.ToolTipIcon.Info);
+        tray.ShowBalloonTip(3000, "Subly vẫn chạy nền", "Bấm biểu tượng ở khay hệ thống để mở lại. Chọn Thoát trong menu để tắt hẳn.", System.Windows.Forms.ToolTipIcon.Info);
     }
 
     public static void Quit()
@@ -93,6 +127,13 @@ public partial class App : Application
     {
         base.OnStartup(e);
         args = e.Args;
+        if (AlreadyRunning())
+        {
+            Log.Info("Subly đã chạy → đưa bản đó lên trước và thoát bản này.");
+            Log.Flush();
+            Shutdown();
+            return;
+        }
         Integrity.Arm();
         DispatcherUnhandledException += (_, ex) =>
         {
@@ -103,7 +144,7 @@ public partial class App : Application
         TaskScheduler.UnobservedTaskException += (_, ex) => { Log.Warn($"Task lỗi: {ex.Exception?.InnerException?.Message}"); ex.SetObserved(); };
 
         var s = AppSettings.shared;
-        Log.Info($"ScreenTranslator (Windows) launched. Profile '{s.activeProfile.name}', regions: {s.regions.Count}");
+        Log.Info($"Subly (Windows) launched. Profile '{s.activeProfile.name}', regions: {s.regions.Count}");
         SetupTray();
         HandleCommandLine();
         WebServer.shared.Apply();
@@ -143,7 +184,7 @@ public partial class App : Application
             tray = new System.Windows.Forms.NotifyIcon
             {
                 Icon = iconStream != null ? new System.Drawing.Icon(iconStream) : System.Drawing.SystemIcons.Application,
-                Text = "ScreenTranslator", Visible = true,
+                Text = "Subly", Visible = true,
             };
             var menu = new System.Windows.Forms.ContextMenuStrip();
             menu.Items.Add("Mở cửa sổ chính", null, (_, _) => RunOnUI(ShowMain));

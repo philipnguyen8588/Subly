@@ -110,7 +110,7 @@ struct HeaderBar: View {
             HStack(spacing: 8) {
                 Image(systemName: "captions.bubble.fill").font(.system(size: 17)).foregroundStyle(Theme.accentGradient)
                 VStack(alignment: .leading, spacing: 0) {
-                    Text("ScreenTranslator").font(.headline)
+                    Text("Subly").font(.headline)
                     Text(AppInfo.versionLabel).font(.system(size: 9)).foregroundStyle(.tertiary).monospacedDigit()
                 }
             }

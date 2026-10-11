@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import AVFoundation
 import CoreMedia
 
@@ -340,6 +341,7 @@ struct PS5SourceView: View {
     @State private var editing = false
     @State private var selection: UUID?
     @State private var pin = ""
+    @State private var showConfig = false
 
     private var statusColor: Color {
         switch stream.state {
@@ -383,6 +385,11 @@ struct PS5SourceView: View {
                         } label: { Label("Xoá khu vực", systemImage: "trash") }
                         .help("Xoá khu vực dịch đang chọn")
                     }
+                    Button { showConfig.toggle() } label: { Image(systemName: "info.circle") }
+                        .help("Xem cấu hình kết nối Remote Play (IP, MAC, account, khoá đăng ký)")
+                        .popover(isPresented: $showConfig, arrowEdge: .bottom) {
+                            if let h = stream.host { PS5ConfigView(host: h) }
+                        }
                     Menu {
                         Picker("Độ phân giải", selection: $settings.ps5Resolution) {
                             Text("1080p (chữ nét nhất)").tag(4)
@@ -428,6 +435,68 @@ struct PS5SourceView: View {
             }
         }
         .onChange(of: stream.state) { _, s in PS5Coordinator.stateChanged(s) }
+    }
+}
+
+/// Bảng xem lại cấu hình Remote Play đã lưu (sau khi đăng ký / nhập từ chiaki-ng). Khoá bí mật ẩn mặc định.
+struct PS5ConfigView: View {
+    let host: PS5Host
+    @ObservedObject var settings = AppSettings.shared
+    @State private var showSecrets = false
+    @State private var copied = false
+
+    private var registKeyText: String { String(decoding: host.registKey.prefix { $0 != 0 }, as: UTF8.self) }
+    private var rpKeyHex: String { host.rpKey.map { String(format: "%02x", $0) }.joined() }
+    private var accountText: String { host.accountID.base64EncodedString() }
+    private func mask(_ s: String) -> String { showSecrets ? s : String(repeating: "•", count: max(8, min(s.count, 24))) }
+
+    private var summary: String {
+        """
+        Máy: \(host.nickname) (\(host.ps5 ? "PS5" : "PS4"))
+        IP: \(host.host.isEmpty ? "tự dò theo MAC" : host.host)
+        MAC: \(host.macString)
+        Account ID: \(accountText)
+        Regist key: \(registKeyText)
+        RP key: \(rpKeyHex)
+        Hình: \(settings.ps5Resolution == 4 ? "1080p" : "720p") · \(settings.ps5FPS) fps
+        """
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Cấu hình kết nối Remote Play").font(.headline)
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
+                row("Máy", "\(host.nickname) · \(host.ps5 ? "PS5" : "PS4")")
+                row("IP", host.host.isEmpty ? "tự dò theo MAC khi kết nối" : host.host)
+                row("MAC", host.macString)
+                row("Account ID", accountText)
+                row("Regist key", mask(registKeyText))
+                row("RP key", mask(rpKeyHex))
+                row("Hình", "\(settings.ps5Resolution == 4 ? "1080p" : "720p") · \(settings.ps5FPS) fps")
+            }
+            .font(.callout.monospaced())
+            .textSelection(.enabled)
+            HStack {
+                Toggle("Hiện khoá", isOn: $showSecrets).toggleStyle(.switch).controlSize(.small)
+                Spacer()
+                Button(copied ? "Đã chép" : "Chép tất cả") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(summary, forType: .string)
+                    copied = true
+                }.controlSize(.small)
+            }
+            Text("Khoá đăng ký và RP key là bí mật của máy này, chỉ chia sẻ khi thật cần. Đổi máy: menu ⚙ → Quên máy này.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(14)
+        .frame(width: 420)
+    }
+
+    @ViewBuilder private func row(_ k: String, _ v: String) -> some View {
+        GridRow {
+            Text(k).foregroundStyle(.secondary).font(.callout)
+            Text(v).lineLimit(1).truncationMode(.middle)
+        }
     }
 }
 

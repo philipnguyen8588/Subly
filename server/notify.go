@@ -14,7 +14,7 @@ func (a *App) notifyNewDevice(d *Device) {
 		return
 	}
 	platform := map[string]string{"mac": "macOS", "win": "Windows"}[d.Platform]
-	text := "Máy mới chờ duyệt: " + d.Name + "\n" + (func() string {
+	text := "Máy mới (đã tự duyệt): " + d.Name + "\n" + (func() string {
 		if d.Email != "" {
 			return "✉ " + d.Email + "\n"
 		}

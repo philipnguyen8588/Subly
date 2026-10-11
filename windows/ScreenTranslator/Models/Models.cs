@@ -25,7 +25,7 @@ public enum TranslationEngine { auto, google, openAI }
 
 /// Engine cho "Dịch màn hình" (chọn riêng với phụ đề: phụ đề cần nhanh, dịch màn hình cần hiểu kỹ).
 [JsonConverter(typeof(JsonStringEnumConverter))]
-public enum ScreenEngine { gemini, openAI, google }
+public enum ScreenEngine { sameAsSubtitle, gemini, openAI, google }
 
 /// Giọng văn và cách xưng hô khi dịch phụ đề, chọn theo bối cảnh của game.
 [JsonConverter(typeof(JsonStringEnumConverter))]
@@ -65,6 +65,7 @@ public static class Labels
     };
     public static string Of(ScreenEngine e) => e switch
     {
+        ScreenEngine.sameAsSubtitle => "Giống engine dịch phụ đề",
         ScreenEngine.gemini => "Gemini (cần mạng, miễn phí, ~4–8 s) → dự phòng Google Translate",
         ScreenEngine.openAI => "OpenAI (cần mạng, trả phí, ~3,5 s) → dự phòng Google Translate",
         _ => "Google Translate (nhanh, không có tóm tắt)",

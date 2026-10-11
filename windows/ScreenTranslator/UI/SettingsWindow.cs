@@ -77,7 +77,6 @@ public sealed class SettingsWindow : Window
 
     UIElement Translate()
     {
-        var router = Pipeline.shared.router;
         var key = new PasswordBox { Password = S.geminiAPIKey, MinWidth = 320 };
         var result = Ui.Caption("");
         var models = GeminiBackend.models.ToList();
@@ -117,16 +116,15 @@ public sealed class SettingsWindow : Window
         var screenWarn = Ui.Caption("", Ui.Orange);
         void UpdateScreenWarn()
         {
-            screenWarn.Text = S.screenEngine == ScreenEngine.openAI && S.openAIKey.Length == 0
+            screenWarn.Text = S.effectiveScreenEngine == ScreenEngine.openAI && S.openAIKey.Length == 0
                 ? "Chưa có OpenAI API key (nhập ở mục OpenAI phía trên) nên sẽ dùng Google Translate."
-                : S.screenEngine == ScreenEngine.gemini && S.geminiAPIKey.Length == 0
+                : S.effectiveScreenEngine == ScreenEngine.gemini && S.geminiAPIKey.Length == 0
                 ? "Chưa có Gemini API key (nhập ở mục Gemini phía trên) nên sẽ dùng Google Translate." : "";
             screenWarn.Visibility = screenWarn.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         }
         UpdateScreenWarn();
         var keyButtons = Ui.H(8, Ui.Btn("Lưu key", () => { S.geminiAPIKey = key.Password.Trim(); result.Text = "Đã lưu"; UpdateScreenWarn(); }, primary: true), testBtn,
             Ui.Btn("Xoá key", () => { S.geminiAPIKey = ""; key.Password = ""; result.Text = ""; UpdateScreenWarn(); }));
-        var used = Ui.Caption($"Đã dùng hôm nay: {router.usedToday}");
 
         // Mục Tài khoản: email gửi lên server để chủ app nhận diện/duyệt máy (chỉ bản phát hành có kiểm tra máy).
         UIElement? account = null;
@@ -134,34 +132,25 @@ public sealed class SettingsWindow : Window
         {
             var emailBox = new TextBox { Text = S.userEmail, MinWidth = 320 };
             emailBox.LostFocus += (_, _) => { var t = emailBox.Text.Trim(); if (t != S.userEmail) S.userEmail = t; };
-            account = Ui.Section("Tài khoản",
-                Ui.V(3, Ui.Caption("Email"), emailBox),
-                Ui.Caption("Email này gửi cho quản trị viên để nhận diện và duyệt thiết bị của bạn."));
+            account = Ui.Section("Tài khoản", Ui.V(3, Ui.Caption("Email"), emailBox));
         }
 
         return Ui.V(14,
             account,
             Ui.Section("Ngôn ngữ",
-                Ui.Picker("Dịch sang", TargetLanguage.all.Select(l => (l.code, l.name)), () => S.targetLanguage, v => S.targetLanguage = v),
-                Ui.Caption("Nguồn: tiếng Anh. Đổi ngôn ngữ đích sẽ đổi cả giọng đọc.")),
+                Ui.Picker("Dịch sang", TargetLanguage.all.Select(l => (l.code, l.name)), () => S.targetLanguage, v => S.targetLanguage = v)),
             Ui.Section("Engine dịch phụ đề",
-                Ui.Picker("Engine", Enum.GetValues<TranslationEngine>().Select(e => (e, Labels.Of(e))), () => S.translationEngine, v => S.translationEngine = v, 420),
-                Ui.Caption("Tự động: dùng Gemini khi có key, còn quota và có mạng; lỗi / hết quota thì rơi về Google Translate (miễn phí, không cần key, dịch từng câu rời, không tóm tắt khi dịch màn hình).")),
+                Ui.Picker("Engine", Enum.GetValues<TranslationEngine>().Select(e => (e, Labels.Of(e))), () => S.translationEngine, v => { S.translationEngine = v; UpdateScreenWarn(); }, 420)),
             OpenAISection(UpdateScreenWarn),
             Ui.Section("Gemini API (free tier)",
                 Ui.V(3, Ui.Caption("API key (aistudio.google.com/apikey)"), key),
                 keyButtons, result,
                 Ui.Row(Ui.H(8, Ui.Text("Model"), modelBox), loadBtn),
-                Ui.Caption($"Nếu model quá tải (503) hay không có (404), app tự thử: {string.Join(" → ", GeminiBackend.fallbackModels)}."),
-                Ui.Stepper(() => $"Giới hạn: {S.rpm} request/phút", 1, 60, 1, () => S.rpm, v => S.rpm = v),
-                Ui.Stepper(() => $"Giới hạn: {S.rpd} request/ngày", 10, 5000, 10, () => S.rpd, v => S.rpd = v),
-                used,
                 Ui.Slider("Timeout phụ đề", 2, 10, 0.5, () => S.geminiTimeout, v => S.geminiTimeout = v, v => $"{v:0.0}s"),
                 Ui.Stepper(() => $"Ngữ cảnh: {S.contextPairs} câu trước", 0, 10, 1, () => S.contextPairs, v => S.contextPairs = v)),
             Ui.Section("Dịch màn hình (thủ công)",
                 Ui.Picker("Engine", Enum.GetValues<ScreenEngine>().Select(e => (e, Labels.Of(e))), () => S.screenEngine, v => { S.screenEngine = v; UpdateScreenWarn(); }, 420),
                 screenWarn,
-                Ui.Caption("Chọn riêng với engine phụ đề: phụ đề cần nhanh, còn dịch màn hình (nhật ký, tiểu sử nhân vật, nhiệm vụ) cần hiểu và tóm tắt kỹ. Gemini / OpenAI lỗi, hết quota hoặc mất mạng thì tự dùng Google Translate (không có tóm tắt)."),
                 Ui.Toggle("Đọc tóm tắt bằng giọng nói", () => S.analyzeSpeakSummary, v => S.analyzeSpeakSummary = v),
                 Ui.Slider("Timeout", 5, 60, 5, () => S.analyzeTimeout, v => S.analyzeTimeout = v, v => $"{(int)v}s")),
             Ui.Section("Hàng đợi phụ đề",
@@ -196,8 +185,7 @@ public sealed class SettingsWindow : Window
             Ui.V(3, Ui.Caption("API key (platform.openai.com/api-keys)"), key),
             keyButtons, result,
             Ui.H(8, Ui.Text("Model"), modelBox),
-            Ui.Slider("Timeout phụ đề", 2, 10, 0.5, () => S.openAITimeout, v => S.openAITimeout = v, v => $"{v:0.0}s"),
-            Ui.Caption("Dùng khi chọn engine OpenAI ở trên (phụ đề) hoặc ở mục Dịch màn hình. Tính tiền theo token. gpt-5.4-nano rẻ nhất (~1 s/câu) nhưng hay dịch lủng củng; gpt-5.4-mini tự nhiên hơn, gần như cùng tốc độ; gpt-5.4 hay nhất (~1,7 s/câu), đắt nhất. Xem giá ở trang Pricing của OpenAI. Lỗi, hết tiền hoặc mất mạng thì tự dùng Google Translate. Key được mã hoá bằng DPAPI, chỉ tài khoản Windows hiện tại đọc được."));
+            Ui.Slider("Timeout phụ đề", 2, 10, 0.5, () => S.openAITimeout, v => S.openAITimeout = v, v => $"{v:0.0}s"));
     }
 
     // MARK: Capture & OCR
@@ -307,7 +295,7 @@ public sealed class SettingsWindow : Window
             p.ApplyVoiceSettings();
             p.speaker.engine = S.voiceEngine;
             p.speaker.ResetEdgeFailures();
-            p.speaker.Speak(S.targetLanguage == "vi" ? "Xin chào, đây là giọng đọc bản dịch của ScreenTranslator." : "Hello, this is the translation voice.");
+            p.speaker.Speak(S.targetLanguage == "vi" ? "Xin chào, đây là giọng đọc bản dịch của Subly." : "Hello, this is the translation voice.");
         }).Also(b => b.HorizontalAlignment = HorizontalAlignment.Left));
         winRows.Add(Ui.Caption("Giọng hay hơn: Settings → Time & language → Speech → Manage voices → thêm giọng (Natural voices nếu có)."));
         v.Children.Add(Ui.Section("Giọng Windows (offline)", winRows.ToArray()));
@@ -320,7 +308,7 @@ public sealed class SettingsWindow : Window
         var p = Pipeline.shared;
         p.ApplyVoiceSettings();
         p.speaker.engine = VoiceEngine.local;
-        p.speaker.Speak("Xin chào, đây là giọng đọc bản dịch của ScreenTranslator.");
+        p.speaker.Speak("Xin chào, đây là giọng đọc bản dịch của Subly.");
     }
 
     // MARK: Overlay

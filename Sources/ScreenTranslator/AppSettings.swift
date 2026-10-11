@@ -250,12 +250,22 @@ final class AppSettings: ObservableObject {
     @Stored("queueMode") var queueMode: QueueMode = .latestWins
 
     // MARK: Phân tích màn hình (thủ công)
-    @Stored("screenEngine") var screenEngine: ScreenEngine = .gemini
+    @Stored("screenEngine") var screenEngine: ScreenEngine = .sameAsSubtitle
+    /// Engine thật sự dùng cho "Dịch màn hình": chọn "Giống engine dịch phụ đề" thì suy từ engine phụ đề.
+    var effectiveScreenEngine: ScreenEngine {
+        guard screenEngine == .sameAsSubtitle else { return screenEngine }
+        switch engine {
+        case .auto: return .gemini
+        case .openAI: return .openAI
+        case .appleIntelligence: return .appleIntelligence
+        case .appleTranslation: return .appleTranslation
+        }
+    }
     @Stored("analyzeSpeakSummary") var analyzeSpeakSummary: Bool = false
     @Stored("analyzeTimeout") var analyzeTimeout: Double = 20.0
 
     // MARK: Voice
-    @Stored("voiceEnabled") var voiceEnabled: Bool = true
+    @Stored("voiceEnabled") var voiceEnabled: Bool = false
     @Stored("voiceIdentifier") var voiceIdentifier: String = ""
     @Stored("voiceRate") var voiceRate: Double = 0.6
     @Stored("interruptSpeech") var interruptSpeech: Bool = true

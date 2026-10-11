@@ -69,7 +69,7 @@
     </form>
     <form method="post" action="/admin/logout" class="inline"><button type="submit">Đăng xuất</button></form>
   </header>
-  <p class="muted">Máy mới tự hiện ở “Chờ duyệt” khi mở app lần đầu. Máy đã duyệt được dùng offline tối đa {{.TTLDays}} ngày; thu hồi thì máy bị khoá ở lần kết nối kế tiếp (chậm nhất {{.TTLDays}} ngày nếu máy không lên mạng).</p>
+  <p class="muted">Máy mới được duyệt ngay khi mở app lần đầu và hiện ở “Đã duyệt”; cần chặn thì bấm Thu hồi. Máy đã duyệt được dùng offline tối đa {{.TTLDays}} ngày; thu hồi thì máy bị khoá ở lần kết nối kế tiếp (chậm nhất {{.TTLDays}} ngày nếu máy không lên mạng).</p>
   {{range .Devices}}
   <div class="card">
     <div class="row">

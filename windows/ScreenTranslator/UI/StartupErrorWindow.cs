@@ -16,7 +16,7 @@ public sealed class StartupErrorWindow : Window
 
     StartupErrorWindow()
     {
-        Title = "ScreenTranslator";
+        Title = "Subly";
         Width = 460; Height = 320; ResizeMode = ResizeMode.NoResize;
         WindowStartupLocation = WindowStartupLocation.CenterScreen; ShowInTaskbar = true;
         Background = Ui.Res("WindowBg");
@@ -29,7 +29,7 @@ public sealed class StartupErrorWindow : Window
             Padding = new Thickness(40),
             Child = Ui.V(16,
                 Ui.Icon("", 42, Ui.Secondary).Also(i => i.HorizontalAlignment = HorizontalAlignment.Center),
-                Ui.Text("ScreenTranslator không khởi động được", 17, true).Also(t => t.TextAlignment = TextAlignment.Center),
+                Ui.Text("Subly không khởi động được", 17, true).Also(t => t.TextAlignment = TextAlignment.Center),
                 Ui.Text("Không thể tiếp tục lúc này. Vui lòng kiểm tra kết nối mạng rồi thử lại sau.",
                     color: Ui.Secondary).Also(t => { t.TextAlignment = TextAlignment.Center; t.MaxWidth = 360; }),
                 Ui.Text("Mã: 0x2A1", 11.5, color: Ui.Tertiary).Also(t => t.TextAlignment = TextAlignment.Center),

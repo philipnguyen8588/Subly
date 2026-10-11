@@ -1,4 +1,4 @@
-APP      = build/ScreenTranslator.app
+APP      = build/Subly.app
 # Command Line Tools không có macro plugin (SwiftUIMacros) cho SDK 27 → build với SDK 26.5
 export SDKROOT ?= /Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk
 BIN      = .build/release/ScreenTranslator
@@ -11,7 +11,7 @@ endif
 
 # Nơi cài app (make install): mở từ Launchpad / Spotlight / thư mục Applications như app bình thường.
 INSTALL_DIR ?= /Applications
-INSTALLED = $(INSTALL_DIR)/ScreenTranslator.app
+INSTALLED = $(INSTALL_DIR)/Subly.app
 
 .PHONY: build app install run clean debug icon
 
@@ -30,7 +30,7 @@ build:
 app: build
 	rm -rf $(APP)
 	mkdir -p $(APP)/Contents/MacOS $(APP)/Contents/Resources
-	cp $(BIN) $(APP)/Contents/MacOS/ScreenTranslator
+	cp $(BIN) $(APP)/Contents/MacOS/Subly
 	cp Resources/Info.plist $(APP)/Contents/Info.plist
 	@[ -f Resources/AppIcon.icns ] && cp Resources/AppIcon.icns $(APP)/Contents/Resources/AppIcon.icns || true
 	# Thuật ngữ game đóng kèm: tạo sẵn profile cho các game thông dụng ở lần chạy đầu.
@@ -42,7 +42,7 @@ app: build
 	mkdir -p $(APP)/Contents/Frameworks
 	cp Vendor/sherpa-onnx/lib/libsherpa-onnx-c-api.dylib Vendor/sherpa-onnx/lib/libonnxruntime.dylib $(APP)/Contents/Frameworks/
 	# Bỏ bảng ký hiệu khỏi file chạy (khó đọc hơn khi dịch ngược). Ký là bước cuối cùng.
-	strip -rSTx $(APP)/Contents/MacOS/ScreenTranslator
+	strip -rSTx $(APP)/Contents/MacOS/Subly
 	codesign --force --sign $(SIGN_IDENTITY) --timestamp=none $(APP)/Contents/Frameworks/*.dylib
 	# Hardened runtime: chặn tiêm qua DYLD_*, chặn attach debugger. disable-library-validation để nạp dylib trong bundle.
 	codesign --force --options runtime --entitlements Resources/hardened.entitlements \
@@ -52,20 +52,21 @@ app: build
 # Build rồi cài vào /Applications. Chép sang bản tạm rồi mới thay, để không bao giờ để lại một app cài dở.
 # App đang mở vẫn chạy bản cũ cho tới khi thoát và mở lại.
 install: app
+	rm -rf "$(INSTALL_DIR)/ScreenTranslator.app"
 	rm -rf "$(INSTALLED).new"
 	ditto $(APP) "$(INSTALLED).new"
 	rm -rf "$(INSTALLED)"
 	mv "$(INSTALLED).new" "$(INSTALLED)"
 	@echo "Đã cài $(INSTALLED)"
-	@if pgrep -x ScreenTranslator >/dev/null; then echo "App đang chạy bản cũ: thoát (⌘Q) rồi mở lại để dùng bản mới."; fi
+	@if pgrep -x Subly >/dev/null; then echo "App đang chạy bản cũ: thoát (⌘Q) rồi mở lại để dùng bản mới."; fi
 
 run: install
 	open "$(INSTALLED)"
 
 # Chạy từ terminal để xem log trực tiếp
 debug: app
-	pkill -x ScreenTranslator || true
-	$(APP)/Contents/MacOS/ScreenTranslator
+	pkill -x Subly || true
+	$(APP)/Contents/MacOS/Subly
 
 clean:
 	rm -rf .build build

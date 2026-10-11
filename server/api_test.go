@@ -94,20 +94,14 @@ func TestFlow(t *testing.T) {
 	d := newDevice("mac-uuid-1")
 	now := time.Now()
 
-	// Máy mới: chờ duyệt, không có vé, đã được ghi vào danh sách kèm thông tin.
-	if r := call(t, a, d.request(now)); r.C != 1 || r.T != "" {
+	// Máy mới: được duyệt ngay, có vé luôn, đã được ghi vào danh sách kèm thông tin.
+	r := call(t, a, d.request(now))
+	if r.C != 0 || r.T == "" {
 		t.Fatalf("new device got %+v", r)
 	}
 	got, _ := a.store.Get(d.hash)
-	if got == nil || got.Status != statusPending || got.Name != "Test Mac" || got.Model != "Mac16,10" {
+	if got == nil || got.Status != statusApproved || got.Name != "Test Mac" || got.Model != "Mac16,10" {
 		t.Fatalf("stored %+v", got)
-	}
-
-	// Duyệt → có vé hợp lệ.
-	_ = a.store.SetStatus(d.hash, statusApproved)
-	r := call(t, a, d.request(now))
-	if r.C != 0 {
-		t.Fatalf("approved device got %+v", r)
 	}
 	verifyTicket(t, a.key.Public().(ed25519.PublicKey), r.T, d.hash, b64.EncodeToString(d.pub), now)
 
@@ -223,6 +217,7 @@ func TestAdminAuth(t *testing.T) {
 	}
 	d := newDevice("y")
 	_ = call(t, a, d.request(time.Now()))
+	_ = a.store.SetStatus(d.hash, statusPending)
 	// Duyệt từ trang khác (CSRF) → bị bỏ qua.
 	post("/admin/device", url.Values{"hash": {d.hash}, "action": {"approve"}}, "http://evil.test", cs[0])
 	if got, _ := a.store.Get(d.hash); got.Status != statusPending {

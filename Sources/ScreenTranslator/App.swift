@@ -64,7 +64,7 @@ final class WindowManager {
         if startupError == nil {
             let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 320),
                              styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
-            w.title = "ScreenTranslator"
+            w.title = "Subly"
             w.titlebarAppearsTransparent = true
             w.isReleasedWhenClosed = false
             w.center()
@@ -99,7 +99,7 @@ final class WindowManager {
             let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700),
                              styleMask: [.titled, .closable, .miniaturizable, .resizable],
                              backing: .buffered, defer: false)
-            w.title = "ScreenTranslator"
+            w.title = "Subly"
             w.titlebarAppearsTransparent = true
             w.titleVisibility = .hidden
             w.isReleasedWhenClosed = false
@@ -135,11 +135,24 @@ final class WindowManager {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// Chỉ cho một bản Subly chạy: đã có bản khác (cùng bundle id) thì đưa bản đó lên trước rồi thoát bản này.
+    /// Cờ `--multi` bỏ qua kiểm tra (chỉ dùng khi test tự động).
+    private static func exitIfAlreadyRunning() -> Bool {
+        guard !CommandLine.arguments.contains("--multi"), let bid = Bundle.main.bundleIdentifier else { return false }
+        let me = ProcessInfo.processInfo.processIdentifier
+        guard let other = NSRunningApplication.runningApplications(withBundleIdentifier: bid)
+            .first(where: { $0.processIdentifier != me && !$0.isTerminated }) else { return false }
+        Log.info("Subly đã chạy (pid \(other.processIdentifier)) → đưa lên trước và thoát bản này.")
+        other.activate(options: [.activateAllWindows])
+        return true
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if Self.exitIfAlreadyRunning() { exit(0) }
         NSApp.setActivationPolicy(.regular)
         Integrity.arm()
         WindowManager.shared.setup()
-        Log.info("ScreenTranslator launched.")
+        Log.info("Subly launched.")
         startApp()
         // App luôn mở bình thường; việc kiểm tra máy chạy ngầm và chỉ chặn khi người dùng bấm Bắt đầu / Dịch màn hình.
         let begin = { SessionCheck.shared.begin(onLostAccess: { [weak self] in self?.onLostAccess() }) }

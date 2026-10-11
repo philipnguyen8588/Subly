@@ -1,5 +1,5 @@
 // Subtitle TV cho LG webOS (chép từ bản Samsung Tizen rồi sửa): hiện hình HDMI (PS5) bằng thẻ <video> nguồn
-// "ext://hdmi:N" và phụ đề dịch từ ScreenTranslator (máy tính, Server-Sent Events) vẽ đè lên hình.
+// "ext://hdmi:N" và phụ đề dịch từ Subly (máy tính, Server-Sent Events) vẽ đè lên hình.
 //
 // Phím theo LG Magic Remote (vòng điều hướng, OK, Back, Kênh ∧∨; thường không có ⏯ và phím số):
 //   OK = dịch toàn màn hình, Back = menu, ▲ ▼ = vị trí phụ đề, ◀ ▶ = cỡ chữ, Kênh ∧ = lịch sử, Kênh ∨ = ảnh đã dịch,
@@ -382,7 +382,7 @@
     });
   }
 
-  /// Kiểm tra máy có đang chạy ScreenTranslator không (cho màn hình chọn máy).
+  /// Kiểm tra máy có đang chạy Subly không (cho màn hình chọn máy).
   var probe = {};
   function probeServer(i) {
     var s = cfg.servers[i];
@@ -710,7 +710,7 @@
     var items = cfg.servers.map(function (s, i) {
       var st = probe[i] || '';
       return { label: '<span class="dot ' + st + '"></span>' + esc(s.name), html: true, val: delMark === i ? 'OK để XOÁ máy này' : host(s.url),
-               sub: st === 'on' ? 'ScreenTranslator đang chạy' : st === 'off' ? 'Không trả lời (app chưa mở, khác mạng hoặc tường lửa chặn)' : 'Đang kiểm tra…',
+               sub: st === 'on' ? 'Subly đang chạy' : st === 'off' ? 'Không trả lời (app chưa mở, khác mạng hoặc tường lửa chặn)' : 'Đang kiểm tra…',
                lr: i >= 2 ? function () { delMark = delMark === i ? -1 : i; } : null,
                ok: function () {
                  if (delMark === i) { cfg.servers.splice(i, 1); if (cfg.server === i) cfg.server = -1; else if (cfg.server > i) cfg.server--; delMark = -1; save(); return; }
@@ -770,7 +770,7 @@
       '</div></div>';
     var main = '';
     if (screen === 'ip') {
-      main = '<h2>Địa chỉ IP máy tính chạy ScreenTranslator</h2>' +
+      main = '<h2>Địa chỉ IP máy tính chạy Subly</h2>' +
         '<div class="ip">' + ipEdit.oct.map(function (o, i) { return '<div class="oct' + (i === ipEdit.idx ? ' sel' : '') + '">' + o + '</div>' + (i < 3 ? '.' : ''); }).join('') + '<div class="dim">:8787</div></div>' +
         '<div class="pad">' + ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'].map(function (d) { return '<div class="key" data-key="' + (48 + +d) + '">' + d + '</div>'; }).join('') +
         '<div class="key wide" data-key="37">◀ ô trước</div><div class="key wide" data-key="39">ô sau ▶</div><div class="key wide ok" data-key="13">Kết nối</div><div class="key wide" data-key="461">Huỷ</div></div>' +
@@ -779,7 +779,7 @@
     } else {
       var items = menuItems();
       sel = Math.max(0, Math.min(items.length - 1, sel));
-      main = '<h2>' + (screen === 'connect' ? 'Chọn máy tính đang chạy ScreenTranslator' : screen === 'help' ? 'Hướng dẫn phím remote' : 'Cài đặt') + '</h2>' +
+      main = '<h2>' + (screen === 'connect' ? 'Chọn máy tính đang chạy Subly' : screen === 'help' ? 'Hướng dẫn phím remote' : 'Cài đặt') + '</h2>' +
         items.map(function (it, i) {
           if (it.group) return '<div class="group">' + esc(it.label) + '</div>';
           return '<div data-i="' + i + '" class="item' + (i === sel ? ' sel' : '') + (screen === 'help' && !it.ok ? ' key' : '') + (it.danger ? ' danger' : '') + (it.action ? ' action' : '') + '"><div><div>' + (it.html ? it.label : esc(it.label)) + '</div>' +

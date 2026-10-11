@@ -116,7 +116,7 @@ enum TranslationStyle: String, Codable, CaseIterable, Identifiable {
 enum ProfileSource: String, Codable, CaseIterable, Identifiable {
     case external, ps5
     var id: String { rawValue }
-    var label: String { self == .external ? "App trên máy này" : "PS5" }
+    var label: String { self == .external ? "App trên máy này" : "PS5 Remote (Chiaki)" }
     var icon: String { self == .external ? "macwindow" : "playstation.logo" }
 }
 
@@ -176,10 +176,11 @@ enum TranslationEngine: String, Codable, CaseIterable, Identifiable {
 
 /// Engine cho "Dịch màn hình" (chọn riêng với phụ đề: phụ đề cần nhanh, dịch màn hình cần hiểu kỹ).
 enum ScreenEngine: String, Codable, CaseIterable, Identifiable {
-    case gemini, openAI, appleIntelligence, appleTranslation
+    case sameAsSubtitle, gemini, openAI, appleIntelligence, appleTranslation
     var id: String { rawValue }
     var label: String {
         switch self {
+        case .sameAsSubtitle: return "Giống engine dịch phụ đề"
         case .gemini: return "Gemini (cần mạng, miễn phí, ~4–8 s) → dự phòng trên máy"
         case .openAI: return "OpenAI (cần mạng, trả phí, ~3,5 s) → dự phòng trên máy"
         case .appleIntelligence: return "Apple Intelligence (offline)"

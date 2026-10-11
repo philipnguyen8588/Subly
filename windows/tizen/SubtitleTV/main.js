@@ -1,4 +1,4 @@
-// Subtitle TV: hiện hình HDMI (PS5) bằng tizen.tvwindow và phụ đề dịch từ ScreenTranslator (máy tính, Server-Sent Events).
+// Subtitle TV: hiện hình HDMI (PS5) bằng tizen.tvwindow và phụ đề dịch từ Subly (máy tính, Server-Sent Events).
 // Trên TV Samsung (đã thử Q70T, Tizen 5.5), lớp video HDMI luôn nằm TRÊN lớp đồ hoạ của app, nên không vẽ đè lên hình được:
 // hình được ép nhẹ chiều cao để chừa một dải đen, phụ đề nằm trong dải đó. Lúc mở menu, hình được tạm ẩn.
 //
@@ -492,7 +492,7 @@
     });
   }
 
-  /// Kiểm tra máy có đang chạy ScreenTranslator không (cho màn hình chọn máy).
+  /// Kiểm tra máy có đang chạy Subly không (cho màn hình chọn máy).
   var probe = {};
   function probeServer(i) {
     var s = cfg.servers[i];
@@ -735,7 +735,7 @@
     if (which === 'connect') {
       sel = Math.max(0, cfg.server);
       for (var i = 0; i < cfg.servers.length; i++) probeServer(i);
-      // Lần đầu mở màn chọn máy: tự dò LAN một lần để thêm máy đang chạy ScreenTranslator.
+      // Lần đầu mở màn chọn máy: tự dò LAN một lần để thêm máy đang chạy Subly.
       if (!autoScanned) { autoScanned = true; scanLan(); }
     }
     renderMenu();
@@ -818,7 +818,7 @@
     ]);
   }
 
-  // ---------- Tự dò máy chạy ScreenTranslator trong mạng LAN ----------
+  // ---------- Tự dò máy chạy Subly trong mạng LAN ----------
   var scanning = false, scanFound = 0, autoScanned = false;
   /// Lấy IP của chính TV (Wi-Fi hoặc dây mạng) để biết subnet.
   function localIp(cb) {
@@ -832,7 +832,7 @@
     tryProp('WIFI_NETWORK', function () { tryProp('ETHERNET_NETWORK', function () { cb(null); }); });
   }
   function hasServer(url) { for (var i = 0; i < cfg.servers.length; i++) if (cfg.servers[i].url === url) return true; return false; }
-  /// Quét x.y.z.1–254 cổng 8787, máy nào trả lời /api/log (JSON) thì là ScreenTranslator → tự thêm.
+  /// Quét x.y.z.1–254 cổng 8787, máy nào trả lời /api/log (JSON) thì là Subly → tự thêm.
   function scanLan() {
     if (scanning) return;
     localIp(function (ip) {
@@ -845,7 +845,7 @@
       function finishOne() {
         if (++done >= 254) {
           scanning = false;
-          toast(scanFound > 0 ? 'Tìm thấy ' + scanFound + ' máy' : 'Không thấy máy nào đang chạy ScreenTranslator (mở app trên máy tính, bật máy chủ Web)', scanFound === 0);
+          toast(scanFound > 0 ? 'Tìm thấy ' + scanFound + ' máy' : 'Không thấy máy nào đang chạy Subly (mở app trên máy tính, bật máy chủ Web)', scanFound === 0);
           for (var i = 0; i < cfg.servers.length; i++) probeServer(i);
           if (rt.menuOpen) renderMenu();
           return;
@@ -879,7 +879,7 @@
     var items = cfg.servers.map(function (s, i) {
       var st = probe[i] || '';
       return { label: '<span class="dot ' + st + '"></span>' + esc(s.name), html: true, val: delMark === i ? 'OK để XOÁ máy này' : host(s.url),
-               sub: st === 'on' ? 'ScreenTranslator đang chạy' : st === 'off' ? 'Không trả lời (app chưa mở, khác mạng hoặc tường lửa chặn)' : 'Đang kiểm tra…',
+               sub: st === 'on' ? 'Subly đang chạy' : st === 'off' ? 'Không trả lời (app chưa mở, khác mạng hoặc tường lửa chặn)' : 'Đang kiểm tra…',
                lr: i >= 2 ? function () { delMark = delMark === i ? -1 : i; } : null,
                ok: function () {
                  if (delMark === i) { cfg.servers.splice(i, 1); if (cfg.server === i) cfg.server = -1; else if (cfg.server > i) cfg.server--; delMark = -1; save(); return; }
@@ -887,7 +887,7 @@
                } };
     });
     items.push({ label: (scanning ? '🔎 Đang dò… (thấy ' + scanFound + ')' : '🔎 Dò máy trong mạng'), val: '', action: true,
-      sub: 'Tự tìm máy tính trong cùng mạng Wi-Fi/LAN đang chạy ScreenTranslator',
+      sub: 'Tự tìm máy tính trong cùng mạng Wi-Fi/LAN đang chạy Subly',
       ok: function () { scanLan(); } });
     items.push({ label: '+ Nhập địa chỉ IP máy khác…', val: '', sub: '', ok: function () {
       var cur = cfg.servers[cfg.server];
@@ -940,14 +940,14 @@
       '</div></div>';
     var main = '';
     if (screen === 'ip') {
-      main = '<h2>Địa chỉ IP máy tính chạy ScreenTranslator</h2>' +
+      main = '<h2>Địa chỉ IP máy tính chạy Subly</h2>' +
         '<div class="ip">' + ipEdit.oct.map(function (o, i) { return '<div class="oct' + (i === ipEdit.idx ? ' sel' : '') + '">' + o + '</div>' + (i < 3 ? '.' : ''); }).join('') + '<div class="dim">:8787</div></div>' +
         '<div class="hint" style="margin-top:30px">Bấm số để nhập · ◀▶ chuyển ô · ▲▼ tăng/giảm · OK kết nối · Back huỷ<br>' +
         'Bấm nút 123 trên remote để hiện bàn phím số. IP hiện trong app trên máy tính: Cài đặt → iPhone / Web (hoặc Điện thoại / Web).</div>';
     } else {
       var items = menuItems();
       sel = Math.max(0, Math.min(items.length - 1, sel));
-      main = '<h2>' + (screen === 'connect' ? 'Chọn máy tính đang chạy ScreenTranslator' : screen === 'help' ? 'Hướng dẫn phím remote' : 'Cài đặt') + '</h2>' +
+      main = '<h2>' + (screen === 'connect' ? 'Chọn máy tính đang chạy Subly' : screen === 'help' ? 'Hướng dẫn phím remote' : 'Cài đặt') + '</h2>' +
         items.map(function (it, i) {
           if (it.group) return '<div class="group">' + esc(it.label) + '</div>';
           return '<div data-i="' + i + '" class="item' + (i === sel ? ' sel' : '') + (screen === 'help' && !it.ok ? ' key' : '') + (it.danger ? ' danger' : '') + (it.action ? ' action' : '') + '"><div><div>' + (it.html ? it.label : esc(it.label)) + '</div>' +

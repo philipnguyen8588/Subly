@@ -21,7 +21,7 @@ public sealed class MainWindow : Window
 
     public MainWindow()
     {
-        Title = "ScreenTranslator";
+        Title = "Subly";
         Width = 1000; Height = 700; MinWidth = 860; MinHeight = 560;
         Background = Ui.Res("WindowBg");
         Icon = new BitmapImage(new Uri("pack://application:,,,/Resources/AppIcon.ico"));
@@ -144,7 +144,7 @@ public sealed class HeaderBar : Border
         profileBtn.ToolTip = "Game đang dịch. Mỗi game có nguồn hình, khung phụ đề, thuật ngữ và tên nhân vật riêng";
 
         var titleStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        titleStack.Children.Add(Ui.Text("ScreenTranslator", 14, true, wrap: false));
+        titleStack.Children.Add(Ui.Text("Subly", 14, true, wrap: false));
         titleStack.Children.Add(Ui.Text(AppInfo.VersionLabel, 9, color: Ui.Tertiary, wrap: false));
         var logo = Ui.H(8, new Image { Source = new BitmapImage(new Uri("pack://application:,,,/Resources/AppIcon.png")), Width = 22, Height = 22 }, titleStack);
         var left = Ui.H(10, logo, startBtn, analyzeBtn, pill);

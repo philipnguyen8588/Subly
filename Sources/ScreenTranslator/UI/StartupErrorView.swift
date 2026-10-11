@@ -10,7 +10,7 @@ struct StartupErrorView: View {
         VStack(spacing: 16) {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 42)).foregroundStyle(.secondary)
-            Text("ScreenTranslator không khởi động được")
+            Text("Subly không khởi động được")
                 .font(.title3.weight(.semibold))
             Text("Không thể tiếp tục lúc này. Vui lòng kiểm tra kết nối mạng rồi thử lại sau.")
                 .font(.callout).foregroundStyle(.secondary)

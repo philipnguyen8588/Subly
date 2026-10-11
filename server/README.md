@@ -2,9 +2,10 @@
 
 App ScreenTranslator (Mac và Windows) chỉ chạy trên máy đã được duyệt ở đây.
 
-- Máy mới mở app lần đầu sẽ tự hiện trong mục **Chờ duyệt** của trang quản trị, kèm tên máy, tài khoản, model, hệ điều
-  hành, IP và mã phần cứng. Phía người dùng chỉ thấy một lỗi chung chung, không có chữ nào về duyệt hay giấy phép.
-- Bấm **Duyệt** thì trong khoảng 30 giây app trên máy đó tự mở.
+- Máy mới mở app lần đầu được **duyệt ngay** và dùng được luôn; nó hiện trong mục **Đã duyệt** của trang quản trị, kèm
+  tên máy, tài khoản, model, hệ điều hành, IP và mã phần cứng. Cần chặn máy nào thì bấm **Thu hồi**; phía người dùng chỉ
+  thấy một lỗi chung chung, không có chữ nào về duyệt hay giấy phép.
+- Máy bị thu hồi rồi bấm **Duyệt** lại thì trong khoảng 30 giây app trên máy đó tự mở.
 - Máy đã duyệt nhận một vé có chữ ký, hạn 7 ngày (đổi bằng `TICKET_DAYS`), nên vẫn chạy được khi tạm mất mạng hoặc
   server tạm hỏng. App tự gia hạn vé khi có mạng.
 - Bấm **Thu hồi** thì máy bị khoá ở lần kết nối tới, tức là trong vài giờ nếu máy có mạng, chậm nhất là khi vé hết hạn.
@@ -41,7 +42,7 @@ chạy `docker compose up -d`.
 
 ## Trang quản trị
 
-- **Duyệt / Thu hồi / Xoá**: xoá một máy thì lần mở app tới, máy đó hiện lại trong mục Chờ duyệt.
+- **Duyệt / Thu hồi / Xoá**: xoá một máy thì lần mở app tới, máy đó đăng ký lại và được duyệt lại ngay.
 - **Ghi chú**: để nhớ máy của ai, ví dụ "laptop của Minh".
 - **⚠ khoá khác**: có máy gửi đúng mã phần cứng này nhưng với khoá thiết bị khác. Thường là do máy đã cài lại hệ điều
   hành hoặc xoá dữ liệu app, nhưng cũng có thể là có người giả mạo mã máy. Nếu chắc là máy thật thì bấm **Ghi khoá

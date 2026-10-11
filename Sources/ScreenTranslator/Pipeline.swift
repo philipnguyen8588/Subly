@@ -740,7 +740,7 @@ final class Pipeline: ObservableObject {
         if settings.suppressAlerts { Log.warn("ALERT suppressed: cần quyền Ghi màn hình"); return }
         let a = NSAlert()
         a.messageText = "Cần quyền Ghi màn hình"
-        a.informativeText = "Vào System Settings → Privacy & Security → Screen & System Audio Recording, bật ScreenTranslator, rồi bấm Bắt đầu lại."
+        a.informativeText = "Vào System Settings → Privacy & Security → Screen & System Audio Recording, bật Subly, rồi bấm Bắt đầu lại."
         a.addButton(withTitle: "Mở System Settings")
         a.addButton(withTitle: "Đóng")
         NSApp.activate(ignoringOtherApps: true)

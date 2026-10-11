@@ -12,7 +12,7 @@ enum WebPage {
 <meta name="apple-mobile-web-app-title" content="Phụ đề">
 <meta name="theme-color" content="#000000">
 <link rel="apple-touch-icon" href="/icon.png">
-<title>ScreenTranslator</title>
+<title>Subly</title>
 <style>
 :root {
   --bg: #000; --panel: #131316; --line: #26262b; --text: #f4f1ea; --dim: #8d8d96; --faint: #5c5c66;

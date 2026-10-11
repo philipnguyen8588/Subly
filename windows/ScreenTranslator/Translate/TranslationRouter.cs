@@ -157,7 +157,7 @@ public sealed class TranslationRouter : INotifyPropertyChanged
     /// `forScreen`: lần "Dịch màn hình" dùng engine riêng (Cài đặt → Dịch → Dịch màn hình), không theo engine phụ đề.
     bool AcquireGemini(bool forScreen = false)
     {
-        bool wanted = forScreen ? settings.screenEngine == ScreenEngine.gemini : settings.engine == TranslationEngine.auto;
+        bool wanted = forScreen ? settings.effectiveScreenEngine == ScreenEngine.gemini : settings.engine == TranslationEngine.auto;
         if (!wanted || string.IsNullOrEmpty(gemini.apiKey) || !online) return false;
         var denial = limiter.Acquire();
         if (denial != null)
@@ -273,7 +273,7 @@ public sealed class TranslationRouter : INotifyPropertyChanged
     {
         var t0 = DateTime.UtcNow;
         gemini.glossaryFocus = string.Join("\n", lines);
-        if (settings.screenEngine == ScreenEngine.openAI && openai.apiKey.Length > 0 && online)
+        if (settings.effectiveScreenEngine == ScreenEngine.openAI && openai.apiKey.Length > 0 && online)
         {
             try
             {
@@ -330,7 +330,7 @@ public sealed class TranslationRouter : INotifyPropertyChanged
             if (summary.Length == 0) throw new InvalidOperationException("Model trả về tóm tắt rỗng");
             return new StoryOutput(title, summary, backend, Ms(t0));
         }
-        var order = settings.screenEngine == ScreenEngine.openAI ? new[] { BackendKind.openAI, BackendKind.gemini } : new[] { BackendKind.gemini, BackendKind.openAI };
+        var order = settings.effectiveScreenEngine == ScreenEngine.openAI ? new[] { BackendKind.openAI, BackendKind.gemini } : new[] { BackendKind.gemini, BackendKind.openAI };
         foreach (var b in order)
         {
             if (b == BackendKind.openAI && openai.apiKey.Length > 0 && online)

@@ -46,7 +46,7 @@ public sealed class SubtitleOverlay
             WindowStyle = WindowStyle.None, AllowsTransparency = true, Background = Brushes.Transparent,
             Topmost = true, ShowInTaskbar = false, ShowActivated = false, Focusable = false, IsHitTestVisible = false,
             ResizeMode = ResizeMode.NoResize, SizeToContent = SizeToContent.Manual, Content = box,
-            Width = 600, Height = 80, Left = -10000, Top = -10000, Title = "ScreenTranslator Overlay",
+            Width = 600, Height = 80, Left = -10000, Top = -10000, Title = "Subly Overlay",
         };
         win.SourceInitialized += (_, _) =>
         {

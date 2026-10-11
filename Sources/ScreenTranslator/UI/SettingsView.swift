@@ -67,14 +67,12 @@ struct TranslateSettings: View {
             if RuntimeConfig.enabled {
                 Section("Tài khoản") {
                     TextField("Email", text: $settings.userEmail, prompt: Text("ban@example.com"))
-                    Text("Email này gửi cho quản trị viên để nhận diện và duyệt thiết bị của bạn.").font(.caption).foregroundStyle(.secondary)
                 }
             }
             Section("Ngôn ngữ") {
                 Picker("Dịch sang", selection: $settings.targetLanguage) {
                     ForEach(TargetLanguage.all) { l in Text(l.name).tag(l.code) }
                 }
-                Text("Nguồn: tiếng Anh. Đổi ngôn ngữ đích sẽ đổi cả giọng đọc và gói Apple Translation.").font(.caption).foregroundStyle(.secondary)
             }
             Section("Engine dịch phụ đề") {
                 Picker("Engine", selection: $settings.translationEngine) {
@@ -98,8 +96,6 @@ struct TranslateSettings: View {
                         Text("\(settings.aiTimeout, specifier: "%.1f")s").monospacedDigit()
                     }
                 }
-                Text("Apple Intelligence là model ngôn ngữ chạy ngay trên máy: miễn phí, không cần mạng, dùng được ngữ cảnh, thuật ngữ và tên nhân vật. Đo trên máy này: 0,4–1,3 s mỗi câu (Apple Translation ~30 ms, Gemini ~1 s). Lỗi hay quá thời gian thì tự rơi về Apple Translation.")
-                    .font(.caption).foregroundStyle(.secondary)
             }
             OpenAISettings(settings: settings)
             Section("Gemini API (free tier)") {
@@ -120,11 +116,6 @@ struct TranslateSettings: View {
                         .disabled(loadingModels || settings.geminiAPIKey.isEmpty)
                         .help("Lấy danh sách model thật mà key này dùng được")
                 }
-                Text("Nếu model quá tải (503) hay không có (404), app tự thử: \(GeminiBackend.fallbackModels.joined(separator: " → ")).")
-                    .font(.caption).foregroundStyle(.secondary)
-                Stepper("Giới hạn: \(settings.rpm) request/phút", value: $settings.rpm, in: 1...60)
-                Stepper("Giới hạn: \(settings.rpd) request/ngày", value: $settings.rpd, in: 10...5000, step: 10)
-                Text("Đã dùng hôm nay: \(pipeline.router.usedToday)").font(.caption).foregroundStyle(.secondary)
                 HStack {
                     Text("Timeout phụ đề")
                     Slider(value: $settings.geminiTimeout, in: 2...10, step: 0.5)
@@ -147,16 +138,14 @@ struct TranslateSettings: View {
                 Picker("Engine", selection: $settings.screenEngine) {
                     ForEach(ScreenEngine.allCases) { Text($0.label).tag($0) }
                 }
-                if settings.screenEngine == .openAI, settings.openAIKey.isEmpty {
+                if settings.effectiveScreenEngine == .openAI, settings.openAIKey.isEmpty {
                     Text("Chưa có OpenAI API key (nhập ở mục OpenAI phía trên) nên sẽ dùng engine trên máy.")
                         .font(.caption).foregroundStyle(.orange)
                 }
-                if settings.screenEngine == .gemini, settings.geminiAPIKey.isEmpty {
+                if settings.effectiveScreenEngine == .gemini, settings.geminiAPIKey.isEmpty {
                     Text("Chưa có Gemini API key (nhập ở mục Gemini phía trên) nên sẽ dùng engine trên máy.")
                         .font(.caption).foregroundStyle(.orange)
                 }
-                Text("Chọn riêng với engine phụ đề: phụ đề cần nhanh, còn dịch màn hình (nhật ký, tiểu sử nhân vật, nhiệm vụ) cần hiểu và tóm tắt kỹ. Gemini lỗi, hết quota hoặc mất mạng thì tự dùng engine trên máy.")
-                    .font(.caption).foregroundStyle(.secondary)
                 Toggle("Đọc tóm tắt bằng giọng nói", isOn: $settings.analyzeSpeakSummary)
                 HStack {
                     Text("Timeout")
@@ -235,8 +224,6 @@ struct OpenAISettings: View {
                 Slider(value: $settings.openAITimeout, in: 2...10, step: 0.5)
                 Text("\(settings.openAITimeout, specifier: "%.1f")s").monospacedDigit()
             }
-            Text("Dùng khi chọn engine OpenAI ở trên (phụ đề) hoặc ở mục Dịch màn hình. Tính tiền theo token. gpt-5.4-nano rẻ nhất (~1 s/câu) nhưng hay dịch lủng củng; gpt-5.4-mini tự nhiên hơn, gần như cùng tốc độ; gpt-5.4 hay nhất (~1,7 s/câu), đắt nhất. Xem giá ở trang Pricing của OpenAI. Lỗi, hết tiền hoặc mất mạng thì tự dùng Apple Intelligence. Key lưu trong file chỉ tài khoản của bạn đọc được.")
-                .font(.caption).foregroundStyle(.secondary)
         }
         .onAppear { key = settings.openAIKey }
     }
@@ -406,7 +393,7 @@ struct VoiceSettings: View {
                     s.edgeVoice = settings.edgeVoice.isEmpty ? EdgeTTS.defaultVoice(for: settings.targetLanguage) : settings.edgeVoice
                     s.localVoiceID = settings.localVoiceID; s.localSpeed = settings.localSpeed
                     s.resetEdgeFailures()
-                    s.speak(settings.targetLanguage == "vi" ? "Xin chào, đây là giọng đọc bản dịch của ScreenTranslator." : "Hello, this is the translation voice.")
+                    s.speak(settings.targetLanguage == "vi" ? "Xin chào, đây là giọng đọc bản dịch của Subly." : "Hello, this is the translation voice.")
                 }
                 Text("Giọng hay hơn: System Settings → Accessibility → Spoken Content → System Voice → Manage Voices → tải giọng Enhanced/Premium.")
                     .font(.caption).foregroundStyle(.secondary)
@@ -422,7 +409,7 @@ struct VoiceSettings: View {
         s.engine = .local
         s.localVoiceID = id
         s.localSpeed = settings.localSpeed
-        s.speak("Xin chào, đây là giọng đọc bản dịch của ScreenTranslator.")
+        s.speak("Xin chào, đây là giọng đọc bản dịch của Subly.")
     }
 }
 

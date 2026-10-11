@@ -184,7 +184,7 @@ final class TranslationRouter: ObservableObject {
     /// Có được phép gọi Gemini cho request tiếp theo không (trừ token nếu có).
     /// `forScreen`: lần "Dịch màn hình" dùng engine riêng (Cài đặt → Dịch → Dịch màn hình), không theo engine phụ đề.
     private func acquireGemini(forScreen: Bool = false) async -> Bool {
-        let wanted = forScreen ? settings.screenEngine == .gemini : settings.engine == .auto
+        let wanted = forScreen ? settings.effectiveScreenEngine == .gemini : settings.engine == .auto
         guard wanted, !gemini.apiKey.isEmpty, online else { return false }
         if let denial = await limiter.acquire() {
             switch denial {
@@ -320,7 +320,7 @@ final class TranslationRouter: ObservableObject {
             guard !summary.isEmpty else { throw StoryError.empty }
             return StoryOutput(title: title, summary: summary, backend: backend, ms: Int(Date().timeIntervalSince(t0) * 1000))
         }
-        if settings.screenEngine == .openAI, !openai.apiKey.isEmpty, online {
+        if settings.effectiveScreenEngine == .openAI, !openai.apiKey.isEmpty, online {
             do {
                 let raw = try await openai.complete(system: system + jsonRule, user: input, json: true, maxTokens: 2500, timeout: timeout)
                 return try output(raw, .openAI)
@@ -400,7 +400,7 @@ final class TranslationRouter: ObservableObject {
     func analyze(lines: [String]) async -> AnalysisOutput? {
         let t0 = Date()
         gemini.glossaryFocus = lines.joined(separator: "\n")
-        if settings.screenEngine == .openAI, !openai.apiKey.isEmpty, online {
+        if settings.effectiveScreenEngine == .openAI, !openai.apiKey.isEmpty, online {
             do {
                 let r = try await openai.analyze(lines: lines, timeout: settings.analyzeTimeout)
                 Log.info("Dịch màn hình bằng OpenAI (\(openai.model))")
@@ -432,7 +432,7 @@ final class TranslationRouter: ObservableObject {
             do { summary = try await ai.summarize(lines: lines, timeout: settings.analyzeTimeout) }
             catch { Log.warn("Apple Intelligence tóm tắt lỗi: \(error.localizedDescription)") }
         }
-        if settings.screenEngine == .appleIntelligence, ai.isAvailable,
+        if settings.effectiveScreenEngine == .appleIntelligence, ai.isAvailable,
            let out = try? await ai.translateBatch(lines, timeout: settings.analyzeTimeout) {
             return AnalysisOutput(summary: summary, translations: out, backend: .appleAI,
                                   ms: Int(Date().timeIntervalSince(t0) * 1000))

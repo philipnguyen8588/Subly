@@ -14,7 +14,7 @@ public sealed class EmailPromptWindow : Window
 
     EmailPromptWindow()
     {
-        Title = "ScreenTranslator";
+        Title = "Subly";
         Width = 460; Height = 470; ResizeMode = ResizeMode.NoResize;
         WindowStartupLocation = WindowStartupLocation.CenterScreen; ShowInTaskbar = true;
         Background = Ui.Res("WindowBg");

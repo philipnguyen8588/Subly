@@ -287,12 +287,19 @@ public sealed class AppSettings : INotifyPropertyChanged
     public QueueMode queueMode { get => Get("queueMode", QueueMode.latestWins); set => Set("queueMode", value); }
 
     // MARK: Phân tích màn hình (thủ công)
-    public ScreenEngine screenEngine { get => Get("screenEngine", ScreenEngine.gemini); set => Set("screenEngine", value); }
+    public ScreenEngine screenEngine { get => Get("screenEngine", ScreenEngine.sameAsSubtitle); set => Set("screenEngine", value); }
+    /// Engine thật sự dùng cho "Dịch màn hình": chọn "Giống engine dịch phụ đề" thì suy từ engine phụ đề.
+    public ScreenEngine effectiveScreenEngine => screenEngine != ScreenEngine.sameAsSubtitle ? screenEngine : engine switch
+    {
+        TranslationEngine.auto => ScreenEngine.gemini,
+        TranslationEngine.openAI => ScreenEngine.openAI,
+        _ => ScreenEngine.google,
+    };
     public bool analyzeSpeakSummary { get => Get("analyzeSpeakSummary", false); set => Set("analyzeSpeakSummary", value); }
     public double analyzeTimeout { get => Get("analyzeTimeout", 20.0); set => Set("analyzeTimeout", value); }
 
     // MARK: Voice
-    public bool voiceEnabled { get => Get("voiceEnabled", true); set => Set("voiceEnabled", value); }
+    public bool voiceEnabled { get => Get("voiceEnabled", false); set => Set("voiceEnabled", value); }
     /// Id giọng Windows (rỗng = tự chọn giọng của ngôn ngữ đích).
     public string voiceIdentifier { get => Get("voiceIdentifier", ""); set => Set("voiceIdentifier", value); }
     /// Tốc độ giọng Windows (1.0 = bình thường).

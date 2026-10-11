@@ -95,15 +95,16 @@ func (a *App) handleSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if d == nil {
-		info.Status, info.Created = statusPending, now
+		// Máy mới được duyệt ngay và nhận vé luôn; chủ app vào trang quản trị thu hồi sau nếu cần.
+		info.Status, info.Created = statusApproved, now
 		if err := a.store.Insert(info); err != nil {
 			log.Printf("db insert: %v", err)
 			http.Error(w, "server error", http.StatusInternalServerError)
 			return
 		}
-		log.Printf("new device %s: %s / %s / %s (%s) from %s", short(req.Hash), info.Name, info.User, info.Model, info.Platform, ip)
+		log.Printf("new device %s (auto-approved): %s / %s / %s (%s) from %s", short(req.Hash), info.Name, info.User, info.Model, info.Platform, ip)
 		a.notifyNewDevice(info)
-		writeJSON(w, sessionResponse{C: 1})
+		writeJSON(w, sessionResponse{C: 0, T: a.issueTicket(req.Hash, req.Pub, now)})
 		return
 	}
 	// Máy đã có: public key phải khớp key đã ghi lần đầu (rỗng = chủ app vừa cho phép ghi key mới).
