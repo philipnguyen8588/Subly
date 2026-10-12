@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -91,6 +92,18 @@ public sealed class RateLimiter
     public void ReportRateLimited(double? retryAfter)
     {
         lock (lk) cooldownUntil = DateTime.UtcNow.AddSeconds(retryAfter ?? 60);
+    }
+
+    /// Còn bao nhiêu lượt trong phút / trong ngày, không trừ token (việc nền dùng để nhường quota cho dịch phụ đề).
+    public (int minuteLeft, int dayLeft, bool cooldown) Headroom()
+    {
+        lock (lk)
+        {
+            RollDay();
+            var now = DateTime.UtcNow;
+            int recent = minuteStamps.Count(s => (now - s).TotalSeconds <= 60);
+            return (Math.Max(0, rpm - recent), Math.Max(0, rpd - dayCount), cooldownUntil is DateTime c && now < c);
+        }
     }
 
     public int usedToday { get { lock (lk) { RollDay(); return dayCount; } } }

@@ -15,7 +15,7 @@ namespace ScreenTranslator;
 /// Tab Nhật ký: phụ đề đã dịch, lịch sử dịch màn hình và các bản tóm tắt, cùng một thanh công cụ.
 public sealed class LogTab : DockPanel
 {
-    enum Section { subtitles, screens, summaries }
+    enum Section { subtitles, screens, summaries, story }
     Section section = Section.subtitles;
     string search = "";
     /// Đang xem các dòng cũ không gắn với game nào.
@@ -24,7 +24,9 @@ public sealed class LogTab : DockPanel
     List<ScreenAnalysis> legacyAnalyses = new();
     readonly HistoryStore store = HistoryStore.shared;
     readonly StorySummarizer summarizer = StorySummarizer.shared;
-    readonly RadioButton subBtn, scrBtn, sumBtn;
+    readonly RadioButton subBtn, scrBtn, sumBtn, storyBtn;
+    /// Mục Cốt truyện: một thể hiện giữ suốt, không dựng lại mỗi khi nhật ký có câu mới.
+    readonly StoryView storyView = new();
     readonly Button exportBtn, clearBtn;
     readonly ToggleButton legacyBtn = new() { Content = "Dòng cũ" };
     readonly TextBox searchBox = new() { Width = 240 };
@@ -74,7 +76,8 @@ public sealed class LogTab : DockPanel
     string ScopeName => legacy ? "dòng cũ chưa gắn game" : $"game “{AppSettings.shared.activeProfile.name}”";
     List<TranslationEntry> SelectedRows => rows.Where(r => selected.Contains(r.id)).ToList();
 
-    string ClearTitle => section == Section.summaries ? "Xoá mọi bản tóm tắt của game này"
+    string ClearTitle => section == Section.story ? "Xoá cốt truyện của game này"
+        : section == Section.summaries ? "Xoá mọi bản tóm tắt của game này"
         : legacy ? "Xoá toàn bộ dòng cũ chưa gắn game"
         : section == Section.subtitles ? "Xoá nhật ký phụ đề của game này" : "Xoá lịch sử dịch màn hình của game này";
     string ClearQuestion => section == Section.summaries ? $"Xoá mọi bản tóm tắt của game “{AppSettings.shared.activeProfile.name}”?"
@@ -90,6 +93,8 @@ public sealed class LogTab : DockPanel
         subBtn.Checked += (_, _) => { section = Section.subtitles; Rebuild(); };
         scrBtn.Checked += (_, _) => { section = Section.screens; Rebuild(); };
         sumBtn.Checked += (_, _) => { section = Section.summaries; Rebuild(); };
+        storyBtn = new RadioButton { GroupName = "logsec", Style = tbStyle, Content = "Cốt truyện" };
+        storyBtn.Checked += (_, _) => { section = Section.story; Rebuild(); };
         legacyBtn.Checked += (_, _) => { legacy = true; legacyEntries = store.LegacyEntries(); legacyAnalyses = store.LegacyAnalyses(); Rebuild(); };
         legacyBtn.Unchecked += (_, _) => { legacy = false; legacyEntries = new(); legacyAnalyses = new(); Rebuild(); };
         searchBox.TextChanged += (_, _) => { search = searchBox.Text; ClearSelection(); Rebuild(); };
@@ -104,7 +109,7 @@ public sealed class LogTab : DockPanel
         exportBtn.Click += (_, _) => { menu.PlacementTarget = exportBtn; menu.IsOpen = true; };
         clearBtn = Ui.IconBtn("", ConfirmClear, ClearTitle);
         var searchRow = Ui.H(6, Ui.Icon("", 13, Ui.Tertiary), searchBox);
-        var toolbar = SourceTab.Toolbar(Ui.Row(Ui.H(10, Ui.H(0, subBtn, scrBtn, sumBtn), legacyBtn, searchRow), exportBtn, clearBtn));
+        var toolbar = SourceTab.Toolbar(Ui.Row(Ui.H(10, Ui.H(0, subBtn, scrBtn, sumBtn, storyBtn), legacyBtn, searchRow), exportBtn, clearBtn));
         SetDock(toolbar, Dock.Top);
         Children.Add(toolbar);
         Children.Add(content);
@@ -143,6 +148,17 @@ public sealed class LogTab : DockPanel
 
     void ConfirmClear()
     {
+        if (section == Section.story)
+        {
+            // Có: viết lại từ đầu nhật ký; Không: chỉ viết tiếp từ bây giờ; Huỷ: giữ nguyên.
+            var r = MessageBox.Show(
+                $"Xoá cốt truyện và danh sách nhân vật của game “{AppSettings.shared.activeProfile.name}”?\n\n" +
+                "Có: xoá rồi viết lại từ đầu nhật ký.\nKhông: xoá, chỉ viết tiếp từ bây giờ.", "Xác nhận",
+                MessageBoxButton.YesNoCancel, MessageBoxImage.Warning, MessageBoxResult.Cancel);
+            if (r == MessageBoxResult.Yes) StoryTracker.shared.Reset(fromNow: false);
+            else if (r == MessageBoxResult.No) StoryTracker.shared.Reset(fromNow: true);
+            return;
+        }
         if (!Ui.Confirm(ClearQuestion)) return;
         if (section == Section.summaries) { store.ClearSummaries(); expandedSummaries.Clear(); }
         else if (legacy) { store.ClearLegacy(); legacyBtn.IsChecked = false; }
@@ -157,8 +173,14 @@ public sealed class LogTab : DockPanel
         sumBtn.Content = $"Tóm tắt  {store.summaries.Count}";
         legacyBtn.Visibility = store.legacyCount > 0 ? Visibility.Visible : Visibility.Collapsed;
         legacyBtn.ToolTip = $"Nhật ký có từ trước khi tách theo game ({store.legacyCount} dòng, không gắn với game nào)";
-        exportBtn.Visibility = section == Section.summaries ? Visibility.Collapsed : Visibility.Visible;
+        exportBtn.Visibility = section is Section.summaries or Section.story ? Visibility.Collapsed : Visibility.Visible;
         clearBtn.ToolTip = ClearTitle;
+        if (section == Section.story)
+        {
+            storyView.SetSearch(search);
+            if (!ReferenceEquals(content.Content, storyView)) content.Content = storyView;
+            return;
+        }
         content.Content = section switch
         {
             Section.subtitles => SubtitleLog(),

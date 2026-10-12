@@ -183,8 +183,9 @@ final class TranslationRouter: ObservableObject {
 
     /// Có được phép gọi Gemini cho request tiếp theo không (trừ token nếu có).
     /// `forScreen`: lần "Dịch màn hình" dùng engine riêng (Cài đặt → Dịch → Dịch màn hình), không theo engine phụ đề.
-    private func acquireGemini(forScreen: Bool = false) async -> Bool {
-        let wanted = forScreen ? settings.effectiveScreenEngine == .gemini : settings.engine == .auto
+    /// `forSummary`: "Tóm tắt" cũng có engine riêng (Cài đặt → Dịch → Tóm tắt & cốt truyện); người gọi đã kiểm engine.
+    private func acquireGemini(forScreen: Bool = false, forSummary: Bool = false) async -> Bool {
+        let wanted = forSummary || (forScreen ? settings.effectiveScreenEngine == .gemini : settings.engine == .auto)
         guard wanted, !gemini.apiKey.isEmpty, online else { return false }
         if let denial = await limiter.acquire() {
             switch denial {
@@ -216,9 +217,15 @@ final class TranslationRouter: ObservableObject {
     // MARK: subtitle
 
     /// Bối cảnh cốt truyện = tóm tắt "Dịch màn hình" gần nhất có nội dung của game đang chơi (bỏ tóm tắt menu, vốn chỉ
-    /// một câu ngắn). Gọi trước mỗi câu vì lần dịch màn hình mới không làm đổi cài đặt.
+    /// một câu ngắn), hoặc đoạn diễn biến mới nhất của mục Cốt truyện nếu đang bật và mới hơn.
+    /// Gọi trước mỗi câu vì lần dịch màn hình mới không làm đổi cài đặt.
     private func refreshStory() {
-        let story = HistoryStore.shared.analyses.first { $0.summary.count >= 80 && !$0.summary.hasPrefix("(") }?.summary ?? ""
+        let store = HistoryStore.shared
+        let screen = store.analyses.first { $0.summary.count >= 80 && !$0.summary.hasPrefix("(") }
+        var story = screen?.summary ?? ""
+        if settings.storyOn, let part = store.storyParts.first, part.timestamp > (screen?.timestamp ?? .distantPast) {
+            story = part.summary
+        }
         gemini.storyContext = String(story.prefix(500))
     }
 
@@ -296,16 +303,20 @@ final class TranslationRouter: ObservableObject {
     }
 
     enum StoryError: LocalizedError {
-        case noEngine, empty
+        case noEngine, empty, offline, needsCloud, busy(String), badJSON
         var errorDescription: String? {
             switch self {
             case .noEngine: return "Không có engine nào tóm tắt được (cần OpenAI, Gemini hoặc Apple Intelligence)"
             case .empty: return "Model trả về tóm tắt rỗng"
+            case .offline: return "Không có mạng"
+            case .needsCloud: return "Cốt truyện cần Gemini hoặc OpenAI. Nhập key và chọn engine ở Cài đặt → Dịch → Tóm tắt & cốt truyện"
+            case .busy(let s): return "Tạm hoãn: Gemini \(s)"
+            case .badJSON: return "Model trả về dữ liệu không đọc được"
             }
         }
     }
 
-    /// Tóm tắt các câu phụ đề người dùng chọn trong nhật ký. Dùng engine của "Dịch màn hình" (OpenAI / Gemini);
+    /// Tóm tắt các câu phụ đề người dùng chọn trong nhật ký. Dùng engine của "Tóm tắt & cốt truyện" (OpenAI / Gemini);
     /// lỗi hoặc không có thì dùng Apple Intelligence.
     func summarizeStory(lines: [String]) async throws -> StoryOutput {
         let t0 = Date()
@@ -320,7 +331,8 @@ final class TranslationRouter: ObservableObject {
             guard !summary.isEmpty else { throw StoryError.empty }
             return StoryOutput(title: title, summary: summary, backend: backend, ms: Int(Date().timeIntervalSince(t0) * 1000))
         }
-        if settings.effectiveScreenEngine == .openAI, !openai.apiKey.isEmpty, online {
+        let engine = settings.effectiveSummaryEngine
+        if engine == .openAI, !openai.apiKey.isEmpty, online {
             do {
                 let raw = try await openai.complete(system: system + jsonRule, user: input, json: true, maxTokens: 2500, timeout: timeout)
                 return try output(raw, .openAI)
@@ -329,7 +341,7 @@ final class TranslationRouter: ObservableObject {
                 lastErr = error
             }
         }
-        if await acquireGemini(forScreen: true) {
+        if engine != .appleIntelligence, await acquireGemini(forSummary: true) {
             do {
                 let raw = try await gemini.generate(system: system + jsonRule, input: input, timeout: timeout)
                 usedToday = await limiter.usedToday
@@ -372,14 +384,17 @@ final class TranslationRouter: ObservableObject {
                                      prompt: joined, timeout: 60)
     }
 
+    /// Chuẩn hoá từng dòng, giữ xuống đoạn.
+    nonisolated static func cleanParagraphs(_ s: String) -> String {
+        s.components(separatedBy: "\n")
+            .map { TextUtils.normalize($0) }
+            .split(whereSeparator: \.isEmpty).map { $0.joined(separator: " ") }
+            .joined(separator: "\n\n")
+    }
+
     /// Đọc {"title", "summary"} (hoặc văn bản thường: dòng đầu là tiêu đề), giữ xuống đoạn.
     static func parseStory(_ raw: String) -> (title: String, summary: String) {
-        func clean(_ s: String) -> String {
-            s.components(separatedBy: "\n")
-                .map { TextUtils.normalize($0) }
-                .split(whereSeparator: \.isEmpty).map { $0.joined(separator: " ") }
-                .joined(separator: "\n\n")
-        }
+        let clean = cleanParagraphs
         if let start = raw.firstIndex(of: "{"), let end = raw.lastIndex(of: "}"), start < end,
            let data = String(raw[start...end]).data(using: .utf8),
            let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
@@ -393,6 +408,66 @@ final class TranslationRouter: ObservableObject {
         title = title.trimmingCharacters(in: CharacterSet(charactersIn: "*\"“”"))
         let summary = clean(rows.joined(separator: "\n"))
         return summary.isEmpty ? ("", clean(title)) : (title, summary)
+    }
+
+    // MARK: game story (cốt truyện)
+
+    struct StoryUpdateOutput {
+        let update: StoryUpdate
+        let backend: BackendKind
+        let ms: Int
+    }
+
+    /// Một lần cập nhật cốt truyện game (xem `StoryTracker`). `input` gồm cốt truyện đã có, nhân vật đã biết và các câu mới;
+    /// `focus` là phần câu mới, để chỉ đưa thuật ngữ liên quan vào lời dặn.
+    /// `background`: chạy tự động → nhường quota Gemini cho dịch phụ đề. Lỗi ở đây không làm đổi trạng thái engine phụ đề.
+    func updateStory(input: String, focus: String, background: Bool) async throws -> StoryUpdateOutput {
+        guard online else { throw StoryError.offline }
+        let t0 = Date()
+        let system = gemini.storyUpdatePrompt(focus: focus)
+        var lastErr: Error = StoryError.needsCloud
+        func output(_ raw: String, _ backend: BackendKind) throws -> StoryUpdateOutput {
+            StoryUpdateOutput(update: try StoryUpdate.parse(raw), backend: backend, ms: Int(Date().timeIntervalSince(t0) * 1000))
+        }
+        if settings.effectiveSummaryEngine == .openAI, !openai.apiKey.isEmpty {
+            do {
+                return try output(try await openai.complete(system: system, user: input, json: true, maxTokens: 6000, timeout: 75), .openAI)
+            } catch {
+                Log.warn("OpenAI (cốt truyện) lỗi: \(error.localizedDescription)")
+                lastErr = error
+            }
+        }
+        guard !gemini.apiKey.isEmpty else { throw lastErr }
+        if background {
+            let room = await limiter.headroom()
+            if room.cooldown { throw StoryError.busy("đang chờ sau khi hết quota") }
+            if room.minuteLeft < 4 { throw StoryError.busy("đang bận dịch phụ đề") }
+            if room.dayLeft < max(20, settings.rpd / 10) { throw StoryError.busy("sắp hết quota trong ngày") }
+        }
+        // Model đôi khi trả JSON hỏng hoặc bị cắt cụt: thử lại một lần ngay, vẫn hỏng mới báo lỗi.
+        for attempt in 1...2 {
+            if let denial = await limiter.acquire() {
+                switch denial {
+                case .cooldown(let s): throw StoryError.busy("đang chờ \(Int(s))s sau khi hết quota")
+                case .minute: throw StoryError.busy("hết quota/phút")
+                case .day: throw StoryError.busy("hết quota/ngày")
+                }
+            }
+            do {
+                let raw = try await gemini.generate(system: system, input: input, timeout: 75, maxOutputTokens: 8192)
+                usedToday = await limiter.usedToday
+                do { return try output(raw, .gemini) } catch StoryError.badJSON {
+                    Log.warn("Cốt truyện: JSON không đọc được (lần \(attempt), \(raw.count) ký tự): "
+                             + "\(raw.prefix(160).replacingOccurrences(of: "\n", with: "⏎")) … \(raw.suffix(160).replacingOccurrences(of: "\n", with: "⏎"))")
+                    lastErr = StoryError.badJSON
+                }
+            } catch {
+                if case GeminiBackend.GeminiError.rateLimited(let retry) = error { await limiter.reportRateLimited(retryAfter: retry) }
+                usedToday = await limiter.usedToday
+                throw error
+            }
+        }
+        throw lastErr
     }
 
     // MARK: screen analysis

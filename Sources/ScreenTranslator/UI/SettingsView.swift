@@ -153,6 +153,27 @@ struct TranslateSettings: View {
                     Text("\(Int(settings.analyzeTimeout))s").monospacedDigit()
                 }
             }
+            Section("Tóm tắt & cốt truyện (tab Nhật ký)") {
+                Picker("Engine", selection: $settings.summaryEngine) {
+                    ForEach(SummaryEngine.allCases) { Text($0.label).tag($0) }
+                }
+                if settings.effectiveSummaryEngine == .openAI, settings.openAIKey.isEmpty {
+                    Text("Chưa có OpenAI API key (nhập ở mục OpenAI phía trên) nên sẽ dùng Gemini hoặc engine trên máy.")
+                        .font(.caption).foregroundStyle(.orange)
+                }
+                if settings.effectiveSummaryEngine == .gemini, settings.geminiAPIKey.isEmpty {
+                    Text("Chưa có Gemini API key (nhập ở mục Gemini phía trên): Tóm tắt sẽ dùng engine trên máy, Cốt truyện không chạy được.")
+                        .font(.caption).foregroundStyle(.orange)
+                }
+                if settings.effectiveSummaryEngine == .appleIntelligence {
+                    Text("Apple Intelligence chỉ viết được Tóm tắt thủ công. Cốt truyện sẽ dùng Gemini nếu có key.")
+                        .font(.caption).foregroundStyle(.orange)
+                }
+                Toggle("Tự động viết cốt truyện game khi đang dịch", isOn: $settings.storyEnabled)
+                Stepper("Cập nhật mỗi \(settings.storyIntervalMin) phút (khi có đủ câu mới)", value: $settings.storyIntervalMin, in: 5...60, step: 5)
+                Text("Mỗi lần cập nhật tốn 1 request, dùng chung quota với dịch phụ đề. Xem ở Nhật ký → Cốt truyện.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("Hàng đợi phụ đề") {
                 Picker("Chế độ", selection: $settings.queueMode) {
                     ForEach(QueueMode.allCases) { Text($0.label).tag($0) }

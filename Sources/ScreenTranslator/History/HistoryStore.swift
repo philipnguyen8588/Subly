@@ -65,6 +65,61 @@ struct StorySummary: Identifiable, Equatable {
     let latencyMs: Int
 }
 
+/// Một nhân vật trong mục "Cốt truyện": do model viết và bổ sung dần qua mỗi lần cập nhật.
+/// Tên khoá JSON giống hệt bản Windows vì hai bản dùng chung file history.sqlite.
+struct StoryCharacter: Codable, Equatable, Identifiable {
+    var name: String
+    var role = ""
+    var personality = ""
+    var background = ""
+    var relations = ""
+    /// Tình trạng hiện tại (đang ở đâu, còn sống / bị bắt / bị thương, đang làm gì): viết lại mỗi khi có thay đổi.
+    var status = ""
+    var id: String { name }
+
+    init(name: String, role: String = "", personality: String = "", background: String = "", relations: String = "", status: String = "") {
+        self.name = name; self.role = role; self.personality = personality; self.background = background
+        self.relations = relations; self.status = status
+    }
+    enum CodingKeys: String, CodingKey { case name, role, personality, background, relations, status }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        role = try c.decodeIfPresent(String.self, forKey: .role) ?? ""
+        personality = try c.decodeIfPresent(String.self, forKey: .personality) ?? ""
+        background = try c.decodeIfPresent(String.self, forKey: .background) ?? ""
+        relations = try c.decodeIfPresent(String.self, forKey: .relations) ?? ""
+        status = try c.decodeIfPresent(String.self, forKey: .status) ?? ""
+    }
+}
+
+/// Cốt truyện của một game: bài viết liền mạch + danh sách nhân vật, kèm con trỏ tới dòng nhật ký cuối đã đưa vào.
+struct GameStory: Equatable {
+    var profile: String
+    var narrative: String
+    var characters: [StoryCharacter]
+    var lastEntryID: Int64
+    var lastAnalysisID: Int64
+    var updated: Date
+    var backend: String
+}
+
+/// Một đoạn diễn biến trong dòng thời gian của cốt truyện (mỗi lần cập nhật thêm một đoạn).
+struct StoryPart: Identifiable, Equatable {
+    var id: Int64
+    let timestamp: Date
+    var profile: String
+    let title: String
+    let summary: String
+    let from: Date
+    let to: Date
+    let entryFrom: Int64
+    let entryTo: Int64
+    let lineCount: Int
+    let backend: String
+    let latencyMs: Int
+}
+
 /// Lịch sử dịch + phân tích màn hình, SQLite thuần. Mỗi dòng gắn với một game (profile);
 /// `entries` / `analyses` chỉ chứa dữ liệu của game đang chọn và tự nạp lại khi đổi game.
 @MainActor
@@ -74,6 +129,8 @@ final class HistoryStore: ObservableObject {
     @Published private(set) var entries: [TranslationEntry] = []     // mới nhất trước
     @Published private(set) var analyses: [ScreenAnalysis] = []      // mới nhất trước
     @Published private(set) var summaries: [StorySummary] = []       // mới nhất trước
+    @Published private(set) var story: GameStory?
+    @Published private(set) var storyParts: [StoryPart] = []         // mới nhất trước
     /// Game (UUID của profile) mà `entries` / `analyses` đang chứa.
     private(set) var scope = ""
     /// Số dòng có từ trước khi nhật ký được tách theo game (không gắn với game nào).
@@ -111,6 +168,16 @@ final class HistoryStore: ObservableObject {
             id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL, profile TEXT NOT NULL, title TEXT NOT NULL,
             summary TEXT NOT NULL, lines TEXT NOT NULL, t_from REAL NOT NULL, t_to REAL NOT NULL,
             backend TEXT NOT NULL, latency INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS story(
+            profile TEXT PRIMARY KEY, narrative TEXT NOT NULL DEFAULT '', characters TEXT NOT NULL DEFAULT '[]',
+            last_entry_id INTEGER NOT NULL DEFAULT 0, last_analysis_id INTEGER NOT NULL DEFAULT 0,
+            updated REAL NOT NULL DEFAULT 0, backend TEXT NOT NULL DEFAULT '');
+        CREATE TABLE IF NOT EXISTS story_parts(
+            id INTEGER PRIMARY KEY AUTOINCREMENT, profile TEXT NOT NULL, ts REAL NOT NULL, title TEXT NOT NULL,
+            summary TEXT NOT NULL, t_from REAL NOT NULL, t_to REAL NOT NULL,
+            entry_from INTEGER NOT NULL, entry_to INTEGER NOT NULL, line_count INTEGER NOT NULL,
+            backend TEXT NOT NULL, latency INTEGER NOT NULL);
+        CREATE INDEX IF NOT EXISTS story_parts_profile ON story_parts(profile, id);
         PRAGMA journal_mode=WAL;
         """)
         // Bản cũ lưu ảnh chụp màn hình kèm mỗi lần dịch → xoá một lần cho nhẹ file.
@@ -132,6 +199,8 @@ final class HistoryStore: ObservableObject {
         entries = loadEntries(profile: scope)
         analyses = loadAnalyses(profile: scope)
         summaries = loadSummaries(profile: scope)
+        story = loadStory(profile: scope)
+        storyParts = loadStoryParts(profile: scope)
         legacyCount = count("SELECT (SELECT COUNT(*) FROM history WHERE profile = '') + (SELECT COUNT(*) FROM analyses WHERE profile = '')")
         // Đổi game (ở bất kỳ đâu trong app) → nạp lại nhật ký của game mới.
         scopeObserver = AppSettings.shared.objectWillChange
@@ -146,6 +215,8 @@ final class HistoryStore: ObservableObject {
         entries = loadEntries(profile: active)
         analyses = loadAnalyses(profile: active)
         summaries = loadSummaries(profile: active)
+        story = loadStory(profile: active)
+        storyParts = loadStoryParts(profile: active)
     }
 
     private func count(_ sql: String) -> Int {
@@ -374,5 +445,186 @@ final class HistoryStore: ObservableObject {
     func clearSummaries() {
         exec("DELETE FROM summaries WHERE profile = '\(scope)';")
         summaries.removeAll()
+    }
+
+    // MARK: story (cốt truyện game)
+    func loadStory(profile: String) -> GameStory? {
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT narrative, characters, last_entry_id, last_analysis_id, updated, backend FROM story WHERE profile = ?", -1, &stmt, nil) == SQLITE_OK else { return nil }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_text(stmt, 1, profile, -1, transient)
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
+        let chars = (try? JSONDecoder().decode([StoryCharacter].self, from: Data(text(stmt, 1).utf8))) ?? []
+        return GameStory(profile: profile, narrative: text(stmt, 0), characters: chars.filter { !$0.name.isEmpty },
+                         lastEntryID: sqlite3_column_int64(stmt, 2), lastAnalysisID: sqlite3_column_int64(stmt, 3),
+                         updated: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 4)), backend: text(stmt, 5))
+    }
+
+    private func loadStoryParts(profile: String) -> [StoryPart] {
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT id, ts, profile, title, summary, t_from, t_to, entry_from, entry_to, line_count, backend, latency FROM story_parts WHERE profile = ? ORDER BY id DESC", -1, &stmt, nil) == SQLITE_OK else { return [] }
+        sqlite3_bind_text(stmt, 1, profile, -1, transient)
+        var out: [StoryPart] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            out.append(StoryPart(id: sqlite3_column_int64(stmt, 0), timestamp: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 1)),
+                                 profile: text(stmt, 2), title: text(stmt, 3), summary: text(stmt, 4),
+                                 from: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 5)),
+                                 to: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 6)),
+                                 entryFrom: sqlite3_column_int64(stmt, 7), entryTo: sqlite3_column_int64(stmt, 8),
+                                 lineCount: Int(sqlite3_column_int(stmt, 9)), backend: text(stmt, 10),
+                                 latencyMs: Int(sqlite3_column_int(stmt, 11))))
+        }
+        sqlite3_finalize(stmt)
+        return out
+    }
+
+    /// Câu phụ đề của game có id lớn hơn con trỏ, cũ trước (kể cả câu bị bỏ qua không dịch, để giữ mạch hội thoại).
+    func storyEntries(profile: String, after: Int64, limit: Int) -> [TranslationEntry] {
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT id, ts, region, source, translated, backend, latency, kind, target, profile FROM history WHERE profile = ? AND id > ? AND kind = 'subtitle' ORDER BY id ASC LIMIT ?", -1, &stmt, nil) == SQLITE_OK else { return [] }
+        sqlite3_bind_text(stmt, 1, profile, -1, transient)
+        sqlite3_bind_int64(stmt, 2, after)
+        sqlite3_bind_int(stmt, 3, Int32(limit))
+        var out: [TranslationEntry] = []
+        while sqlite3_step(stmt) == SQLITE_ROW { out.append(row(stmt)) }
+        sqlite3_finalize(stmt)
+        return out
+    }
+
+    /// Tóm tắt của các lần "Dịch màn hình" có nội dung (bỏ tóm tắt menu) sau con trỏ, cũ trước.
+    func storyAnalyses(profile: String, after: Int64) -> [(id: Int64, timestamp: Date, summary: String)] {
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT id, ts, summary FROM analyses WHERE profile = ? AND id > ? AND length(summary) >= 80 AND summary NOT LIKE '(%' ORDER BY id ASC LIMIT 20", -1, &stmt, nil) == SQLITE_OK else { return [] }
+        sqlite3_bind_text(stmt, 1, profile, -1, transient)
+        sqlite3_bind_int64(stmt, 2, after)
+        var out: [(id: Int64, timestamp: Date, summary: String)] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            out.append((sqlite3_column_int64(stmt, 0), Date(timeIntervalSince1970: sqlite3_column_double(stmt, 1)), text(stmt, 2)))
+        }
+        sqlite3_finalize(stmt)
+        return out
+    }
+
+    /// Số câu đã dịch và số lần dịch màn hình chưa được đưa vào cốt truyện.
+    func storyPending(profile: String) -> (lines: Int, screens: Int) {
+        let s = loadStory(profile: profile)
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, """
+            SELECT (SELECT COUNT(*) FROM history WHERE profile = ?1 AND id > ?2 AND kind = 'subtitle' AND backend != 'skipped'),
+                   (SELECT COUNT(*) FROM analyses WHERE profile = ?1 AND id > ?3 AND length(summary) >= 80 AND summary NOT LIKE '(%')
+            """, -1, &stmt, nil) == SQLITE_OK else { return (0, 0) }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_text(stmt, 1, profile, -1, transient)
+        sqlite3_bind_int64(stmt, 2, s?.lastEntryID ?? 0)
+        sqlite3_bind_int64(stmt, 3, s?.lastAnalysisID ?? 0)
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return (0, 0) }
+        return (Int(sqlite3_column_int64(stmt, 0)), Int(sqlite3_column_int64(stmt, 1)))
+    }
+
+    /// Lưu kết quả một lần cập nhật cốt truyện. Trả về false (không lưu gì) nếu con trỏ đã đổi từ lúc bắt đầu,
+    /// tức là người dùng vừa xoá / viết lại cốt truyện trong lúc model đang chạy.
+    @discardableResult
+    func saveStoryUpdate(_ s: GameStory, expectedEntryCursor: Int64, part: StoryPart?) -> Bool {
+        guard (loadStory(profile: s.profile)?.lastEntryID ?? 0) == expectedEntryCursor else { return false }
+        let charsJSON = String(data: (try? JSONEncoder().encode(s.characters)) ?? Data("[]".utf8), encoding: .utf8) ?? "[]"
+        exec("BEGIN IMMEDIATE;")
+        var ok = false
+        var stmt: OpaquePointer?
+        if sqlite3_prepare_v2(db, """
+            INSERT INTO story(profile, narrative, characters, last_entry_id, last_analysis_id, updated, backend) VALUES(?,?,?,?,?,?,?)
+            ON CONFLICT(profile) DO UPDATE SET narrative=excluded.narrative, characters=excluded.characters,
+                last_entry_id=excluded.last_entry_id, last_analysis_id=excluded.last_analysis_id,
+                updated=excluded.updated, backend=excluded.backend
+            """, -1, &stmt, nil) == SQLITE_OK {
+            sqlite3_bind_text(stmt, 1, s.profile, -1, transient)
+            sqlite3_bind_text(stmt, 2, s.narrative, -1, transient)
+            sqlite3_bind_text(stmt, 3, charsJSON, -1, transient)
+            sqlite3_bind_int64(stmt, 4, s.lastEntryID)
+            sqlite3_bind_int64(stmt, 5, s.lastAnalysisID)
+            sqlite3_bind_double(stmt, 6, s.updated.timeIntervalSince1970)
+            sqlite3_bind_text(stmt, 7, s.backend, -1, transient)
+            ok = sqlite3_step(stmt) == SQLITE_DONE
+            if !ok { Log.error("SQLite save story: \(String(cString: sqlite3_errmsg(db)))") }
+            sqlite3_finalize(stmt)
+        }
+        var saved = part
+        if ok, let p = part {
+            if sqlite3_prepare_v2(db, "INSERT INTO story_parts(profile, ts, title, summary, t_from, t_to, entry_from, entry_to, line_count, backend, latency) VALUES(?,?,?,?,?,?,?,?,?,?,?)", -1, &stmt, nil) == SQLITE_OK {
+                sqlite3_bind_text(stmt, 1, s.profile, -1, transient)
+                sqlite3_bind_double(stmt, 2, p.timestamp.timeIntervalSince1970)
+                sqlite3_bind_text(stmt, 3, p.title, -1, transient)
+                sqlite3_bind_text(stmt, 4, p.summary, -1, transient)
+                sqlite3_bind_double(stmt, 5, p.from.timeIntervalSince1970)
+                sqlite3_bind_double(stmt, 6, p.to.timeIntervalSince1970)
+                sqlite3_bind_int64(stmt, 7, p.entryFrom)
+                sqlite3_bind_int64(stmt, 8, p.entryTo)
+                sqlite3_bind_int(stmt, 9, Int32(p.lineCount))
+                sqlite3_bind_text(stmt, 10, p.backend, -1, transient)
+                sqlite3_bind_int(stmt, 11, Int32(p.latencyMs))
+                ok = sqlite3_step(stmt) == SQLITE_DONE
+                if !ok { Log.error("SQLite insert story part: \(String(cString: sqlite3_errmsg(db)))") }
+                sqlite3_finalize(stmt)
+                saved?.id = sqlite3_last_insert_rowid(db)
+            } else { ok = false }
+        }
+        exec(ok ? "COMMIT;" : "ROLLBACK;")
+        guard ok else { return false }
+        if s.profile == scope {
+            story = s
+            if let p = saved { storyParts.insert(p, at: 0) }
+        }
+        return true
+    }
+
+    /// Xoá cốt truyện của game đang chọn. `fromNow`: bỏ qua nhật ký đã có, chỉ viết từ những câu sau thời điểm này;
+    /// ngược lại lần cập nhật tới sẽ viết lại từ đầu nhật ký.
+    func resetStory(fromNow: Bool) {
+        exec("DELETE FROM story WHERE profile = '\(scope)'; DELETE FROM story_parts WHERE profile = '\(scope)';")
+        storyParts.removeAll()
+        story = nil
+        if fromNow { startStoryFromNow(profile: scope) }
+    }
+
+    /// Game chưa có cốt truyện → đặt con trỏ ở cuối nhật ký hiện có, để việc tự cập nhật chỉ viết từ những câu sau lúc này
+    /// (nhật ký cũ chỉ được đưa vào khi người dùng bấm "Tóm tắt từ đầu nhật ký"). Không làm gì nếu game đã có con trỏ.
+    func startStoryFromNow(profile: String) {
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, """
+            INSERT OR IGNORE INTO story(profile, last_entry_id, last_analysis_id)
+            VALUES(?1, (SELECT COALESCE(MAX(id), 0) FROM history WHERE profile = ?1),
+                   (SELECT COALESCE(MAX(id), 0) FROM analyses WHERE profile = ?1))
+            """, -1, &stmt, nil) == SQLITE_OK else { return }
+        sqlite3_bind_text(stmt, 1, profile, -1, transient)
+        sqlite3_step(stmt)
+        sqlite3_finalize(stmt)
+        if profile == scope { story = loadStory(profile: profile) }
+    }
+
+    /// Số câu đã dịch trong nhật ký của game (để mời "Tóm tắt từ đầu nhật ký").
+    func storyBacklog(profile: String) -> Int {
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM history WHERE profile = ? AND kind = 'subtitle' AND backend != 'skipped'", -1, &stmt, nil) == SQLITE_OK else { return 0 }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_text(stmt, 1, profile, -1, transient)
+        return sqlite3_step(stmt) == SQLITE_ROW ? Int(sqlite3_column_int64(stmt, 0)) : 0
+    }
+
+    func deleteStoryPart(_ id: Int64) {
+        exec("DELETE FROM story_parts WHERE id = \(id);")
+        storyParts.removeAll { $0.id == id }
+    }
+
+    func deleteStoryCharacter(name: String) {
+        guard var s = loadStory(profile: scope) else { return }
+        s.characters.removeAll { $0.name == name }
+        let json = String(data: (try? JSONEncoder().encode(s.characters)) ?? Data("[]".utf8), encoding: .utf8) ?? "[]"
+        var stmt: OpaquePointer?
+        if sqlite3_prepare_v2(db, "UPDATE story SET characters = ? WHERE profile = ?", -1, &stmt, nil) == SQLITE_OK {
+            sqlite3_bind_text(stmt, 1, json, -1, transient)
+            sqlite3_bind_text(stmt, 2, scope, -1, transient)
+            sqlite3_step(stmt)
+            sqlite3_finalize(stmt)
+        }
+        story = s
     }
 }

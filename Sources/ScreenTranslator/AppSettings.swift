@@ -92,6 +92,16 @@ final class AppSettings: ObservableObject {
             if legacyPreferSpeed { translationEngine = .appleTranslation }
             UserDefaults.standard.set(true, forKey: "engineMigrated")
         }
+        // Tóm tắt có engine riêng: trước đây đi theo engine "Dịch màn hình" → giữ lựa chọn đó (một lần).
+        if !UserDefaults.standard.bool(forKey: "summaryEngineMigrated") {
+            switch screenEngine {
+            case .gemini: summaryEngine = .gemini
+            case .openAI: summaryEngine = .openAI
+            case .appleIntelligence: summaryEngine = .appleIntelligence
+            case .sameAsSubtitle, .appleTranslation: break
+            }
+            UserDefaults.standard.set(true, forKey: "summaryEngineMigrated")
+        }
     }
 
     // MARK: Profile & vùng
@@ -263,6 +273,24 @@ final class AppSettings: ObservableObject {
     }
     @Stored("analyzeSpeakSummary") var analyzeSpeakSummary: Bool = false
     @Stored("analyzeTimeout") var analyzeTimeout: Double = 20.0
+
+    // MARK: Tóm tắt & cốt truyện
+    @Stored("summaryEngine") var summaryEngine: SummaryEngine = .sameAsSubtitle
+    /// Engine thật sự viết tóm tắt / cốt truyện. Engine phụ đề không tóm tắt được (Apple Translation) thì dùng Gemini.
+    var effectiveSummaryEngine: SummaryEngine {
+        guard summaryEngine == .sameAsSubtitle else { return summaryEngine }
+        switch engine {
+        case .auto, .appleTranslation: return .gemini
+        case .openAI: return .openAI
+        case .appleIntelligence: return .appleIntelligence
+        }
+    }
+    /// Tự viết cốt truyện game từ phụ đề (nút trên thanh đầu cửa sổ chính; xem ở Nhật ký → Cốt truyện).
+    @Stored("storyEnabled") var storyEnabled: Bool = false
+    @Stored("storyIntervalMin") var storyIntervalMin: Int = 10
+    /// Cờ runtime (không lưu): --story-interval <giây> bật cốt truyện với chu kỳ ngắn để test.
+    var forceStoryInterval: TimeInterval? = nil
+    var storyOn: Bool { storyEnabled || forceStoryInterval != nil }
 
     // MARK: Voice
     @Stored("voiceEnabled") var voiceEnabled: Bool = false

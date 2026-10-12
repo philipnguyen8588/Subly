@@ -143,6 +143,9 @@ struct HeaderBar: View {
                 .toggleStyle(IconToggleStyle(icon: settings.voiceEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill", help: "Đọc bản dịch bằng giọng nói (\(settings.hotkeyVoice.display))"))
             Toggle("", isOn: $settings.overlayEnabled)
                 .toggleStyle(IconToggleStyle(icon: "captions.bubble", help: "Hiện phụ đề dịch trên màn hình (\(settings.hotkeyOverlay.display))"))
+            Toggle("", isOn: $settings.storyEnabled)
+                .toggleStyle(IconToggleStyle(icon: settings.storyEnabled ? "text.book.closed.fill" : "text.book.closed",
+                                             help: "Tự viết cốt truyện game từ phụ đề khi đang dịch (xem ở Nhật ký → Cốt truyện)"))
             Button { DisplayPower.shared.sleepDisplay() } label: {
                 Image(systemName: "moon.fill").font(.system(size: 13, weight: .medium)).frame(width: 30, height: 26)
             }

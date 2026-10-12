@@ -199,11 +199,19 @@ public sealed class TranslationRouter : INotifyPropertyChanged
     // MARK: subtitle
 
     /// Bối cảnh cốt truyện = tóm tắt "Dịch màn hình" gần nhất có nội dung của game đang chơi (bỏ tóm tắt menu, vốn chỉ
-    /// một câu ngắn). Gọi trước mỗi câu vì lần dịch màn hình mới không làm đổi cài đặt.
+    /// một câu ngắn), hoặc đoạn diễn biến mới nhất của mục Cốt truyện nếu đang bật và mới hơn.
+    /// Gọi trước mỗi câu vì lần dịch màn hình mới không làm đổi cài đặt.
     void RefreshStory()
     {
         string story = "";
-        try { story = HistoryStore.shared.analyses.FirstOrDefault(a => a.summary.Length >= 80 && !a.summary.StartsWith("("))?.summary ?? ""; }
+        try
+        {
+            var store = HistoryStore.shared;
+            var screen = store.analyses.FirstOrDefault(a => a.summary.Length >= 80 && !a.summary.StartsWith("("));
+            story = screen?.summary ?? "";
+            var part = settings.storyOn ? store.storyParts.FirstOrDefault() : null;
+            if (part != null && part.timestamp > (screen?.timestamp ?? DateTime.MinValue)) story = part.summary;
+        }
         catch { }
         gemini.storyContext = story.Length > 500 ? story[..500] : story;
     }
@@ -313,7 +321,7 @@ public sealed class TranslationRouter : INotifyPropertyChanged
 
     // MARK: story summary
 
-    /// Tóm tắt các câu phụ đề người dùng chọn trong nhật ký. Dùng engine của "Dịch màn hình" trước (OpenAI / Gemini),
+    /// Tóm tắt các câu phụ đề người dùng chọn trong nhật ký. Dùng engine của "Tóm tắt & cốt truyện" trước (OpenAI / Gemini),
     /// lỗi hoặc không có thì thử engine trên mạng còn lại (Windows không có model trên máy như Apple Intelligence).
     public async Task<StoryOutput> SummarizeStory(IList<string> lines)
     {
@@ -330,7 +338,7 @@ public sealed class TranslationRouter : INotifyPropertyChanged
             if (summary.Length == 0) throw new InvalidOperationException("Model trả về tóm tắt rỗng");
             return new StoryOutput(title, summary, backend, Ms(t0));
         }
-        var order = settings.effectiveScreenEngine == ScreenEngine.openAI ? new[] { BackendKind.openAI, BackendKind.gemini } : new[] { BackendKind.gemini, BackendKind.openAI };
+        var order = settings.effectiveSummaryEngine == SummaryEngine.openAI ? new[] { BackendKind.openAI, BackendKind.gemini } : new[] { BackendKind.gemini, BackendKind.openAI };
         foreach (var b in order)
         {
             if (b == BackendKind.openAI && openai.apiKey.Length > 0 && online)
@@ -353,14 +361,85 @@ public sealed class TranslationRouter : INotifyPropertyChanged
         throw lastErr;
     }
 
+    /// Chuẩn hoá từng dòng, giữ xuống đoạn.
+    public static string CleanParagraphs(string s) => string.Join("\n\n",
+        string.Join("\n", s.Replace("\r", "").Split('\n').Select(l => TextUtils.Normalize(l)))
+            .Split("\n\n", StringSplitOptions.None)
+            .Select(p => string.Join(" ", p.Split('\n', StringSplitOptions.RemoveEmptyEntries)).Trim())
+            .Where(p => p.Length > 0));
+
+    // MARK: game story (cốt truyện)
+
+    /// Lỗi của việc cập nhật cốt truyện. `busy`: tạm hoãn vì quota, không phải lỗi thật.
+    public sealed class StoryException : Exception
+    {
+        public readonly bool busy;
+        public StoryException(string msg, bool busy = false) : base(msg) { this.busy = busy; }
+        public static StoryException Busy(string why) => new($"Tạm hoãn: Gemini {why}", true);
+    }
+
+    public record StoryUpdateOutput(StoryUpdate update, BackendKind backend, int ms);
+
+    /// Một lần cập nhật cốt truyện game (xem `StoryTracker`). `input` gồm cốt truyện đã có, nhân vật đã biết và các câu mới;
+    /// `focus` là phần câu mới, để chỉ đưa thuật ngữ liên quan vào lời dặn.
+    /// `background`: chạy tự động → nhường quota Gemini cho dịch phụ đề. Lỗi ở đây không làm đổi trạng thái engine phụ đề.
+    public async Task<StoryUpdateOutput> UpdateStory(string input, string focus, bool background)
+    {
+        if (!online) throw new StoryException("Không có mạng");
+        var t0 = DateTime.UtcNow;
+        var system = gemini.StoryUpdatePrompt(focus);
+        Exception lastErr = new StoryException("Cốt truyện cần Gemini hoặc OpenAI. Nhập key và chọn engine ở Cài đặt → Dịch → Tóm tắt & cốt truyện");
+        if (settings.effectiveSummaryEngine == SummaryEngine.openAI && openai.apiKey.Length > 0)
+        {
+            try { return new StoryUpdateOutput(StoryUpdate.Parse(await openai.Complete(system, input, true, 6000, 75)), BackendKind.openAI, Ms(t0)); }
+            catch (Exception e) { Log.Warn($"OpenAI (cốt truyện) lỗi: {e.Message}"); lastErr = e; }
+        }
+        if (string.IsNullOrEmpty(gemini.apiKey)) throw lastErr;
+        if (background)
+        {
+            var room = limiter.Headroom();
+            if (room.cooldown) throw StoryException.Busy("đang chờ sau khi hết quota");
+            if (room.minuteLeft < 4) throw StoryException.Busy("đang bận dịch phụ đề");
+            if (room.dayLeft < Math.Max(20, settings.rpd / 10)) throw StoryException.Busy("sắp hết quota trong ngày");
+        }
+        // Model đôi khi trả JSON hỏng hoặc bị cắt cụt: thử lại một lần ngay, vẫn hỏng mới báo lỗi.
+        for (int attempt = 1; attempt <= 2; attempt++)
+        {
+            var denial = limiter.Acquire();
+            if (denial != null)
+                throw StoryException.Busy(denial.kind switch
+                {
+                    RateLimiter.DenialKind.cooldown => $"đang chờ {(int)denial.seconds}s sau khi hết quota",
+                    RateLimiter.DenialKind.minute => "hết quota/phút",
+                    _ => "hết quota/ngày",
+                });
+            string raw;
+            try
+            {
+                raw = await gemini.Generate(system, input, 75, maxOutputTokens: 8192);
+                usedToday = limiter.usedToday;
+            }
+            catch (GeminiException g) when (g.kind == GeminiException.Kind.rateLimited)
+            {
+                limiter.ReportRateLimited(g.retryAfter);
+                usedToday = limiter.usedToday;
+                throw;
+            }
+            try { return new StoryUpdateOutput(StoryUpdate.Parse(raw), BackendKind.gemini, Ms(t0)); }
+            catch (StoryException e) when (!e.busy)
+            {
+                string head = raw.Length > 160 ? raw[..160] : raw, tail = raw.Length > 160 ? raw[^160..] : "";
+                Log.Warn($"Cốt truyện: JSON không đọc được (lần {attempt}, {raw.Length} ký tự): {head.Replace("\n", "⏎")} … {tail.Replace("\n", "⏎")}");
+                lastErr = e;
+            }
+        }
+        throw lastErr;
+    }
+
     /// Đọc {"title", "summary"} (hoặc văn bản thường: dòng đầu là tiêu đề), giữ xuống đoạn.
     public static (string title, string summary) ParseStory(string raw)
     {
-        static string Clean(string s) => string.Join("\n\n",
-            string.Join("\n", s.Split('\n').Select(l => TextUtils.Normalize(l)))
-                .Split("\n\n", StringSplitOptions.None)
-                .Select(p => string.Join(" ", p.Split('\n', StringSplitOptions.RemoveEmptyEntries)).Trim())
-                .Where(p => p.Length > 0));
+        static string Clean(string s) => CleanParagraphs(s);
         if (GeminiBackend.ParseObject(raw) is JsonObject obj)
         {
             string Get(string k) { try { return obj[k]?.GetValue<string>() ?? ""; } catch { return ""; } }

@@ -93,27 +93,27 @@ public sealed class GeminiBackend : ITranslationBackend
     string speakersBlock => speakers.Count == 0 ? "" :
         "\nCharacter names (keep exactly as written, never translate; a line that starts with one of them followed by a colon keeps it at the start): " + string.Join(", ", speakers) + "\n";
 
-    string glossaryBlock
+    string glossaryBlock => GlossaryBlock(glossaryFocus);
+
+    /// `focus` truyền riêng để việc chạy nền (cốt truyện) không ghi đè `glossaryFocus` của câu phụ đề đang dịch.
+    string GlossaryBlock(string rawFocus)
     {
-        get
+        var focus = rawFocus.ToLowerInvariant();
+        var items = glossary.Where(g =>
         {
-            var focus = glossaryFocus.ToLowerInvariant();
-            var items = glossary.Where(g =>
-            {
-                var t = g.term.Trim();
-                // So khớp theo nguyên từ (không phải chuỗi con): "Uma" không khớp "human", "Quen" không khớp "frequent";
-                // cho phép đuôi số nhiều -s/-es/'s ("drowner" khớp "drowners").
-                if (t.Length == 0) return false;
-                if (focus.Length == 0) return true;
-                var pattern = @"(?<![\p{L}\p{N}])" + Regex.Escape(t.ToLowerInvariant()) + @"(?:'?s|es)?(?![\p{L}\p{N}])";
-                return Regex.IsMatch(focus, pattern);
-            }).ToList();
-            if (items.Count == 0) return speakersBlock;
-            var rows = items.Select(g => g.keepAsIs || g.translation.Trim().Length == 0
-                ? $"- \"{g.term}\" → keep exactly as \"{g.term}\""
-                : $"- \"{g.term}\" → \"{g.translation}\"");
-            return "\nGlossary (always apply, case-insensitive match):\n" + string.Join("\n", rows) + "\n" + speakersBlock;
-        }
+            var t = g.term.Trim();
+            // So khớp theo nguyên từ (không phải chuỗi con): "Uma" không khớp "human", "Quen" không khớp "frequent";
+            // cho phép đuôi số nhiều -s/-es/'s ("drowner" khớp "drowners").
+            if (t.Length == 0) return false;
+            if (focus.Length == 0) return true;
+            var pattern = @"(?<![\p{L}\p{N}])" + Regex.Escape(t.ToLowerInvariant()) + @"(?:'?s|es)?(?![\p{L}\p{N}])";
+            return Regex.IsMatch(focus, pattern);
+        }).ToList();
+        if (items.Count == 0) return speakersBlock;
+        var rows = items.Select(g => g.keepAsIs || g.translation.Trim().Length == 0
+            ? $"- \"{g.term}\" → keep exactly as \"{g.term}\""
+            : $"- \"{g.term}\" → \"{g.translation}\"");
+        return "\nGlossary (always apply, case-insensitive match):\n" + string.Join("\n", rows) + "\n" + speakersBlock;
     }
 
     public string subtitleSystemPrompt
@@ -224,11 +224,50 @@ public sealed class GeminiBackend : ITranslationBackend
         }
     }
 
+    /// Cập nhật cốt truyện game: một lần gọi trả về đoạn diễn biến mới, bài viết liền mạch và các nhân vật có thay đổi.
+    public string StoryUpdatePrompt(string focus)
+    {
+        var source = gameName.Length == 0 ? "a video game" : $"the video game \"{gameName}\"";
+        var trimmedNote = translationNote.Trim();
+        var note = trimmedNote.Length == 0 ? "" : $"Notes from the player about this game (relationships, names): {trimmedNote}\n";
+        return $"You keep a running story record for a player of {source}. The user sends three blocks: STORY SO FAR (the record you wrote " +
+               "earlier; may be empty), KNOWN CHARACTERS (may be empty) and NEW LINES: subtitle lines in the order they appeared since the " +
+               "last update. A line may start with the speaker's name and a colon. Lines starting with \"[Screen]\" are summaries of journal, " +
+               "quest or codex screens the player opened. \"[…later…]\" marks a break in play time. OCR may contain small errors; infer the intent.\n" +
+               $"Write in {targetName} and return JSON with:\n" +
+               "- \"part\": {\"title\", \"summary\"} covering only what happens in NEW LINES. \"title\": 3–8 words. \"summary\": retell it as a clear " +
+               "story: who is involved, what they say, want or decide, what is revealed, and how it ends; 2–4 sentences for a short exchange, " +
+               "up to 3 short paragraphs for a long scene. If NEW LINES contain nothing of the story (menus, combat shouts, small talk), use null.\n" +
+               "- \"narrative\": the whole story so far as one continuous text: STORY SO FAR extended with the new events and rewritten so it " +
+               "reads as one retelling, in chronological order, in short paragraphs separated by a blank line. Keep every important earlier " +
+               "event, name, reveal and decision; never drop the beginning. At most about 450 words: when it would be longer, tell older " +
+               "events more briefly and recent ones in more detail. If nothing changes, return \"\".\n" +
+               "- \"characters\": every named character who speaks or takes part in NEW LINES and is not yet listed in KNOWN CHARACTERS, " +
+               "plus every known character about whom NEW LINES reveal something new or whose situation changes; [] if none. A character " +
+               "counts as new whenever the name is missing from KNOWN CHARACTERS, even if the story treats them as familiar: always " +
+               "include the protagonist and the companions travelling with them. Each is " +
+               "{\"name\", \"role\", \"personality\", \"background\", \"relations\", \"status\"}, every field at most two short sentences. " +
+               "\"status\" is the character's current situation at the end of NEW LINES: where they are, their condition (alive, dead, " +
+               "wounded, captured, missing, rescued…) and what they are doing or about to do; rewrite it whenever it changes. For a known " +
+               "character, write the full updated text of each field you change and \"\" for fields that do not change. Use \"\" when " +
+               "something is not known; never guess. Use names exactly as in KNOWN CHARACTERS and the glossary; if a new name is clearly " +
+               "the same person as a known character, use the known name. Do not add unnamed speakers (Soldier, Guard) unless they " +
+               "matter to the story.\n" +
+               "Stay faithful: use only STORY SO FAR and NEW LINES. Never add plot, backstory or future events from your own knowledge of " +
+               "the game (no spoilers); never invent actions, gestures or feelings; when it is unclear who did something, keep it vague. " +
+               "Never list the lines one by one; never give advice.\n" +
+               "Keep character names and game terms as written unless the glossary says otherwise.\n" +
+               note + GlossaryBlock(focus) + "\n" +
+               "Reply with JSON only, no code fences and no other text, exactly in this shape (inside a string write a paragraph " +
+               "break as \\n\\n, never a real line break, and use single quotes ‘…’ instead of double quotes):\n" +
+               "{\"part\": {\"title\": \"…\", \"summary\": \"…\"}, \"narrative\": \"…\", \"characters\": [{\"name\": \"…\", \"role\": \"…\", \"personality\": \"…\", \"background\": \"…\", \"relations\": \"…\", \"status\": \"…\"}]}";
+    }
+
     /// Gọi model với lời dặn và nội dung tuỳ ý (có thử model dự phòng như dịch màn hình).
-    public Task<string> Generate(string system, string input, double timeout, CancellationToken ct = default)
+    public Task<string> Generate(string system, string input, double timeout, CancellationToken ct = default, int maxOutputTokens = 4096)
     {
         if (string.IsNullOrEmpty(apiKey)) throw GeminiException.NoKey();
-        var gen = new JsonObject { ["temperature"] = 0.4, ["max_output_tokens"] = 4096 };
+        var gen = new JsonObject { ["temperature"] = 0.4, ["max_output_tokens"] = maxOutputTokens };
         return SendWithFallback(system, input, gen, timeout, 3, ct);
     }
 

@@ -121,7 +121,7 @@ public sealed class HeaderBar : Border
 {
     readonly Button startBtn, analyzeBtn;
     readonly Border pill = new() { CornerRadius = new CornerRadius(12), Padding = new Thickness(10, 3, 10, 3) };
-    readonly ToggleButton voiceBtn = new(), overlayBtn = new();
+    readonly ToggleButton voiceBtn = new(), overlayBtn = new(), storyBtn = new();
     readonly Button profileBtn = new();
 
     public HeaderBar()
@@ -137,6 +137,10 @@ public sealed class HeaderBar : Border
         voiceBtn.IsChecked = s.voiceEnabled; overlayBtn.IsChecked = s.overlayEnabled;
         voiceBtn.Click += (_, _) => s.voiceEnabled = voiceBtn.IsChecked == true;
         overlayBtn.Click += (_, _) => { s.overlayEnabled = overlayBtn.IsChecked == true; if (!s.overlayEnabled) pipeline.overlay.Hide(); };
+        storyBtn.Content = Ui.Icon("\uE736", 14);
+        storyBtn.IsChecked = s.storyEnabled;
+        storyBtn.ToolTip = "Tự viết cốt truyện game từ phụ đề khi đang dịch (xem ở Nhật ký → Cốt truyện)";
+        storyBtn.Click += (_, _) => s.storyEnabled = storyBtn.IsChecked == true;
         var moon = Ui.IconBtn("", () => DisplayPower.shared.SleepDisplay(), "Tắt màn hình để tiết kiệm điện (app vẫn dịch và đọc). Di chuột hoặc gõ phím để bật lại");
         var gear = Ui.IconBtn("", App.ShowSettings, "Cài đặt: ngôn ngữ, Gemini, voice, overlay, thuật ngữ, phím tắt");
         var help = Ui.IconBtn("", OpenGuide, "Hướng dẫn sử dụng app");
@@ -148,7 +152,7 @@ public sealed class HeaderBar : Border
         titleStack.Children.Add(Ui.Text(AppInfo.VersionLabel, 9, color: Ui.Tertiary, wrap: false));
         var logo = Ui.H(8, new Image { Source = new BitmapImage(new Uri("pack://application:,,,/Resources/AppIcon.png")), Width = 22, Height = 22 }, titleStack);
         var left = Ui.H(10, logo, startBtn, analyzeBtn, pill);
-        Child = Ui.Row(left, profileBtn, voiceBtn, overlayBtn, moon, help, gear);
+        Child = Ui.Row(left, profileBtn, voiceBtn, overlayBtn, storyBtn, moon, help, gear);
 
         pipeline.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(Pipeline.isRunning)) Dispatcher.BeginInvoke(Refresh); };
         pipeline.analyzer.PropertyChanged += (_, _) => Dispatcher.BeginInvoke(Refresh);
@@ -175,6 +179,7 @@ public sealed class HeaderBar : Border
         voiceBtn.Content = Ui.Icon(s.voiceEnabled ? "" : "", 14);
         voiceBtn.ToolTip = $"Đọc bản dịch bằng giọng nói ({s.hotkeyVoice.display})";
         overlayBtn.IsChecked = s.overlayEnabled;
+        storyBtn.IsChecked = s.storyEnabled;
         overlayBtn.ToolTip = $"Hiện phụ đề dịch trên màn hình ({s.hotkeyOverlay.display})";
         profileBtn.Content = Ui.IconLabel("", s.activeProfile.name + "  ▾");
     }

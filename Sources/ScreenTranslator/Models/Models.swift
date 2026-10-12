@@ -175,6 +175,20 @@ enum TranslationEngine: String, Codable, CaseIterable, Identifiable {
 }
 
 /// Engine cho "Dịch màn hình" (chọn riêng với phụ đề: phụ đề cần nhanh, dịch màn hình cần hiểu kỹ).
+/// Engine viết "Tóm tắt" (thủ công) và "Cốt truyện" (tự động) trong tab Nhật ký.
+enum SummaryEngine: String, Codable, CaseIterable, Identifiable {
+    case sameAsSubtitle, gemini, openAI, appleIntelligence
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .sameAsSubtitle: return "Giống engine dịch phụ đề"
+        case .gemini: return "Gemini (cần mạng, miễn phí)"
+        case .openAI: return "OpenAI (cần mạng, trả phí)"
+        case .appleIntelligence: return "Apple Intelligence (offline, chỉ cho Tóm tắt thủ công)"
+        }
+    }
+}
+
 enum ScreenEngine: String, Codable, CaseIterable, Identifiable {
     case sameAsSubtitle, gemini, openAI, appleIntelligence, appleTranslation
     var id: String { rawValue }

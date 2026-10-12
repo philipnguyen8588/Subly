@@ -63,6 +63,45 @@ public class StorySummary
     public int latencyMs;
 }
 
+/// Một nhân vật trong mục "Cốt truyện": do model viết và bổ sung dần qua mỗi lần cập nhật.
+/// Tên khoá JSON giống hệt bản macOS vì hai bản dùng chung file history.sqlite.
+public class StoryCharacter
+{
+    public string name { get; set; } = "";
+    public string role { get; set; } = "";
+    public string personality { get; set; } = "";
+    public string background { get; set; } = "";
+    public string relations { get; set; } = "";
+    /// Tình trạng hiện tại (đang ở đâu, còn sống / bị bắt / bị thương, đang làm gì): viết lại mỗi khi có thay đổi.
+    public string status { get; set; } = "";
+}
+
+/// Cốt truyện của một game: bài viết liền mạch + danh sách nhân vật, kèm con trỏ tới dòng nhật ký cuối đã đưa vào.
+public class GameStory
+{
+    public string profile = "";
+    public string narrative = "";
+    public List<StoryCharacter> characters = new();
+    public long lastEntryID, lastAnalysisID;
+    public DateTime updated;
+    public string backend = "";
+}
+
+/// Một đoạn diễn biến trong dòng thời gian của cốt truyện (mỗi lần cập nhật thêm một đoạn).
+public class StoryPart
+{
+    public long id;
+    public DateTime timestamp;
+    public string profile = "";
+    public string title = "";
+    public string summary = "";
+    public DateTime from, to;
+    public long entryFrom, entryTo;
+    public int lineCount;
+    public string backend = "";
+    public int latencyMs;
+}
+
 /// Lịch sử dịch + phân tích màn hình, SQLite (cùng schema với bản macOS). Mỗi dòng gắn với một game (profile);
 /// `entries` / `analyses` chỉ chứa dữ liệu của game đang chọn và tự nạp lại khi đổi game. Dùng trên UI thread.
 public sealed class HistoryStore
@@ -73,6 +112,8 @@ public sealed class HistoryStore
     public List<TranslationEntry> entries { get; private set; } = new();
     public List<ScreenAnalysis> analyses { get; private set; } = new();
     public List<StorySummary> summaries { get; private set; } = new();
+    public GameStory? story { get; private set; }
+    public List<StoryPart> storyParts { get; private set; } = new();
     /// Game (UUID của profile) mà `entries` / `analyses` đang chứa.
     public string scope { get; private set; } = "";
     /// Số dòng có từ trước khi nhật ký được tách theo game (không gắn với game nào).
@@ -82,6 +123,8 @@ public sealed class HistoryStore
     public event Action<TranslationEntry>? EntryAdded;
     public event Action? EntriesCleared;
     public event Action<ScreenAnalysis>? AnalysisAdded;
+    /// Cốt truyện của game đang chọn vừa đổi (cập nhật, xoá, đổi game).
+    public event Action? StoryChanged;
 
     readonly SqliteConnection db;
     const int maxInMemory = 2000, maxAnalyses = 300;
@@ -113,6 +156,16 @@ public sealed class HistoryStore
             id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL, profile TEXT NOT NULL, title TEXT NOT NULL,
             summary TEXT NOT NULL, lines TEXT NOT NULL, t_from REAL NOT NULL, t_to REAL NOT NULL,
             backend TEXT NOT NULL, latency INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS story(
+            profile TEXT PRIMARY KEY, narrative TEXT NOT NULL DEFAULT '', characters TEXT NOT NULL DEFAULT '[]',
+            last_entry_id INTEGER NOT NULL DEFAULT 0, last_analysis_id INTEGER NOT NULL DEFAULT 0,
+            updated REAL NOT NULL DEFAULT 0, backend TEXT NOT NULL DEFAULT '');
+        CREATE TABLE IF NOT EXISTS story_parts(
+            id INTEGER PRIMARY KEY AUTOINCREMENT, profile TEXT NOT NULL, ts REAL NOT NULL, title TEXT NOT NULL,
+            summary TEXT NOT NULL, t_from REAL NOT NULL, t_to REAL NOT NULL,
+            entry_from INTEGER NOT NULL, entry_to INTEGER NOT NULL, line_count INTEGER NOT NULL,
+            backend TEXT NOT NULL, latency INTEGER NOT NULL);
+        CREATE INDEX IF NOT EXISTS story_parts_profile ON story_parts(profile, id);
         PRAGMA journal_mode=WAL;
         """);
         if (!Columns("history").Contains("kind")) Exec("ALTER TABLE history ADD COLUMN kind TEXT NOT NULL DEFAULT 'subtitle'");
@@ -129,6 +182,8 @@ public sealed class HistoryStore
         entries = LoadEntries(scope);
         analyses = LoadAnalyses(scope);
         summaries = LoadSummaries(scope);
+        story = LoadStory(scope);
+        storyParts = LoadStoryParts(scope);
         legacyCount = Count("SELECT (SELECT COUNT(*) FROM history WHERE profile = '') + (SELECT COUNT(*) FROM analyses WHERE profile = '')");
         // Đổi game (ở bất kỳ đâu trong app) → nạp lại nhật ký của game mới.
         AppSettings.shared.Changed += key =>
@@ -149,6 +204,9 @@ public sealed class HistoryStore
         entries = LoadEntries(active);
         analyses = LoadAnalyses(active);
         summaries = LoadSummaries(active);
+        story = LoadStory(active);
+        storyParts = LoadStoryParts(active);
+        StoryChanged?.Invoke();
         Changed?.Invoke();
     }
 
@@ -430,6 +488,227 @@ public sealed class HistoryStore
         Exec("DELETE FROM summaries WHERE profile = $p;", ("$p", scope));
         summaries.Clear();
         Changed?.Invoke();
+    }
+
+    // MARK: story (cốt truyện game)
+    static TranslationEntry Row(SqliteDataReader r) =>
+        new(r.GetInt64(0), FromUnix(r.GetDouble(1)), r.GetString(2), r.GetString(3), r.GetString(4),
+            r.GetString(5), r.GetInt32(6), Enum.TryParse<RegionKind>(r.GetString(7), out var k) ? k : RegionKind.subtitle,
+            r.GetString(8), r.GetString(9));
+
+    public GameStory? LoadStory(string profile)
+    {
+        lock (lk)
+        {
+            using var cmd = db.CreateCommand();
+            cmd.CommandText = "SELECT narrative, characters, last_entry_id, last_analysis_id, updated, backend FROM story WHERE profile = $p";
+            cmd.Parameters.AddWithValue("$p", profile);
+            using var r = cmd.ExecuteReader();
+            if (!r.Read()) return null;
+            List<StoryCharacter> chars;
+            try { chars = JsonSerializer.Deserialize<List<StoryCharacter>>(r.GetString(1)) ?? new(); } catch { chars = new(); }
+            chars.RemoveAll(c => string.IsNullOrEmpty(c.name));
+            return new GameStory
+            {
+                profile = profile, narrative = r.GetString(0), characters = chars, lastEntryID = r.GetInt64(2),
+                lastAnalysisID = r.GetInt64(3), updated = FromUnix(r.GetDouble(4)), backend = r.GetString(5),
+            };
+        }
+    }
+
+    List<StoryPart> LoadStoryParts(string profile)
+    {
+        var outp = new List<StoryPart>();
+        lock (lk)
+        {
+            using var cmd = db.CreateCommand();
+            cmd.CommandText = "SELECT id, ts, profile, title, summary, t_from, t_to, entry_from, entry_to, line_count, backend, latency FROM story_parts WHERE profile = $p ORDER BY id DESC";
+            cmd.Parameters.AddWithValue("$p", profile);
+            using var r = cmd.ExecuteReader();
+            while (r.Read())
+                outp.Add(new StoryPart
+                {
+                    id = r.GetInt64(0), timestamp = FromUnix(r.GetDouble(1)), profile = r.GetString(2), title = r.GetString(3),
+                    summary = r.GetString(4), from = FromUnix(r.GetDouble(5)), to = FromUnix(r.GetDouble(6)),
+                    entryFrom = r.GetInt64(7), entryTo = r.GetInt64(8), lineCount = r.GetInt32(9), backend = r.GetString(10),
+                    latencyMs = r.GetInt32(11),
+                });
+        }
+        return outp;
+    }
+
+    /// Câu phụ đề của game có id lớn hơn con trỏ, cũ trước (kể cả câu bị bỏ qua không dịch, để giữ mạch hội thoại).
+    public List<TranslationEntry> StoryEntries(string profile, long after, int limit)
+    {
+        var outp = new List<TranslationEntry>();
+        lock (lk)
+        {
+            using var cmd = db.CreateCommand();
+            cmd.CommandText = "SELECT id, ts, region, source, translated, backend, latency, kind, target, profile FROM history WHERE profile = $p AND id > $a AND kind = 'subtitle' ORDER BY id ASC LIMIT $n";
+            cmd.Parameters.AddWithValue("$p", profile);
+            cmd.Parameters.AddWithValue("$a", after);
+            cmd.Parameters.AddWithValue("$n", limit);
+            using var r = cmd.ExecuteReader();
+            while (r.Read()) outp.Add(Row(r));
+        }
+        return outp;
+    }
+
+    /// Tóm tắt của các lần "Dịch màn hình" có nội dung (bỏ tóm tắt menu) sau con trỏ, cũ trước.
+    public List<(long id, DateTime timestamp, string summary)> StoryAnalyses(string profile, long after)
+    {
+        var outp = new List<(long, DateTime, string)>();
+        lock (lk)
+        {
+            using var cmd = db.CreateCommand();
+            cmd.CommandText = "SELECT id, ts, summary FROM analyses WHERE profile = $p AND id > $a AND length(summary) >= 80 AND summary NOT LIKE '(%' ORDER BY id ASC LIMIT 20";
+            cmd.Parameters.AddWithValue("$p", profile);
+            cmd.Parameters.AddWithValue("$a", after);
+            using var r = cmd.ExecuteReader();
+            while (r.Read()) outp.Add((r.GetInt64(0), FromUnix(r.GetDouble(1)), r.GetString(2)));
+        }
+        return outp;
+    }
+
+    /// Số câu đã dịch và số lần dịch màn hình chưa được đưa vào cốt truyện.
+    public (int lines, int screens) StoryPending(string profile)
+    {
+        var s = LoadStory(profile);
+        lock (lk)
+        {
+            using var cmd = db.CreateCommand();
+            cmd.CommandText = """
+                SELECT (SELECT COUNT(*) FROM history WHERE profile = $p AND id > $e AND kind = 'subtitle' AND backend != 'skipped'),
+                       (SELECT COUNT(*) FROM analyses WHERE profile = $p AND id > $a AND length(summary) >= 80 AND summary NOT LIKE '(%')
+                """;
+            cmd.Parameters.AddWithValue("$p", profile);
+            cmd.Parameters.AddWithValue("$e", s?.lastEntryID ?? 0);
+            cmd.Parameters.AddWithValue("$a", s?.lastAnalysisID ?? 0);
+            try
+            {
+                using var r = cmd.ExecuteReader();
+                return r.Read() ? (r.GetInt32(0), r.GetInt32(1)) : (0, 0);
+            }
+            catch { return (0, 0); }
+        }
+    }
+
+    /// Lưu kết quả một lần cập nhật cốt truyện. Trả về false (không lưu gì) nếu con trỏ đã đổi từ lúc bắt đầu,
+    /// tức là người dùng vừa xoá / viết lại cốt truyện trong lúc model đang chạy.
+    public bool SaveStoryUpdate(GameStory s, long expectedEntryCursor, StoryPart? part)
+    {
+        if ((LoadStory(s.profile)?.lastEntryID ?? 0) != expectedEntryCursor) return false;
+        lock (lk)
+        {
+            using var tx = db.BeginTransaction();
+            try
+            {
+                using (var cmd = db.CreateCommand())
+                {
+                    cmd.Transaction = tx;
+                    cmd.CommandText = """
+                        INSERT INTO story(profile, narrative, characters, last_entry_id, last_analysis_id, updated, backend) VALUES($p,$n,$c,$e,$a,$u,$b)
+                        ON CONFLICT(profile) DO UPDATE SET narrative=excluded.narrative, characters=excluded.characters,
+                            last_entry_id=excluded.last_entry_id, last_analysis_id=excluded.last_analysis_id,
+                            updated=excluded.updated, backend=excluded.backend
+                        """;
+                    cmd.Parameters.AddWithValue("$p", s.profile);
+                    cmd.Parameters.AddWithValue("$n", s.narrative);
+                    cmd.Parameters.AddWithValue("$c", JsonSerializer.Serialize(s.characters));
+                    cmd.Parameters.AddWithValue("$e", s.lastEntryID);
+                    cmd.Parameters.AddWithValue("$a", s.lastAnalysisID);
+                    cmd.Parameters.AddWithValue("$u", ToUnix(s.updated));
+                    cmd.Parameters.AddWithValue("$b", s.backend);
+                    cmd.ExecuteNonQuery();
+                }
+                if (part != null)
+                {
+                    using var cmd = db.CreateCommand();
+                    cmd.Transaction = tx;
+                    cmd.CommandText = "INSERT INTO story_parts(profile, ts, title, summary, t_from, t_to, entry_from, entry_to, line_count, backend, latency) VALUES($p,$ts,$t,$s,$f,$to,$ef,$et,$n,$b,$ms); SELECT last_insert_rowid();";
+                    cmd.Parameters.AddWithValue("$p", s.profile);
+                    cmd.Parameters.AddWithValue("$ts", ToUnix(part.timestamp));
+                    cmd.Parameters.AddWithValue("$t", part.title);
+                    cmd.Parameters.AddWithValue("$s", part.summary);
+                    cmd.Parameters.AddWithValue("$f", ToUnix(part.from));
+                    cmd.Parameters.AddWithValue("$to", ToUnix(part.to));
+                    cmd.Parameters.AddWithValue("$ef", part.entryFrom);
+                    cmd.Parameters.AddWithValue("$et", part.entryTo);
+                    cmd.Parameters.AddWithValue("$n", part.lineCount);
+                    cmd.Parameters.AddWithValue("$b", part.backend);
+                    cmd.Parameters.AddWithValue("$ms", part.latencyMs);
+                    part.id = Convert.ToInt64(cmd.ExecuteScalar());
+                }
+                tx.Commit();
+            }
+            catch (Exception e)
+            {
+                Log.Error($"SQLite save story: {e.Message}");
+                try { tx.Rollback(); } catch { }
+                return false;
+            }
+        }
+        if (s.profile == scope)
+        {
+            story = s;
+            if (part != null) storyParts.Insert(0, part);
+            StoryChanged?.Invoke();
+        }
+        return true;
+    }
+
+    /// Xoá cốt truyện của game đang chọn. `fromNow`: bỏ qua nhật ký đã có, chỉ viết từ những câu sau thời điểm này;
+    /// ngược lại lần cập nhật tới sẽ viết lại từ đầu nhật ký.
+    public void ResetStory(bool fromNow)
+    {
+        Exec("DELETE FROM story WHERE profile = $p; DELETE FROM story_parts WHERE profile = $p;", ("$p", scope));
+        storyParts.Clear();
+        story = null;
+        if (fromNow) StartStoryFromNow(scope);
+        else StoryChanged?.Invoke();
+    }
+
+    /// Game chưa có cốt truyện → đặt con trỏ ở cuối nhật ký hiện có, để việc tự cập nhật chỉ viết từ những câu sau lúc này
+    /// (nhật ký cũ chỉ được đưa vào khi người dùng bấm "Tóm tắt từ đầu nhật ký"). Không làm gì nếu game đã có con trỏ.
+    public void StartStoryFromNow(string profile)
+    {
+        Exec("""
+            INSERT OR IGNORE INTO story(profile, last_entry_id, last_analysis_id)
+            VALUES($p, (SELECT COALESCE(MAX(id), 0) FROM history WHERE profile = $p),
+                   (SELECT COALESCE(MAX(id), 0) FROM analyses WHERE profile = $p))
+            """, ("$p", profile));
+        if (profile != scope) return;
+        story = LoadStory(profile);
+        StoryChanged?.Invoke();
+    }
+
+    /// Số câu đã dịch trong nhật ký của game (để mời "Tóm tắt từ đầu nhật ký").
+    public int StoryBacklog(string profile)
+    {
+        lock (lk)
+        {
+            using var cmd = db.CreateCommand();
+            cmd.CommandText = "SELECT COUNT(*) FROM history WHERE profile = $p AND kind = 'subtitle' AND backend != 'skipped'";
+            cmd.Parameters.AddWithValue("$p", profile);
+            try { return Convert.ToInt32(cmd.ExecuteScalar() ?? 0); } catch { return 0; }
+        }
+    }
+
+    public void DeleteStoryPart(long id)
+    {
+        Exec("DELETE FROM story_parts WHERE id = $id;", ("$id", id));
+        storyParts.RemoveAll(p => p.id == id);
+        StoryChanged?.Invoke();
+    }
+
+    public void DeleteStoryCharacter(string name)
+    {
+        var s = LoadStory(scope);
+        if (s == null) return;
+        s.characters.RemoveAll(c => c.name == name);
+        Exec("UPDATE story SET characters = $c WHERE profile = $p;", ("$c", JsonSerializer.Serialize(s.characters)), ("$p", scope));
+        story = s;
+        StoryChanged?.Invoke();
     }
 
     public ScreenAnalysis? FindAnalysis(long id) => analyses.FirstOrDefault(a => a.id == id) ?? LoadAnalyses(scope).FirstOrDefault(a => a.id == id);

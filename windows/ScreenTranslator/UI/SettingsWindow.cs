@@ -123,6 +123,16 @@ public sealed class SettingsWindow : Window
             screenWarn.Visibility = screenWarn.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         }
         UpdateScreenWarn();
+        var summaryWarn = Ui.Caption("", Ui.Orange);
+        void UpdateSummaryWarn()
+        {
+            summaryWarn.Text = S.effectiveSummaryEngine == SummaryEngine.openAI && S.openAIKey.Length == 0
+                ? "Chưa có OpenAI API key (nhập ở mục OpenAI phía trên) nên sẽ dùng Gemini."
+                : S.effectiveSummaryEngine == SummaryEngine.gemini && S.geminiAPIKey.Length == 0
+                ? "Chưa có Gemini API key (nhập ở mục Gemini phía trên): Tóm tắt sẽ thử OpenAI, Cốt truyện không chạy được." : "";
+            summaryWarn.Visibility = summaryWarn.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+        UpdateSummaryWarn();
         var keyButtons = Ui.H(8, Ui.Btn("Lưu key", () => { S.geminiAPIKey = key.Password.Trim(); result.Text = "Đã lưu"; UpdateScreenWarn(); }, primary: true), testBtn,
             Ui.Btn("Xoá key", () => { S.geminiAPIKey = ""; key.Password = ""; result.Text = ""; UpdateScreenWarn(); }));
 
@@ -153,6 +163,12 @@ public sealed class SettingsWindow : Window
                 screenWarn,
                 Ui.Toggle("Đọc tóm tắt bằng giọng nói", () => S.analyzeSpeakSummary, v => S.analyzeSpeakSummary = v),
                 Ui.Slider("Timeout", 5, 60, 5, () => S.analyzeTimeout, v => S.analyzeTimeout = v, v => $"{(int)v}s")),
+            Ui.Section("Tóm tắt & cốt truyện (tab Nhật ký)",
+                Ui.Picker("Engine", Enum.GetValues<SummaryEngine>().Select(e => (e, Labels.Of(e))), () => S.summaryEngine, v => { S.summaryEngine = v; UpdateSummaryWarn(); }, 420),
+                summaryWarn,
+                Ui.Toggle("Tự động viết cốt truyện game khi đang dịch", () => S.storyEnabled, v => S.storyEnabled = v),
+                Ui.Stepper(() => $"Cập nhật mỗi {S.storyIntervalMin} phút (khi có đủ câu mới)", 5, 60, 5, () => S.storyIntervalMin, v => S.storyIntervalMin = v),
+                Ui.Caption("Mỗi lần cập nhật tốn 1 request, dùng chung quota với dịch phụ đề. Xem ở Nhật ký → Cốt truyện.")),
             Ui.Section("Hàng đợi phụ đề",
                 Ui.Picker("Chế độ", Enum.GetValues<QueueMode>().Select(q => (q, Labels.Of(q))), () => S.queueMode, v => S.queueMode = v)));
     }

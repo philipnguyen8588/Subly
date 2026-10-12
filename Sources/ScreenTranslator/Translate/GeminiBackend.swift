@@ -90,8 +90,11 @@ final class GeminiBackend: TranslationBackend {
         return "\nCharacter names (keep exactly as written, never translate; a line that starts with one of them followed by a colon keeps it at the start): " + speakers.joined(separator: ", ") + "\n"
     }
 
-    private var glossaryBlock: String {
-        let focus = glossaryFocus.lowercased()
+    private var glossaryBlock: String { glossaryBlock(focus: glossaryFocus) }
+
+    /// `focus` truyền riêng để việc chạy nền (cốt truyện) không ghi đè `glossaryFocus` của câu phụ đề đang dịch.
+    private func glossaryBlock(focus rawFocus: String) -> String {
+        let focus = rawFocus.lowercased()
         let items = glossary.filter { g in
             let t = g.term.trimmingCharacters(in: .whitespaces)
             // So khớp theo nguyên từ (không phải chuỗi con): "Uma" không khớp "human", "Quen" không khớp "frequent";
@@ -231,10 +234,50 @@ final class GeminiBackend: TranslationBackend {
         """
     }
 
+    /// Cập nhật cốt truyện game: một lần gọi trả về đoạn diễn biến mới, bài viết liền mạch và các nhân vật có thay đổi.
+    func storyUpdatePrompt(focus: String) -> String {
+        let source = gameName.isEmpty ? "a video game" : "the video game \"\(gameName)\""
+        let trimmedNote = translationNote.trimmingCharacters(in: .whitespacesAndNewlines)
+        let note = trimmedNote.isEmpty ? "" : "Notes from the player about this game (relationships, names): \(trimmedNote)\n"
+        return """
+        You keep a running story record for a player of \(source). The user sends three blocks: STORY SO FAR (the record you wrote \
+        earlier; may be empty), KNOWN CHARACTERS (may be empty) and NEW LINES: subtitle lines in the order they appeared since the \
+        last update. A line may start with the speaker's name and a colon. Lines starting with "[Screen]" are summaries of journal, \
+        quest or codex screens the player opened. "[…later…]" marks a break in play time. OCR may contain small errors; infer the intent.
+        Write in \(targetName) and return JSON with:
+        - "part": {"title", "summary"} covering only what happens in NEW LINES. "title": 3–8 words. "summary": retell it as a clear \
+        story: who is involved, what they say, want or decide, what is revealed, and how it ends; 2–4 sentences for a short exchange, \
+        up to 3 short paragraphs for a long scene. If NEW LINES contain nothing of the story (menus, combat shouts, small talk), use null.
+        - "narrative": the whole story so far as one continuous text: STORY SO FAR extended with the new events and rewritten so it \
+        reads as one retelling, in chronological order, in short paragraphs separated by a blank line. Keep every important earlier \
+        event, name, reveal and decision; never drop the beginning. At most about 450 words: when it would be longer, tell older \
+        events more briefly and recent ones in more detail. If nothing changes, return "".
+        - "characters": every named character who speaks or takes part in NEW LINES and is not yet listed in KNOWN CHARACTERS, \
+        plus every known character about whom NEW LINES reveal something new or whose situation changes; [] if none. A character \
+        counts as new whenever the name is missing from KNOWN CHARACTERS, even if the story treats them as familiar: always \
+        include the protagonist and the companions travelling with them. Each is \
+        {"name", "role", "personality", "background", "relations", "status"}, every field at most two short sentences. \
+        "status" is the character's current situation at the end of NEW LINES: where they are, their condition (alive, dead, \
+        wounded, captured, missing, rescued…) and what they are doing or about to do; rewrite it whenever it changes. For a known \
+        character, write the full updated text of each field you change and "" for fields that do not change. Use "" when \
+        something is not known; never guess. Use names exactly as in KNOWN CHARACTERS and the glossary; if a new name is clearly \
+        the same person as a known character, use the known name. Do not add unnamed speakers (Soldier, Guard) unless they \
+        matter to the story.
+        Stay faithful: use only STORY SO FAR and NEW LINES. Never add plot, backstory or future events from your own knowledge of \
+        the game (no spoilers); never invent actions, gestures or feelings; when it is unclear who did something, keep it vague. \
+        Never list the lines one by one; never give advice.
+        Keep character names and game terms as written unless the glossary says otherwise.
+        \(note)\(glossaryBlock(focus: focus))
+        Reply with JSON only, no code fences and no other text, exactly in this shape (inside a string write a paragraph \
+        break as \\n\\n, never a real line break, and use single quotes ‘…’ instead of double quotes):
+        {"part": {"title": "…", "summary": "…"}, "narrative": "…", "characters": [{"name": "…", "role": "…", "personality": "…", "background": "…", "relations": "…", "status": "…"}]}
+        """
+    }
+
     /// Gọi model với lời dặn và nội dung tuỳ ý (có thử model dự phòng như dịch màn hình).
-    func generate(system: String, input: String, timeout: TimeInterval) async throws -> String {
+    func generate(system: String, input: String, timeout: TimeInterval, maxOutputTokens: Int = 4096) async throws -> String {
         guard !apiKey.isEmpty else { throw GeminiError.noKey }
-        let gen: [String: Any] = ["temperature": 0.4, "max_output_tokens": 4096]
+        let gen: [String: Any] = ["temperature": 0.4, "max_output_tokens": maxOutputTokens]
         return try await sendWithFallback(system: system, input: input, generation: gen, timeout: timeout, maxAttempts: 3)
     }
 

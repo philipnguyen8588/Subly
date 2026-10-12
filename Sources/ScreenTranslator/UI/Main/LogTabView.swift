@@ -4,7 +4,7 @@ import AppKit
 /// Tab Nhật ký: phụ đề đã dịch và lịch sử dịch màn hình, cùng một thanh công cụ.
 struct LogTabView: View {
     enum Section: String, CaseIterable, Identifiable {
-        case subtitles, screens, summaries
+        case subtitles, screens, summaries, story
         var id: String { rawValue }
     }
 
@@ -12,6 +12,7 @@ struct LogTabView: View {
     @State private var section: Section = .subtitles
     @State private var search = ""
     @State private var confirmClear = false
+    @State private var confirmClearStory = false
     /// Đang xem các dòng cũ không gắn với game nào (có từ trước khi nhật ký được tách theo game).
     @State private var legacy = false
     @State private var legacyEntries: [TranslationEntry] = []
@@ -24,6 +25,7 @@ struct LogTabView: View {
     private var clearTitle: String {
         switch section {
         case .summaries: return "Xoá mọi bản tóm tắt của game này"
+        case .story: return "Xoá cốt truyện của game này"
         case _ where legacy: return "Xoá toàn bộ dòng cũ chưa gắn game"
         case .subtitles: return "Xoá nhật ký phụ đề của game này"
         case .screens: return "Xoá lịch sử dịch màn hình của game này"
@@ -32,6 +34,7 @@ struct LogTabView: View {
     private var clearQuestion: String {
         switch section {
         case .summaries: return "Xoá mọi bản tóm tắt của game “\(settings.activeProfile.name)”?"
+        case .story: return "Xoá cốt truyện và danh sách nhân vật của game “\(settings.activeProfile.name)”?"
         case _ where legacy: return "Xoá toàn bộ dòng cũ chưa gắn game (cả phụ đề và dịch màn hình)?"
         case .subtitles: return "Xoá nhật ký phụ đề của \(scopeName)?"
         case .screens: return "Xoá lịch sử dịch màn hình và ảnh chụp của \(scopeName)?"
@@ -46,6 +49,7 @@ struct LogTabView: View {
                     Text("Phụ đề  \(entries.count)").tag(Section.subtitles)
                     Text("Dịch màn hình  \(analyses.count)").tag(Section.screens)
                     Text("Tóm tắt  \(store.summaries.count)").tag(Section.summaries)
+                    Text("Cốt truyện").tag(Section.story)
                 }
                 .pickerStyle(.segmented).labelsHidden().fixedSize()
                 if store.legacyCount > 0 {
@@ -63,7 +67,7 @@ struct LogTabView: View {
                 .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
                 .frame(maxWidth: 280)
                 Spacer()
-                if section != .summaries {
+                if section != .summaries, section != .story {
                 Menu {
                     ForEach(Exporter.Format.allCases) { f in
                         Button(f.label) { Exporter.export(f, entries: entries, analyses: analyses) }
@@ -71,7 +75,7 @@ struct LogTabView: View {
                 } label: { Image(systemName: "square.and.arrow.up") }
                 .menuStyle(.borderlessButton).fixedSize().help("Xuất nhật ký (TXT / SRT / JSON)")
                 }
-                Button(role: .destructive) { confirmClear = true } label: { Image(systemName: "trash") }
+                Button(role: .destructive) { if section == .story { confirmClearStory = true } else { confirmClear = true } } label: { Image(systemName: "trash") }
                     .buttonStyle(.borderless)
                     .help(clearTitle)
             }
@@ -81,12 +85,18 @@ struct LogTabView: View {
             case .subtitles: SubtitleLogView(search: search, entries: entries)
             case .screens: ScreenLogView(search: search, analyses: analyses)
             case .summaries: StorySummaryView(search: search, summaries: store.summaries)
+            case .story: GameStoryView(search: search)
             }
+        }
+        .confirmationDialog(clearQuestion, isPresented: $confirmClearStory) {
+            Button("Xoá, viết lại từ đầu nhật ký", role: .destructive) { StoryTracker.shared.reset(fromNow: false) }
+            Button("Xoá, chỉ viết tiếp từ bây giờ", role: .destructive) { StoryTracker.shared.reset(fromNow: true) }
         }
         .confirmationDialog(clearQuestion, isPresented: $confirmClear) {
             Button("Xoá", role: .destructive) {
                 switch section {
                 case .summaries: store.clearSummaries()
+                case .story: break
                 case _ where legacy: store.clearLegacy(); legacy = false
                 case .subtitles: store.clear()
                 case .screens: store.clearAnalyses()

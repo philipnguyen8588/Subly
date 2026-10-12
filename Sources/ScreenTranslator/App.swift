@@ -168,6 +168,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor private func startApp() {
         Log.info("Profile '\(AppSettings.shared.activeProfile.name)', regions: \(AppSettings.shared.regions.count)")
         handleCommandLine()
+        StoryTracker.shared.begin()
         WebServer.shared.apply()
         RegionActions.fillMissingWindowOffsets()
         registerHotkeys()
@@ -229,6 +230,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     //   --test-region x,y,w,h[,Tên]          vùng tạm, không lưu
     //   --clear-regions  --autostart  --mute  --quiet  --hidden  --analyze-once  --no-web  --web-port N
     //   --gemini-base-url <url>  --gemini-key <key>
+    //   --story-interval <giây>   bật cốt truyện cho phiên này với chu kỳ ngắn (không lưu)
+    //   --story-now <giây>        sau N giây thì cập nhật cốt truyện một lần (như bấm "Cập nhật ngay")
+    //   --quit-after <giây>       tự thoát sau N giây
     @MainActor private func handleCommandLine() {
         let args = CommandLine.arguments
         let settings = AppSettings.shared
@@ -343,6 +347,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
                 Pipeline.shared.analyzeScreen()
+            }
+        }
+        if let i = args.firstIndex(of: "--story-interval"), i + 1 < args.count, let sec = Double(args[i + 1]), sec > 0 {
+            settings.forceStoryInterval = sec
+            Log.info("Cốt truyện: chu kỳ \(Int(sec))s (--story-interval)")
+        }
+        if let i = args.firstIndex(of: "--story-now"), i + 1 < args.count, let sec = Double(args[i + 1]) {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(sec))
+                StoryTracker.shared.updateNow()
+            }
+        }
+        if let i = args.firstIndex(of: "--quit-after"), i + 1 < args.count, let sec = Double(args[i + 1]) {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(sec))
+                Log.info("Thoát theo --quit-after")
+                NSApp.terminate(nil)
             }
         }
     }

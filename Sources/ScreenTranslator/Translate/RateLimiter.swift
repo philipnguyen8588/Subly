@@ -54,6 +54,14 @@ actor RateLimiter {
         cooldownUntil = Date().addingTimeInterval(retryAfter ?? 60)
     }
 
+    /// Còn bao nhiêu lượt trong phút / trong ngày, không trừ token (việc nền dùng để nhường quota cho dịch phụ đề).
+    func headroom() -> (minuteLeft: Int, dayLeft: Int, cooldown: Bool) {
+        rollDay()
+        let now = Date()
+        let recent = minuteStamps.filter { now.timeIntervalSince($0) <= 60 }.count
+        return (max(0, rpm - recent), max(0, rpd - dayCount), cooldownUntil.map { now < $0 } ?? false)
+    }
+
     var usedToday: Int { rollDay(); return dayCount }
     var cooldownRemaining: TimeInterval? {
         guard let c = cooldownUntil else { return nil }

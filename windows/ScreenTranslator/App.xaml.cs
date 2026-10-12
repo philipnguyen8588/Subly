@@ -147,6 +147,7 @@ public partial class App : Application
         Log.Info($"Subly (Windows) launched. Profile '{s.activeProfile.name}', regions: {s.regions.Count}");
         SetupTray();
         HandleCommandLine();
+        StoryTracker.shared.Begin();
         WebServer.shared.Apply();
         AppSettings.shared.Changed += k => { if (k is "webServerEnabled" or "webServerPort") RunOnUI(WebServer.shared.Apply); };
         RegionActions.FillMissingWindowOffsets();
@@ -244,6 +245,8 @@ public partial class App : Application
     //   --translate "a|b"  --translate-engine auto|google  --speak "a|b"  --voice-engine windows|local|edge
     //   --feed "a|b"  --download-voice <id>  --ps5-import  --ps5-connect  --ps5-discover  --show-shot  --tab source|log|speakers|glossary
     //   --quit-after <giây>  (tự thoát, dùng khi kiểm thử tự động)
+    //   --story-interval <giây>   bật cốt truyện cho phiên này với chu kỳ ngắn (không lưu)
+    //   --story-now <giây>        sau N giây thì cập nhật cốt truyện một lần (như bấm "Cập nhật ngay")
     void HandleCommandLine()
     {
         var settings = AppSettings.shared;
@@ -389,6 +392,14 @@ public partial class App : Application
         if (Arg("--render-ui") is string uiDir) Delay(2, () => RenderUi(uiDir));
         if (Has("--autostart")) Delay(0.5, () => _ = Pipeline.shared.Start());
         if (Has("--analyze-once")) Delay(2, Pipeline.shared.AnalyzeScreen);
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
+        if (Arg("--story-interval") is string si && double.TryParse(si, System.Globalization.NumberStyles.Float, inv, out var every) && every > 0)
+        {
+            settings.forceStoryInterval = every;
+            Log.Info($"Cốt truyện: chu kỳ {(int)every}s (--story-interval)");
+        }
+        if (Arg("--story-now") is string sn && double.TryParse(sn, System.Globalization.NumberStyles.Float, inv, out var after))
+            Delay(after, StoryTracker.shared.UpdateNow);
         if (Arg("--quit-after") is string qa && double.TryParse(qa, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var sec))
             Delay(sec, Quit);
     }

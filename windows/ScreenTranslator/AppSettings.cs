@@ -40,6 +40,8 @@ public sealed class AppSettings : INotifyPropertyChanged
     /// --no-web / --web-port.
     public bool forceNoWeb;
     public int? forceWebPort;
+    /// --story-interval <giây>: bật cốt truyện với chu kỳ ngắn để test.
+    public double? forceStoryInterval;
     /// Vùng tạm (--test-region), chỉ tồn tại trong phiên, không lưu.
     public List<Region> ephemeralRegions = new();
 
@@ -62,6 +64,13 @@ public sealed class AppSettings : INotifyPropertyChanged
         {
             if (geminiModel.StartsWith("gemini-2")) geminiModel = "gemini-3.5-flash-lite";
             SetFlag("gemini3Migrated");
+        }
+        // Tóm tắt có engine riêng: trước đây đi theo engine "Dịch màn hình" → giữ lựa chọn đó (một lần).
+        if (!GetFlag("summaryEngineMigrated"))
+        {
+            if (screenEngine == ScreenEngine.gemini) summaryEngine = SummaryEngine.gemini;
+            else if (screenEngine == ScreenEngine.openAI) summaryEngine = SummaryEngine.openAI;
+            SetFlag("summaryEngineMigrated");
         }
     }
 
@@ -297,6 +306,16 @@ public sealed class AppSettings : INotifyPropertyChanged
     };
     public bool analyzeSpeakSummary { get => Get("analyzeSpeakSummary", false); set => Set("analyzeSpeakSummary", value); }
     public double analyzeTimeout { get => Get("analyzeTimeout", 20.0); set => Set("analyzeTimeout", value); }
+
+    // MARK: Tóm tắt & cốt truyện
+    public SummaryEngine summaryEngine { get => Get("summaryEngine", SummaryEngine.sameAsSubtitle); set => Set("summaryEngine", value); }
+    /// Engine thật sự viết tóm tắt / cốt truyện. Engine phụ đề không tóm tắt được (Google Translate) thì dùng Gemini.
+    public SummaryEngine effectiveSummaryEngine => summaryEngine != SummaryEngine.sameAsSubtitle ? summaryEngine
+        : engine == TranslationEngine.openAI ? SummaryEngine.openAI : SummaryEngine.gemini;
+    /// Tự viết cốt truyện game từ phụ đề (nút trên thanh đầu cửa sổ chính; xem ở Nhật ký → Cốt truyện).
+    public bool storyEnabled { get => Get("storyEnabled", false); set => Set("storyEnabled", value); }
+    public int storyIntervalMin { get => Get("storyIntervalMin", 10); set => Set("storyIntervalMin", value); }
+    public bool storyOn => storyEnabled || forceStoryInterval != null;
 
     // MARK: Voice
     public bool voiceEnabled { get => Get("voiceEnabled", false); set => Set("voiceEnabled", value); }
