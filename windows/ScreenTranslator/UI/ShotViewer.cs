@@ -104,7 +104,8 @@ public sealed class TranslatedShotView : Grid
         {
             double w = it.w * fw, h = it.h * fh;
             // Tiếng Việt thường dài hơn tiếng Anh: cho hộp rộng thêm, chữ tự co cho vừa.
-            double boxW = Math.Min(Math.Max(w * 1.15, w + 12), fw - it.x * fw);
+            // Đoạn nhiều dòng tự xuống dòng nên giữ đúng bề ngang gốc, nới ra sẽ tràn khỏi khung của game.
+            double boxW = it.lines > 1 ? w + 6 : Math.Min(Math.Max(w * 1.15, w + 12), fw - it.x * fw);
             double size = Math.Max(9, h / Math.Max(1, it.lines) * 0.74);
             var tb = new TextBlock
             {

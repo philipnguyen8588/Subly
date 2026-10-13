@@ -62,6 +62,8 @@ final class OpenAIBackend {
 
         Reply with JSON only, exactly in this shape:
         {"summary": "…", "lines": [{"i": 1, "t": "…"}, {"i": 2, "t": "…"}]}
+        "lines" must have exactly \(lines.count) entries: one per numbered input line, "i" = that line's number.
+        Never merge, split, skip or reorder lines, even when a line looks like a fragment of another one.
         """
         let raw = try await complete(system: system, user: numbered, json: true, maxTokens: 4096, timeout: timeout)
         guard let start = raw.firstIndex(of: "{"), let end = raw.lastIndex(of: "}"), start < end,

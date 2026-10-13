@@ -56,12 +56,14 @@ final class ScreenAnalyzer: ObservableObject {
                 progress = "Đang nhận dạng chữ…"
                 // Vision có lúc treo hẳn bên trong (không bao giờ trả về): chờ tối đa `analyzeTimeout` giây rồi báo lỗi,
                 // để nút Dịch màn hình không kẹt ở "Đang nhận dạng chữ…" mãi.
-                guard let blocks = await Self.recognizeBlocks(ocr, img, timeout: settings.analyzeTimeout) else {
+                guard let all = await Self.recognizeBlocks(ocr, img, timeout: settings.analyzeTimeout) else {
                     lastError = "Bộ nhận dạng chữ của macOS bị treo. Thoát hẳn app (⌘Q) rồi mở lại."
                     Log.error("Analyze OCR[\(r.name)] quá \(Int(settings.analyzeTimeout)) s không xong → Vision treo")
                     return nil
                 }
-                Log.info("Analyze OCR[\(r.name)] \(blocks.count) khối chữ")
+                // Chỉ dịch nội dung (cốt truyện, mô tả); nhãn menu và gợi ý nút bấm ngắn để nguyên.
+                let blocks = all.filter(\.isContent)
+                Log.info("Analyze OCR[\(r.name)] \(all.count) khối chữ, \(blocks.count) khối nội dung")
                 if placed == nil { placed = (img, blocks, lines.count) }
                 lines += blocks.map(\.text)
             } catch {
@@ -70,7 +72,7 @@ final class ScreenAnalyzer: ObservableObject {
             }
         }
         guard !lines.isEmpty else {
-            lastError = "Không thấy chữ nào trong vùng"
+            lastError = lastError ?? "Không thấy đoạn nội dung nào để dịch (chỉ có chữ giao diện ngắn)"
             return nil
         }
         if lines.count > 80 { lines = Array(lines.prefix(80)) }

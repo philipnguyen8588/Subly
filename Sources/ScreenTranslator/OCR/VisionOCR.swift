@@ -66,6 +66,18 @@ final class VisionOCR {
         var lines: Int
         /// Chiều cao chữ trung bình của các dòng (không tính khoảng trống giữa dòng), để so cỡ chữ khi gộp đoạn.
         var textH: CGFloat = 0
+
+        /// Khối nội dung đáng dịch (cốt truyện, mô tả vật phẩm / kỹ năng): đoạn nhiều dòng hoặc một câu dài.
+        /// Nhãn giao diện ngắn (tab "Map", "Journal", gợi ý nút "Recommended Abilities (Hold)") thì không.
+        var isContent: Bool {
+            if lines >= 2 { return true }
+            let tokens = text.split(separator: " ")
+            let words = tokens.filter { $0.contains(where: \.isLetter) }.count
+            // Hàng gợi ý nút bấm ("Center • Move Cursor & Zoom • Close"): nhiều từ nhưng bị biểu tượng nút chen giữa.
+            if tokens.count - words >= 2 { return false }
+            if words >= 6 { return true }
+            return words >= 4 && (text.last.map { ".!?…\"”".contains($0) } ?? false)
+        }
     }
 
     /// Cho "dịch đè lên màn hình": trả về từng khối chữ. Các dòng liền nhau của cùng một đoạn văn được gộp lại để dịch trọn ý.
@@ -86,9 +98,30 @@ final class VisionOCR {
             return Block(text: text, box: CGRect(x: b.minX, y: 1 - b.maxY, width: b.width, height: b.height), lines: 1, textH: b.height)
         }
         items.sort { abs($0.box.minY - $1.box.minY) > 0.01 ? $0.box.minY < $1.box.minY : $0.box.minX < $1.box.minX }
+        // Gộp mảnh cùng hàng: biểu tượng nút chen giữa câu ("Executing a dodge with [R1] at the moment of") làm Vision
+        // tách một dòng thành hai mảnh; để riêng thì mảnh sau thành một khối nằm đè lên đoạn văn. Mục menu cùng hàng
+        // cách nhau xa hơn nhiều (≥ 4 lần chiều cao chữ) nên không bị gộp.
+        let aspect = CGFloat(cg.width) / CGFloat(max(1, cg.height))
+        var rows: [Block] = []
+        for it in items {
+            if let i = rows.lastIndex(where: { prev in
+                let h = max(prev.box.height, it.box.height)
+                let sameRow = abs(prev.box.midY - it.box.midY) < h * 0.5
+                let sameSize = h / max(0.0001, min(prev.box.height, it.box.height)) < 1.5
+                // Khoảng hở ngang quy về đơn vị chiều cao ảnh để so với chiều cao chữ.
+                let gap = max(it.box.minX - prev.box.maxX, prev.box.minX - it.box.maxX) * aspect
+                return sameRow && sameSize && gap > -h * 0.5 && gap < h * 2.5
+            }) {
+                rows[i].text = it.box.minX < rows[i].box.minX ? it.text + " " + rows[i].text : rows[i].text + " " + it.text
+                rows[i].box = rows[i].box.union(it.box)
+                rows[i].textH = max(rows[i].textH, it.textH)
+            } else {
+                rows.append(it)
+            }
+        }
         // Gộp đoạn văn: dòng dưới nằm sát dòng trên, cùng lề trái, cỡ chữ tương đương.
         var out: [Block] = []
-        for it in items {
+        for it in rows {
             if let i = out.lastIndex(where: { prev in
                 let lineH = prev.textH
                 let gap = it.box.minY - prev.box.maxY

@@ -104,8 +104,73 @@ summary p { margin: 4px 0 0; font-size: 15px; line-height: 1.4; }
 .pairs { padding: 0 14px 6px; border-top: 1px solid var(--line); }
 .pairs .row:last-child { border-bottom: 0; }
 
+/* Cốt truyện */
+.search { margin: 4px 16px 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel); outline: none; }
+.search:focus { border-color: var(--accent); }
+#chips { display: flex; gap: 6px; padding: 0 16px 10px; overflow-x: auto; scrollbar-width: none; flex: none; }
+#chips::-webkit-scrollbar { display: none; }
+#chips button { flex: none; height: 32px; padding: 0 11px; border: 1px solid var(--line); border-radius: 16px;
+  background: var(--panel); color: var(--dim); font-size: 13px; font-weight: 600; white-space: nowrap; }
+#chips button.active { background: var(--accent); border-color: var(--accent); color: #17130a; }
+#chips i { font-style: normal; font-weight: 500; opacity: .7; margin-left: 4px; font-variant-numeric: tabular-nums; }
+#chips i:empty { display: none; }
+#storyList { padding-bottom: 28px; }
+#storyInfo { display: flex; align-items: center; gap: 8px; margin: 2px 2px 14px; color: var(--faint); font-size: 12.5px; }
+#storyInfo.busy { color: var(--accent); }
+#storyInfo.busy::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex: none;
+  animation: pulse 1.1s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .25; } }
+.sec { display: flex; align-items: baseline; gap: 8px; margin: 22px 2px 10px; }
+.sec:first-child { margin-top: 4px; }
+.sec h2 { margin: 0; font-size: 12px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--accent); }
+.sec span { color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; }
+.sec button { margin-left: auto; padding: 4px 0 4px 10px; border: 0; background: none; color: var(--dim); font-size: 13px; font-weight: 600; }
+mark { background: rgba(255, 200, 87, .32); color: inherit; border-radius: 3px; padding: 0 1px; }
+.narr { position: relative; padding: 16px 16px 16px 18px; border-radius: 14px; overflow: hidden;
+  background: linear-gradient(160deg, #1c1810, var(--panel) 55%); border: 1px solid #332b18; }
+.narr::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: linear-gradient(var(--accent), #e8734a); }
+.narr p, .pbody p { margin: 0 0 .8em; }
+.narr p:last-child, .pbody p:last-child { margin-bottom: 0; }
+.narr { font-size: 16.5px; line-height: 1.62; }
+.narr.clamp { max-height: 15.5em; }
+.narr.clamp::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 4.5em;
+  background: linear-gradient(transparent, #15141a); pointer-events: none; }
+.more { display: block; margin: 8px auto 0; padding: 7px 16px; border: 1px solid var(--line); border-radius: 16px;
+  background: var(--panel); color: var(--accent); font-size: 13.5px; font-weight: 600; }
+/* Dòng thời gian: một vạch dọc, mỗi đoạn diễn biến một chấm */
+.tl { position: relative; padding-left: 22px; }
+.tl::before { content: ""; position: absolute; left: 5px; top: 10px; bottom: 10px; width: 2px; background: var(--line); }
+.part { position: relative; margin-bottom: 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.part::before { content: ""; position: absolute; left: -22px; top: 17px; width: 12px; height: 12px; border-radius: 50%;
+  background: var(--bg); border: 2px solid var(--faint); box-sizing: border-box; }
+.part.open::before { border-color: var(--accent); background: var(--accent); box-shadow: 0 0 0 4px rgba(255, 200, 87, .14); }
+.phead { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 12px 12px 12px 14px; border: 0; background: none; text-align: left; }
+.phead div { flex: 1; min-width: 0; }
+.phead time { display: block; color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; margin-bottom: 3px; }
+.phead b { display: block; font-size: 16px; line-height: 1.32; font-weight: 650; }
+.chev { width: 12px; height: 12px; flex: none; margin-top: 5px; fill: var(--faint); transition: transform .15s; }
+.open > button .chev { transform: rotate(90deg); fill: var(--accent); }
+.pbody { display: none; padding: 0 14px 14px; color: #d9d5cc; font-size: 15.5px; line-height: 1.58; }
+.part.open .pbody { display: block; }
+/* Nhân vật */
+#chars { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; align-items: start; }
+.char { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.chead { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 12px 12px 14px; border: 0; background: none; text-align: left; }
+.ava { width: 38px; height: 38px; flex: none; display: flex; align-items: center; justify-content: center; border-radius: 50%;
+  border: 1.5px solid currentColor; background: rgba(255, 255, 255, .05); font-size: 16px; font-weight: 700; }
+.chead div { flex: 1; min-width: 0; }
+.chead b { display: block; font-size: 16px; font-weight: 700; }
+.chead small { display: block; margin-top: 1px; color: var(--dim); font-size: 13px; line-height: 1.35; }
+.chead .chev { margin-top: 0; }
+.now { margin: 0 14px 12px; padding: 8px 11px; border-radius: 9px; background: rgba(255, 255, 255, .045); font-size: 14.5px; line-height: 1.45; }
+.field { display: none; margin: 0 14px 11px; }
+.char.open .field { display: block; }
+.field h3, .now h3 { margin: 0 0 2px; color: var(--faint); font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
+.field p { margin: 0; color: #d9d5cc; font-size: 14.5px; line-height: 1.5; }
+
 nav { display: flex; border-top: 1px solid var(--line); background: #08080a; padding-bottom: env(safe-area-inset-bottom); }
-nav button { flex: 1; padding: 13px 4px 12px; border: 0; background: none; color: var(--dim); font-size: 14px; font-weight: 600; }
+nav button { flex: 1 1 auto; padding: 13px 2px 12px; border: 0; background: none; color: var(--dim); font-size: 13.5px; font-weight: 600; white-space: nowrap; }
 nav button.active { color: var(--accent); }
 
 /* Chạm vào phụ đề: ẩn hết thanh, chỉ còn chữ */
@@ -163,6 +228,13 @@ nav button.active { color: var(--accent); }
       <input id="filter" type="search" placeholder="Tìm trong nhật ký" autocomplete="off">
       <div class="scroll" id="logList"></div>
     </section>
+    <section id="story">
+      <input id="storyFilter" class="search" type="search" placeholder="Tìm trong cốt truyện, nhân vật" autocomplete="off">
+      <div id="chips">
+        <button data-kind="all">Tất cả</button><button data-kind="narr">Tóm lược</button><button data-kind="parts">Diễn biến<i id="nParts"></i></button><button data-kind="chars">Nhân vật<i id="nChars"></i></button>
+      </div>
+      <div class="scroll" id="storyList"></div>
+    </section>
     <section id="scan">
       <div id="scanBar"><button id="go">Dịch màn hình</button><div id="msg"></div></div>
       <div class="scroll" id="scanList"><div id="shots"></div><div id="texts"></div></div>
@@ -171,6 +243,7 @@ nav button.active { color: var(--accent); }
   <nav>
     <button data-tab="live" class="active">Phụ đề</button>
     <button data-tab="log">Nhật ký</button>
+    <button data-tab="story">Cốt truyện</button>
     <button data-tab="scan">Dịch màn hình</button>
   </nav>
 </div>
@@ -235,6 +308,7 @@ function show(name) {
   for (const b of document.querySelectorAll('nav button')) b.classList.toggle('active', b.dataset.tab === name);
   $('tools').style.visibility = name === 'live' ? 'visible' : 'hidden';
   if (name === 'log') loadLog();
+  if (name === 'story') loadStory();
   if (name === 'scan') loadScans();
 }
 for (const b of document.querySelectorAll('nav button')) b.onclick = () => show(b.dataset.tab);
@@ -321,6 +395,163 @@ async function loadLog() {
 }
 $('filter').oninput = () => renderLog(true);
 
+// ---- Cốt truyện: bài tóm lược, dòng thời gian các đoạn diễn biến và nhân vật; lọc theo mục và theo chữ gõ vào
+let story = null, storyKind = store.get('storyKind', 'all'), storyAsc = store.get('storyAsc', '0') === '1', narrOpen = false;
+const partFlip = new Set(), charOpen = new Set();     // đoạn đã bấm đổi so với mặc định (3 đoạn mới nhất mở) / nhân vật đang mở
+const CHEV = '<svg class="chev" viewBox="0 0 12 12"><path d="M3.5 1L9 6l-5.5 5-1-1.2L6.6 6 2.5 2.2z"/></svg>';
+// Tìm không phân biệt hoa thường và dấu: gõ "nhan vat" vẫn ra "nhân vật".
+const fold = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[đĐ]/g, 'd').toLowerCase();
+// Chép `text` vào `el`, tô nền những chỗ khớp `q` (đã qua fold). `map` đổi vị trí trong chuỗi bỏ dấu về chuỗi gốc.
+function mark(el, text, q) {
+  if (!q) { el.append(text); return; }
+  let s = '';
+  const map = [];
+  for (let i = 0; i < text.length; i++) for (const ch of fold(text[i])) { s += ch; map.push(i); }
+  map.push(text.length);
+  let pos = 0, from = 0, i;
+  while ((i = s.indexOf(q, from)) >= 0) {
+    const a = map[i], b = map[i + q.length];
+    if (a > pos) el.append(text.slice(pos, a));
+    const m = document.createElement('mark'); m.textContent = text.slice(a, b); el.append(m);
+    pos = b; from = i + q.length;
+  }
+  el.append(text.slice(pos));
+}
+// `only`: đang tìm thì chỉ giữ những đoạn văn có chữ khớp (bài tóm lược dài, không đẩy kết quả khác xuống dưới).
+function paras(el, text, q, only) {
+  for (const t of text.split(/\n+/)) if (t.trim() && !(only && q && !fold(t).includes(q))) { const p = document.createElement('p'); mark(p, t, q); el.append(p); }
+}
+function node(tag, cls, text) {
+  const el = document.createElement(tag);
+  if (cls) el.className = cls;
+  if (text != null) el.textContent = text;
+  return el;
+}
+function secHead(box, title, count, action, onAction) {
+  const h = node('div', 'sec');
+  h.append(node('h2', '', title));
+  if (count != null) h.append(node('span', '', count));
+  if (action) { const b = node('button', '', action); b.onclick = onAction; h.append(b); }
+  box.append(h);
+}
+const CHAR_FIELDS = [['status', 'Hiện tại'], ['role', 'Vai trò'], ['personality', 'Tính cách'], ['background', 'Lai lịch'], ['relations', 'Quan hệ']];
+const hm = at => new Date(at * 1000).toLocaleTimeString('vi-VN', { hour12: false, hour: '2-digit', minute: '2-digit' });
+function partTime(p) {
+  const to = hm(p.to);
+  return dayTime(p.from) + (hm(p.from) === to ? '' : ' – ' + to) + ' · ' + p.lines + ' câu';
+}
+function renderStory() {
+  const box = $('storyList'), q = fold($('storyFilter').value.trim());
+  for (const b of $('chips').children) b.classList.toggle('active', b.dataset.kind === storyKind);
+  box.textContent = '';
+  const s = story;
+  if (!s || !(s.narrative || s.parts.length || s.characters.length)) {
+    $('nParts').textContent = $('nChars').textContent = '';
+    box.append(node('p', 'empty', !s ? 'Đang tải…' : s.running ? 'Đang viết cốt truyện từ ' + s.runningLines + ' câu phụ đề…'
+      : 'Game này chưa có cốt truyện. Bật mục Cốt truyện trên app, app sẽ tự viết từ các câu phụ đề đã dịch.'));
+    return;
+  }
+  const hit = t => !q || fold(t).includes(q);
+  const narr = s.narrative && hit(s.narrative);
+  const parts = s.parts.filter(p => hit(p.title + '\n' + p.summary));
+  const chars = s.characters.filter(c => hit(c.name + '\n' + CHAR_FIELDS.map(f => c[f[0]] || '').join('\n')));
+  $('nParts').textContent = parts.length || '';
+  $('nChars').textContent = chars.length || '';
+  const want = k => storyKind === 'all' || storyKind === k;
+
+  const info = node('div', '', s.running ? 'Đang cập nhật cốt truyện từ ' + s.runningLines + ' câu mới…'
+    : [s.updated ? 'Cập nhật lúc ' + dayTime(s.updated) : '', s.backend, s.pending ? s.pending + ' câu mới chưa đưa vào' : ''].filter(Boolean).join(' · '));
+  info.id = 'storyInfo';
+  if (s.running) info.className = 'busy';
+  if (info.textContent) box.append(info);
+
+  let shown = 0;
+  if (want('narr') && narr) {
+    shown++;
+    secHead(box, 'Cốt truyện đến hiện tại');
+    const card = node('div', 'narr');
+    paras(card, s.narrative, q, true);
+    box.append(card);
+    // Bài dài thì thu gọn, bấm "Đọc tiếp" để mở; đang tìm hoặc chỉ xem riêng mục này thì mở sẵn.
+    if (!q && storyKind === 'all' && !narrOpen) {
+      card.classList.add('clamp');
+      if (card.scrollHeight > card.clientHeight + 24) {
+        const b = node('button', 'more', 'Đọc tiếp');
+        b.onclick = () => { narrOpen = true; renderStory(); };
+        box.append(b);
+      } else card.classList.remove('clamp');
+    } else if (narrOpen && !q && storyKind === 'all') {
+      const b = node('button', 'more', 'Thu gọn');
+      b.onclick = () => { narrOpen = false; renderStory(); $('storyList').scrollTop = 0; };
+      box.append(b);
+    }
+  }
+  if (want('parts') && parts.length) {
+    shown++;
+    // Ba đoạn mới nhất mở sẵn; đang tìm thì mở hết các đoạn khớp.
+    const recent = new Set(s.parts.slice(0, 3).map(p => p.id));
+    const isOpen = p => !!q || recent.has(p.id) !== partFlip.has(p.id);
+    secHead(box, 'Diễn biến', parts.length, storyAsc ? 'Cũ → mới' : 'Mới → cũ', () => {
+      storyAsc = !storyAsc; store.set('storyAsc', storyAsc ? '1' : '0'); renderStory();
+    });
+    const tl = node('div', 'tl');
+    for (const p of storyAsc ? parts.slice().reverse() : parts) {
+      const el = node('div', 'part' + (isOpen(p) ? ' open' : ''));
+      const head = node('button', 'phead');
+      const text = node('div');
+      const title = node('b'); mark(title, p.title || 'Đoạn chưa đặt tên', q);
+      text.append(node('time', '', partTime(p)), title);
+      head.append(text); head.insertAdjacentHTML('beforeend', CHEV);
+      head.onclick = () => { partFlip.has(p.id) ? partFlip.delete(p.id) : partFlip.add(p.id); el.classList.toggle('open', isOpen(p)); };
+      const body = node('div', 'pbody'); paras(body, p.summary, q);
+      el.append(head, body);
+      tl.append(el);
+    }
+    box.append(tl);
+  }
+  if (want('chars') && chars.length) {
+    shown++;
+    secHead(box, 'Nhân vật', chars.length);
+    const grid = node('div'); grid.id = 'chars';
+    for (const c of chars) {
+      const color = nameColor(c.name);
+      const extra = CHAR_FIELDS.slice(2).filter(f => c[f[0]]);
+      const el = node('div', 'char' + (q || charOpen.has(c.name) ? ' open' : ''));
+      const head = node('button', 'chead');
+      const ava = node('span', 'ava', [...c.name.trim()][0]?.toUpperCase() || '?'); ava.style.color = color;
+      const text = node('div');
+      const name = node('b'); name.style.color = color; mark(name, c.name, q);
+      text.append(name);
+      if (c.role) { const r = node('small'); mark(r, c.role, q); text.append(r); }
+      head.append(ava, text);
+      if (extra.length) {
+        head.insertAdjacentHTML('beforeend', CHEV);
+        head.onclick = () => { charOpen.has(c.name) ? charOpen.delete(c.name) : charOpen.add(c.name); el.classList.toggle('open', !!q || charOpen.has(c.name)); };
+      }
+      el.append(head);
+      if (c.status) { const now = node('div', 'now'); now.append(node('h3', '', 'Hiện tại')); mark(now, c.status, q); el.append(now); }
+      for (const [key, label] of extra) {
+        const f = node('div', 'field'), p = node('p');
+        mark(p, c[key], q);
+        f.append(node('h3', '', label), p);
+        el.append(f);
+      }
+      grid.append(el);
+    }
+    box.append(grid);
+  }
+  if (!shown) box.append(node('p', 'empty', q ? 'Không có gì trong cốt truyện khớp “' + $('storyFilter').value.trim() + '”.' : 'Mục này chưa có nội dung.'));
+}
+async function loadStory() {
+  try { story = await (await fetch('/api/story')).json(); renderStory(); } catch {}
+}
+$('storyFilter').oninput = () => { renderStory(); $('storyList').scrollTop = 0; };
+for (const b of $('chips').children) b.onclick = () => {
+  storyKind = b.dataset.kind; store.set('storyKind', storyKind);
+  b.scrollIntoView({ inline: 'nearest', block: 'nearest' });
+  renderStory(); $('storyList').scrollTop = 0;
+};
+
 // ---- Dịch màn hình: danh sách ảnh đã chụp (mới nhất trước), mục cũ chỉ còn chữ
 let scans = [];
 const shots = () => scans.filter(a => a.image);
@@ -402,7 +633,8 @@ function layoutViewer() {
   for (const el of stage.querySelectorAll('.box')) {
     const it = el.item, w = it.w * W, h = it.h * H;
     // Tiếng Việt thường dài hơn tiếng Anh: hộp rộng thêm một chút, chữ tự co cho vừa (như trên app Mac).
-    const boxW = Math.min(Math.max(w * 1.15, w + 12), W - it.x * W);
+    // Đoạn nhiều dòng tự xuống dòng nên giữ đúng bề ngang gốc, nới ra sẽ tràn khỏi khung của game.
+    const boxW = it.lines > 1 ? w + 6 : Math.min(Math.max(w * 1.15, w + 12), W - it.x * W);
     el.style.left = (it.x * W - 3) + 'px'; el.style.top = (it.y * H - 1) + 'px';
     el.style.width = boxW + 'px'; el.style.height = (h + 2) + 'px';
     // Chữ co dần tới 45 % cho vừa hộp. Khối một dòng thì giữ một dòng; khối nhiều dòng được xuống dòng.
@@ -484,24 +716,27 @@ function renderStatus() {
 }
 // Trên app đổi sang game khác: bỏ hết dữ liệu của game cũ và nạp lại theo game mới.
 function switchGame() {
-  current = null; hist = []; entries = []; scans = [];
+  current = null; hist = []; entries = []; scans = []; story = null;
+  partFlip.clear(); charOpen.clear(); narrOpen = false;
   closeViewer();
   renderCurrent(); renderHist();
   loadHist(); loadLog(); loadScans();
+  if (tab === 'story') { renderStory(); loadStory(); }
 }
 function connect() {
   const es = new EventSource('/events');
-  es.onopen = () => { online = true; renderStatus(); loadHist(); if (tab === 'log') loadLog(); if (tab === 'scan') loadScans(); };
+  es.onopen = () => { online = true; renderStatus(); loadHist(); if (tab === 'log') loadLog(); if (tab === 'scan') loadScans(); if (tab === 'story') loadStory(); };
   es.onerror = () => { online = false; renderStatus(); };
   es.addEventListener('state', e => {
     const old = state.profileID;
     state = JSON.parse(e.data); renderStatus();
     if (old && old !== state.profileID) { switchGame(); return; }
-    renderCurrent(); renderHist(); if (tab === 'log') renderLog();     // tên nhân vật mới học → tô lại màu
+    renderCurrent(); renderHist(); if (tab === 'log') renderLog(); if (tab === 'story') renderStory();     // tên nhân vật mới học → tô lại màu
   });
   es.addEventListener('subtitle', e => onSubtitle(JSON.parse(e.data)));
   es.addEventListener('entry', e => { entries.push(JSON.parse(e.data)); if (tab === 'log') renderLog(); });
   es.addEventListener('cleared', () => { entries = []; hist = []; renderHist(); if (tab === 'log') renderLog(); });
+  es.addEventListener('story', () => { if (tab === 'story') loadStory(); });
   es.addEventListener('analysis', () => { if (tab === 'scan' && !shot) loadScans(); });
 }
 connect();

@@ -75,7 +75,8 @@ private struct ShotBox: View {
     var body: some View {
         let w = item.w * fit.width, h = item.h * fit.height
         // Tiếng Việt thường dài hơn tiếng Anh: cho hộp rộng thêm, chữ tự co cho vừa.
-        let boxW = min(max(w * 1.15, w + 12), fit.width - item.x * fit.width)
+        // Đoạn nhiều dòng tự xuống dòng nên giữ đúng bề ngang gốc, nới ra sẽ tràn khỏi khung của game.
+        let boxW = item.lines > 1 ? w + 6 : min(max(w * 1.15, w + 12), fit.width - item.x * fit.width)
         let size = max(9, h / CGFloat(item.lines) * 0.74)
         Text(item.target)
             .font(.system(size: size, weight: .medium))

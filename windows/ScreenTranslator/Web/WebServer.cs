@@ -139,6 +139,12 @@ public sealed class WebServer : INotifyPropertyChanged
         HistoryStore.shared.EntryAdded += e => { if (e.profile == ActiveProfile) Broadcast("entry", J(EntryDTO(e))); };
         HistoryStore.shared.EntriesCleared += () => Broadcast("cleared", Encoding.UTF8.GetBytes("{}"));
         HistoryStore.shared.AnalysisAdded += _ => Broadcast("analysis", Encoding.UTF8.GetBytes("{}"));
+        // Cốt truyện đổi (hoặc bắt đầu / xong một lượt cập nhật): máy đang xem tự tải lại GET /api/story.
+        HistoryStore.shared.StoryChanged += () => Broadcast("story", Encoding.UTF8.GetBytes("{}"));
+        StoryTracker.shared.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is nameof(StoryTracker.isRunning) or nameof(StoryTracker.pendingLines)) Broadcast("story", Encoding.UTF8.GetBytes("{}"));
+        };
     }
 
     void PushState()
@@ -319,6 +325,25 @@ public sealed class WebServer : INotifyPropertyChanged
             {
                 var profile = ActiveProfile;
                 body = J(HistoryStore.shared.analyses.Where(a => a.profile == profile).Take(100).Select(AnalysisDTO).ToList());
+            });
+            await Respond(c, s, "application/json", body);
+        }
+        else if (method == "GET" && path == "/api/story")
+        {
+            // Mục "Cốt truyện" của game đang chọn: bài viết liền mạch, các đoạn diễn biến (mới nhất trước) và nhân vật.
+            byte[] body = Array.Empty<byte>();
+            await App.InvokeOnUI(() =>
+            {
+                var store = HistoryStore.shared; var tracker = StoryTracker.shared; var st = store.story;
+                body = J(new
+                {
+                    narrative = st?.narrative ?? "",
+                    updated = st != null && st.updated.Year > 1971 ? Unix(st.updated) : 0,
+                    backend = BackendLabels.Label(st?.backend ?? ""),
+                    running = tracker.isRunning, runningLines = tracker.runningLines, pending = tracker.pendingLines,
+                    parts = store.storyParts.Select(p => new { id = p.id, title = p.title, summary = p.summary, from = Unix(p.from), to = Unix(p.to), lines = p.lineCount }).ToList(),
+                    characters = st?.characters ?? new List<StoryCharacter>(),
+                });
             });
             await Respond(c, s, "application/json", body);
         }

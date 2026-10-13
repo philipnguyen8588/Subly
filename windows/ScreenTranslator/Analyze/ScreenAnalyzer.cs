@@ -24,6 +24,19 @@ public sealed class ScreenAnalyzer : INotifyPropertyChanged
     public ScreenAnalyzer(TranslationRouter router, Speaker speaker) { this.router = router; this.speaker = speaker; }
 
     /// `present`: mở ảnh đã dịch ngay trên cửa sổ app (bấm từ điện thoại thì không, vì người bấm xem trên điện thoại).
+    /// Khối nội dung đáng dịch (cốt truyện, mô tả vật phẩm / kỹ năng): đoạn nhiều dòng hoặc một câu dài.
+    /// Nhãn giao diện ngắn (tab "Map", "Journal", gợi ý nút "Recommended Abilities (Hold)") thì không.
+    static bool IsContent(OcrBlock b)
+    {
+        if (b.lines >= 2) return true;
+        var tokens = b.text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        int words = tokens.Count(w => w.Any(char.IsLetter));
+        // Hàng gợi ý nút bấm ("Center • Move Cursor & Zoom • Close"): nhiều từ nhưng bị biểu tượng nút chen giữa.
+        if (tokens.Length - words >= 2) return false;
+        if (words >= 6) return true;
+        return words >= 4 && b.text.Length > 0 && ".!?…\"”".Contains(b.text[^1]);
+    }
+
     public async Task<ScreenAnalysis?> Analyze(List<Region> regions, bool present = true)
     {
         if (isRunning) return null;
@@ -56,8 +69,10 @@ public sealed class ScreenAnalyzer : INotifyPropertyChanged
                         Log.Error($"Analyze OCR[{r.name}] quá {(int)settings.analyzeTimeout} s không xong → OCR treo");
                         return null;
                     }
-                    var blocks = await ocrTask;
-                    Log.Info($"Analyze OCR[{r.name}] {blocks.Count} khối chữ");
+                    // Chỉ dịch nội dung (cốt truyện, mô tả); nhãn menu và gợi ý nút bấm ngắn để nguyên.
+                    var all = await ocrTask;
+                    var blocks = all.Where(IsContent).ToList();
+                    Log.Info($"Analyze OCR[{r.name}] {all.Count} khối chữ, {blocks.Count} khối nội dung");
                     placed ??= (img, blocks, lines.Count);
                     lines.AddRange(blocks.Select(b => b.text));
                 }
@@ -67,7 +82,7 @@ public sealed class ScreenAnalyzer : INotifyPropertyChanged
                     Log.Error($"Analyze capture failed: {e.Message}");
                 }
             }
-            if (lines.Count == 0) { lastError ??= "Không thấy chữ nào trong vùng"; return null; }
+            if (lines.Count == 0) { lastError ??= "Không thấy đoạn nội dung nào để dịch (chỉ có chữ giao diện ngắn)"; return null; }
             if (lines.Count > 80) lines = lines.Take(80).ToList();
 
             // 2. Dịch + tóm tắt

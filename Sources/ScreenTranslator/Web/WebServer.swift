@@ -53,6 +53,13 @@ final class WebServer: ObservableObject, @unchecked Sendable {
             image = a.hasImage; width = a.imageWidth; height = a.imageHeight; items = a.hasImage ? a.items : []
         }
     }
+    /// Mục "Cốt truyện" của game đang chọn: bài viết liền mạch, các đoạn diễn biến (mới nhất trước) và nhân vật.
+    private struct StoryDTO: Encodable {
+        struct Part: Encodable { let id: Int64; let title, summary: String; let from, to: Double; let lines: Int }
+        let narrative: String; let updated: Double; let backend: String
+        let running: Bool; let runningLines, pending: Int
+        let parts: [Part]; let characters: [StoryCharacter]
+    }
     private struct ResultDTO: Encodable { let ok: Bool; let error: String?; var id: Int64? = nil }
     private struct AudioDTO: Encodable { let id: Int; let mime: String; let flush: Bool; let text: String }
     private var clips: [Int: (Data, String)] = [:]                 // giọng đọc gửi TV; chỉ dùng trên `queue`
@@ -142,6 +149,13 @@ final class WebServer: ObservableObject, @unchecked Sendable {
             .store(in: &cancellables)
         history.$analyses.dropFirst()
             .sink { [weak self] _ in self?.broadcast("analysis", Data("{}".utf8)) }
+            .store(in: &cancellables)
+        // Cốt truyện đổi (hoặc bắt đầu / xong một lượt cập nhật): máy đang xem tự tải lại GET /api/story.
+        let tracker = StoryTracker.shared
+        Publishers.Merge4(history.$story.map { _ in () }, history.$storyParts.map { _ in () },
+                          tracker.$isRunning.map { _ in () }, tracker.$pendingLines.map { _ in () })
+            .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main)
+            .sink { [weak self] in self?.broadcast("story", Data("{}".utf8)) }
             .store(in: &cancellables)
     }
 
@@ -272,6 +286,21 @@ final class WebServer: ObservableObject, @unchecked Sendable {
             Task { @MainActor in
                 let profile = Self.activeProfile
                 let body = Self.json(HistoryStore.shared.analyses.lazy.filter { $0.profile == profile }.prefix(100).map(AnalysisDTO.init))
+                self.queue.async { self.respond(c, type: "application/json", body: body) }
+            }
+        case ("GET", "/api/story"):
+            Task { @MainActor in
+                let store = HistoryStore.shared, tracker = StoryTracker.shared
+                let updated = store.story?.updated.timeIntervalSince1970 ?? 0
+                let body = Self.json(StoryDTO(
+                    narrative: store.story?.narrative ?? "", updated: max(0, updated),
+                    backend: BackendKind.label(raw: store.story?.backend ?? ""),
+                    running: tracker.isRunning, runningLines: tracker.runningLines, pending: tracker.pendingLines,
+                    parts: store.storyParts.map {
+                        .init(id: $0.id, title: $0.title, summary: $0.summary, from: $0.from.timeIntervalSince1970,
+                              to: $0.to.timeIntervalSince1970, lines: $0.lineCount)
+                    },
+                    characters: store.story?.characters ?? []))
                 self.queue.async { self.respond(c, type: "application/json", body: body) }
             }
         case ("GET", _) where path.hasPrefix("/api/shot/") && path.hasSuffix(".jpg"):

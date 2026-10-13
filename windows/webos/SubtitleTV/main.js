@@ -494,7 +494,8 @@
       (a.items || []).forEach(function (it) {
         var w = it.w * fw, h = it.h * fh;
         // Tiếng Việt thường dài hơn tiếng Anh: hộp rộng thêm một chút, chữ tự co cho vừa (như app máy tính).
-        var boxW = Math.min(Math.max(w * 1.15, w + 12), fw - it.x * fw);
+        // Đoạn nhiều dòng tự xuống dòng nên giữ đúng bề ngang gốc, nới ra sẽ tràn khỏi khung của game.
+        var boxW = it.lines > 1 ? w + 6 : Math.min(Math.max(w * 1.15, w + 12), fw - it.x * fw);
         var size = Math.max(10, h / Math.max(1, it.lines) * 0.74);
         html += '<div class="blk" data-size="' + size + '" style="left:' + (ox + it.x * fw - 3) + 'px;top:' + (oy + it.y * fh - 1) +
                 'px;width:' + boxW + 'px;height:' + (h + 2) + 'px;font-size:' + size + 'px">' + esc(it.target) + '</div>';
