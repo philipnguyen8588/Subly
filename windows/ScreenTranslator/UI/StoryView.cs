@@ -318,7 +318,7 @@ public sealed class StoryView : Border
         var title = new Button
         {
             Style = (Style)Application.Current.FindResource("LinkButton"), HorizontalAlignment = HorizontalAlignment.Left,
-            Content = Ui.H(10, chevron, Ui.V(3, Ui.Text(p.title, 14.5, true),
+            Content = Ui.H(10, chevron, Ui.V(3, Ui.Text(p.title, 16.5, true),
                 Ui.Text($"{p.lineCount} câu · {timeRange} · {BackendLabels.Label(p.backend)}", 10.5, color: Ui.Tertiary))),
         };
         title.Click += (_, _) =>
@@ -342,25 +342,61 @@ public sealed class StoryView : Border
         return card;
     }
 
+    /// Thẻ nhân vật gọn như trên trang web: chữ cái đầu, tên, vai trò và tình trạng hiện tại; bấm vào đầu thẻ để xem
+    /// tính cách, lai lịch, quan hệ và hồ sơ từ nhật ký.
     UIElement CharacterCard(StoryCharacter c)
     {
-        var rows = new[] { ("Hiện tại", c.status), ("Vai trò", c.role), ("Tính cách", c.personality), ("Lai lịch", c.background), ("Quan hệ", c.relations), ("Từ nhật ký", c.journal) }
+        var details = new[] { ("Tính cách", c.personality), ("Lai lịch", c.background), ("Quan hệ", c.relations), ("Từ nhật ký", c.journal) }
             .Where(r => r.Item2.Length > 0).ToList();
-        var copyText = string.Join("\n", new[] { c.name }.Concat(rows.Select(r => $"{r.Item1}: {r.Item2}")));
+        var all = new[] { ("Hiện tại", c.status), ("Vai trò", c.role) }.Where(r => r.Item2.Length > 0).Concat(details);
+        var copyText = string.Join("\n", new[] { c.name }.Concat(all.Select(r => $"{r.Item1}: {r.Item2}")));
         void Delete()
         {
             if (Ui.Confirm($"Xoá nhân vật “{c.name}” khỏi cốt truyện?")) store.DeleteStoryCharacter(c.name);
         }
-        var del = Ui.IconBtn("", Delete, "Xoá nhân vật này");
+        var color = new SolidColorBrush(SpeakerColors.ColorFor(c.name));
+        var initial = c.name.Trim().Length > 0 ? c.name.Trim()[..1].ToUpperInvariant() : "?";
+        var avatar = new Border
+        {
+            Width = 34, Height = 34, CornerRadius = new CornerRadius(17), BorderBrush = color, BorderThickness = new Thickness(1.5),
+            Background = new SolidColorBrush(Color.FromArgb(26, color.Color.R, color.Color.G, color.Color.B)),
+            Child = Ui.Text(initial, 15, true, color, wrap: false).Also(t => { t.HorizontalAlignment = HorizontalAlignment.Center; t.VerticalAlignment = VerticalAlignment.Center; }),
+        };
+        var nameBox = Ui.V(1, Ui.Text(c.name, 15, true, color, wrap: false));
+        if (c.role.Length > 0) nameBox.Children.Add(Ui.Text(c.role, 12.5, color: Ui.Secondary).Also(t => { t.MaxHeight = 36; t.TextTrimming = TextTrimming.CharacterEllipsis; }));
+        var chevron = Ui.Icon("\uE76C", 9, Ui.Tertiary);
+        var del = Ui.IconBtn("\uE74D", Delete, "Xoá nhân vật này");
         del.Opacity = 0;
-        var v = Ui.V(6, Ui.Row(Ui.Text(c.name, 14.5, true, new SolidColorBrush(SpeakerColors.ColorFor(c.name))), del));
-        if (rows.Count == 0) v.Children.Add(Ui.Text("Chưa biết gì thêm", 11.5, color: Ui.Tertiary));
-        foreach (var (label, value) in rows)
-            v.Children.Add(Ui.V(1, Ui.Text(label, 10.5, true, Ui.Tertiary), ReadOnly(value, 13)));
+        var head = new Button
+        {
+            Style = (Style)Application.Current.FindResource("LinkButton"), HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch, ToolTip = details.Count > 0 ? "Xem chi tiết" : null,
+            Content = Ui.Row(Ui.H(11, avatar, nameBox), details.Count > 0 ? new UIElement[] { chevron } : Array.Empty<UIElement>()),
+        };
+        var v = Ui.V(10, Ui.Row(head, del));
+        if (c.status.Length > 0)
+            v.Children.Add(new Border
+            {
+                Padding = new Thickness(10, 7, 10, 7), CornerRadius = new CornerRadius(8), Background = new SolidColorBrush(Color.FromArgb(12, 0, 0, 0)),
+                Child = Ui.V(2, Ui.Text("HIỆN TẠI", 9.5, true, Ui.Tertiary), ReadOnly(c.status, 13)),
+            });
+        else if (c.role.Length == 0 && details.Count == 0) v.Children.Add(Ui.Text("Chưa biết gì thêm", 11.5, color: Ui.Tertiary));
+        var more = Ui.V(10);
+        foreach (var (label, value) in details) more.Children.Add(Ui.V(2, Ui.Text(label.ToUpperInvariant(), 9.5, true, Ui.Tertiary), ReadOnly(value, 13)));
+        more.Visibility = Visibility.Collapsed;
+        v.Children.Add(more);
+        head.Click += (_, _) =>
+        {
+            if (details.Count == 0) return;
+            bool open = more.Visibility != Visibility.Visible;
+            more.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+            chevron.Text = open ? "\uE70D" : "\uE76C";
+            chevron.Foreground = open ? Ui.AccentStart : Ui.Tertiary;
+        };
         var cm = new ContextMenu();
-        cm.Items.Add(Mi("Copy", () => Ui.CopyText(copyText), ""));
+        cm.Items.Add(Mi("Copy", () => Ui.CopyText(copyText), "\uE8C8"));
         cm.Items.Add(new Separator());
-        cm.Items.Add(Mi("Xoá nhân vật này", Delete, ""));
+        cm.Items.Add(Mi("Xoá nhân vật này", Delete, "\uE74D"));
         var card = new Border
         {
             Child = v, Padding = new Thickness(12), CornerRadius = new CornerRadius(10), Width = 320, Margin = new Thickness(0, 0, 10, 10),
@@ -372,6 +408,15 @@ public sealed class StoryView : Border
         return card;
     }
 
+    /// Mỗi loại mục bách khoa một màu: địa danh xanh lục, thế lực đỏ cam, khái niệm tím, khác xám.
+    static Color KindColor(string kind) => kind switch
+    {
+        "place" => Color.FromRgb(0x1A, 0x9E, 0x78),
+        "faction" => Color.FromRgb(0xDB, 0x4D, 0x38),
+        "concept" => Color.FromRgb(0x85, 0x5C, 0xE0),
+        _ => Color.FromRgb(0x8A, 0x8A, 0x8A),
+    };
+
     /// Một mục bách khoa: tên, loại (địa danh / thế lực / khái niệm) và mô tả lấy từ màn hình nhật ký của game.
     UIElement LoreCard(StoryLore l)
     {
@@ -381,12 +426,14 @@ public sealed class StoryView : Border
         }
         var del = Ui.IconBtn("\uE74D", Delete, "Xoá mục này");
         del.Opacity = 0;
+        var kc = KindColor(l.kind);
         var kind = new Border
         {
-            Padding = new Thickness(6, 1, 6, 1), CornerRadius = new CornerRadius(8), Background = Ui.Res("CardStroke"),
-            VerticalAlignment = VerticalAlignment.Center, Child = Ui.Text(l.kindLabel, 10.5, true, Ui.Tertiary, wrap: false),
+            Padding = new Thickness(7, 1, 7, 2), CornerRadius = new CornerRadius(9), BorderThickness = new Thickness(1),
+            Background = new SolidColorBrush(Color.FromArgb(36, kc.R, kc.G, kc.B)), BorderBrush = new SolidColorBrush(Color.FromArgb(115, kc.R, kc.G, kc.B)),
+            VerticalAlignment = VerticalAlignment.Center, Child = Ui.Text(l.kindLabel.ToUpperInvariant(), 9.5, true, new SolidColorBrush(kc), wrap: false),
         };
-        var v = Ui.V(6, Ui.Row(Ui.H(6, Ui.Text(l.name, 14.5, true, wrap: false), kind), del), ReadOnly(l.description, 13));
+        var v = Ui.V(6, Ui.Row(Ui.H(7, Ui.Text(l.name, 16, true, wrap: false), kind), del), ReadOnly(l.description, 13));
         var cm = new ContextMenu();
         cm.Items.Add(Mi("Copy", () => Ui.CopyText($"{l.name}\n{l.description}"), "\uE8C8"));
         cm.Items.Add(new Separator());
@@ -395,8 +442,9 @@ public sealed class StoryView : Border
         {
             Child = v, Padding = new Thickness(12), CornerRadius = new CornerRadius(10), Width = 320, Margin = new Thickness(0, 0, 10, 10),
             VerticalAlignment = VerticalAlignment.Top,
-            Background = Ui.Res("CardFill"), BorderBrush = Ui.Res("CardStroke"), BorderThickness = new Thickness(1), ContextMenu = cm,
+            Background = Ui.Res("CardFill"), BorderBrush = Ui.Res("CardStroke"), BorderThickness = new Thickness(3, 1, 1, 1), ContextMenu = cm,
         };
+        card.BorderBrush = new SolidColorBrush(kc);
         card.MouseEnter += (_, _) => { del.Opacity = 1; card.Background = new SolidColorBrush(Color.FromArgb(13, 0, 0, 0)); };
         card.MouseLeave += (_, _) => { del.Opacity = 0; card.Background = Ui.Res("CardFill"); };
         return card;

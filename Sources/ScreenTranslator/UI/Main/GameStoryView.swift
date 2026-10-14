@@ -366,7 +366,8 @@ private struct StoryPartCard: View {
                         Image(systemName: expanded ? "chevron.down" : "chevron.right").font(.caption.weight(.semibold))
                             .foregroundStyle(Theme.accentStart).frame(width: 12).padding(.top, 3)
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(part.title).font(.system(size: 14.5, weight: .semibold)).multilineTextAlignment(.leading)
+                            Text(part.title).font(.system(size: 16, weight: .bold)).multilineTextAlignment(.leading)
+                                .foregroundStyle(expanded ? AnyShapeStyle(Theme.accentGradient) : AnyShapeStyle(.primary))
                             Text("\(part.lineCount) câu · \(timeRange) · \(BackendKind.label(raw: part.backend))")
                                 .font(.caption2).foregroundStyle(.tertiary).monospacedDigit()
                         }
@@ -403,34 +404,71 @@ private struct StoryPartCard: View {
     }
 }
 
+/// Thẻ nhân vật gọn như trên trang web: chữ cái đầu, tên, vai trò và tình trạng hiện tại; bấm vào thẻ để xem
+/// tính cách, lai lịch, quan hệ và hồ sơ từ nhật ký.
 private struct StoryCharacterCard: View {
     let character: StoryCharacter
     let onDelete: () -> Void
     @State private var hovering = false
+    @State private var expanded = false
 
-    private var rows: [(String, String)] {
-        [("Hiện tại", character.status), ("Vai trò", character.role), ("Tính cách", character.personality),
-         ("Lai lịch", character.background), ("Quan hệ", character.relations), ("Từ nhật ký", character.journal)]
+    /// Phần chỉ hiện khi mở thẻ.
+    private var details: [(String, String)] {
+        [("Tính cách", character.personality), ("Lai lịch", character.background), ("Quan hệ", character.relations),
+         ("Từ nhật ký", character.journal)]
             .filter { !$0.1.isEmpty }
     }
-    private var copyText: String { ([character.name] + rows.map { "\($0.0): \($0.1)" }).joined(separator: "\n") }
+    private var copyText: String {
+        let all = [("Hiện tại", character.status), ("Vai trò", character.role)] + details
+        return ([character.name] + all.filter { !$0.1.isEmpty }.map { "\($0.0): \($0.1)" }).joined(separator: "\n")
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text(character.name).font(.system(size: 14.5, weight: .semibold)).foregroundStyle(SpeakerColors.color(for: character.name))
-                Spacer(minLength: 4)
-                Button(action: onDelete) { Image(systemName: "trash") }.buttonStyle(.borderless).help("Xoá nhân vật này")
-                    .opacity(hovering ? 1 : 0)
+        let color = SpeakerColors.color(for: character.name)
+        VStack(alignment: .leading, spacing: 10) {
+            Button { if !details.isEmpty { withAnimation(.easeInOut(duration: 0.12)) { expanded.toggle() } } } label: {
+                HStack(spacing: 11) {
+                    Text(String(character.name.trimmingCharacters(in: .whitespaces).prefix(1)).uppercased())
+                        .font(.system(size: 15, weight: .bold)).foregroundStyle(color)
+                        .frame(width: 34, height: 34)
+                        .background(Circle().fill(color.opacity(0.10)))
+                        .overlay(Circle().stroke(color, lineWidth: 1.5))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(character.name).font(.system(size: 15, weight: .bold)).foregroundStyle(color)
+                        if !character.role.isEmpty {
+                            Text(character.role).font(.system(size: 12.5)).foregroundStyle(.secondary).lineLimit(expanded ? nil : 2)
+                                .multilineTextAlignment(.leading)
+                        }
+                    }
+                    Spacer(minLength: 4)
+                    if !details.isEmpty {
+                        Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                            .foregroundStyle(expanded ? AnyShapeStyle(Theme.accentStart) : AnyShapeStyle(.tertiary))
+                            .rotationEffect(.degrees(expanded ? 90 : 0))
+                    }
+                }
+                .contentShape(Rectangle())
             }
-            if rows.isEmpty {
+            .buttonStyle(.plain)
+            .help(details.isEmpty ? "" : (expanded ? "Thu gọn" : "Xem chi tiết"))
+            if !character.status.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("HIỆN TẠI").font(.system(size: 9.5, weight: .bold)).tracking(0.8).foregroundStyle(.tertiary)
+                    Text(character.status).font(.system(size: 13)).lineSpacing(2).textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(.horizontal, 10).padding(.vertical, 7)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.045)))
+            } else if character.role.isEmpty, details.isEmpty {
                 Text("Chưa biết gì thêm").font(.caption).foregroundStyle(.tertiary)
             }
-            ForEach(rows, id: \.0) { label, value in
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(label).font(.caption2.weight(.semibold)).foregroundStyle(.tertiary)
-                    Text(value).font(.system(size: 13)).lineSpacing(2).textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+            if expanded {
+                ForEach(details, id: \.0) { label, value in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(label.uppercased()).font(.system(size: 9.5, weight: .bold)).tracking(0.8).foregroundStyle(.tertiary)
+                        Text(value).font(.system(size: 13)).lineSpacing(2).textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
             }
         }
@@ -438,6 +476,10 @@ private struct StoryCharacterCard: View {
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(hovering ? 0.05 : 0.03)))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.07)))
+        .overlay(alignment: .topTrailing) {
+            Button(action: onDelete) { Image(systemName: "trash") }.buttonStyle(.borderless).help("Xoá nhân vật này")
+                .padding(8).opacity(hovering ? 1 : 0)
+        }
         .onHover { hovering = $0 }
         .contextMenu {
             Button { Clipboard.copy(copyText) } label: { Label("Copy", systemImage: "doc.on.doc") }
@@ -465,11 +507,12 @@ private struct StoryLoreCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
-                Image(systemName: icon).font(.caption).foregroundStyle(Theme.accentStart)
-                Text(lore.name).font(.system(size: 14.5, weight: .semibold))
-                Text(lore.kindLabel).font(.caption2.weight(.semibold)).foregroundStyle(.tertiary)
-                    .padding(.horizontal, 6).padding(.vertical, 1.5)
-                    .background(Capsule().fill(Color.primary.opacity(0.06)))
+                Image(systemName: icon).font(.system(size: 13, weight: .semibold)).foregroundStyle(lore.kindColor)
+                Text(lore.name).font(.system(size: 16, weight: .bold))
+                Text(lore.kindLabel.uppercased()).font(.system(size: 9.5, weight: .heavy)).tracking(0.6).foregroundStyle(lore.kindColor)
+                    .padding(.horizontal, 7).padding(.vertical, 2.5)
+                    .background(Capsule().fill(lore.kindColor.opacity(0.14)))
+                    .overlay(Capsule().stroke(lore.kindColor.opacity(0.45), lineWidth: 1))
                 Spacer(minLength: 4)
                 Button(action: onDelete) { Image(systemName: "trash") }.buttonStyle(.borderless).help("Xoá mục này")
                     .opacity(hovering ? 1 : 0)
@@ -486,6 +529,18 @@ private struct StoryLoreCard: View {
             Button { Clipboard.copy("\(lore.name)\n\(lore.description)") } label: { Label("Copy", systemImage: "doc.on.doc") }
             Divider()
             Button(role: .destructive, action: onDelete) { Label("Xoá mục này", systemImage: "trash") }
+        }
+    }
+}
+
+extension StoryLore {
+    /// Mỗi loại một màu: địa danh xanh lục, thế lực đỏ cam, khái niệm tím, khác xám.
+    var kindColor: Color {
+        switch kind {
+        case "place": return Color(red: 0.10, green: 0.62, blue: 0.47)
+        case "faction": return Color(red: 0.86, green: 0.30, blue: 0.22)
+        case "concept": return Color(red: 0.52, green: 0.36, blue: 0.88)
+        default: return .gray
         }
     }
 }
