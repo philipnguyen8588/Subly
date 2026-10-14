@@ -238,7 +238,7 @@
   // Đo trên S95B: tắt PS5 → addVideoResolutionChangeListener báo 720x480, getSource('MAIN').signal = false, rồi VIDEOSOURCE
   // bỏ cổng đó khỏi "connected" (và cửa sổ tự nhảy về HDMI1). Bật lại → VIDEOSOURCE có lại cổng, phải setSource lại.
   // Không có API tắt TV cho app thường (tizen.power không có) → hết giờ thì thoát app; TV tự tắt theo cài đặt "không tín hiệu".
-  var NOSIG_MS = 10 * 60 * 1000;
+  var NOSIG_MS = 5 * 60 * 1000;
   var nosigEl = document.getElementById('nosig');
   var nsDeadline = 0, nsTimer = null, nsMiss = 0;
 
@@ -255,7 +255,7 @@
       '<div class="ttl">' + (n ? 'HDMI ' + n + ' không có tín hiệu' : 'Không có tín hiệu HDMI') + '</div>' +
       '<div class="msg">PS5 đang tắt hoặc đang nghỉ. Bật PS5 lên, hình sẽ tự hiện lại.</div>' +
       '<div class="cd">Tự đóng app sau <b></b></div><div class="bar"><i></i></div>' +
-      '<div class="hint">Bấm phím bất kỳ để chờ thêm 10 phút</div></div>';
+      '<div class="hint">Bấm phím bất kỳ để chờ thêm 5 phút</div></div>';
     tickNoSignal();
     nsTimer = setInterval(tickNoSignal, 1000);
   }
@@ -1300,7 +1300,7 @@
     return true;
   };
   function handleKey(e) {
-    // Đang báo mất tín hiệu: có người bấm remote → chờ thêm 10 phút. OK chỉ để gia hạn, không dịch màn hình đen.
+    // Đang báo mất tín hiệu: có người bấm remote → chờ thêm 5 phút. OK chỉ để gia hạn, không dịch màn hình đen.
     if (rt.noSignal) {
       nsDeadline = Date.now() + NOSIG_MS; tickNoSignal();
       if (e.keyCode === 13 && !rt.menuOpen && !rt.histOpen && !rt.shotOpen && !rt.storyOpen) { e.preventDefault(); return; }
