@@ -245,14 +245,20 @@ public sealed class GeminiBackend : ITranslationBackend
         var source = gameName.Length == 0 ? "a video game" : $"the video game \"{gameName}\"";
         var trimmedNote = translationNote.Trim();
         var note = trimmedNote.Length == 0 ? "" : $"Notes from the player about this game (relationships, names): {trimmedNote}\n";
-        return $"You keep a running story record for a player of {source}. The user sends three blocks: STORY SO FAR (the record you wrote " +
-               "earlier; may be empty), KNOWN CHARACTERS (may be empty) and NEW LINES: subtitle lines in the order they appeared since the " +
-               "last update. A line may start with the speaker's name and a colon. Lines starting with \"[Screen]\" are summaries of journal, " +
-               "quest or codex screens the player opened. \"[…later…]\" marks a break in play time. OCR may contain small errors; infer the intent.\n" +
+        return $"You keep a running story record for a player of {source}. The user sends four blocks: STORY SO FAR (the record you wrote " +
+               "earlier; may be empty), KNOWN CHARACTERS (may be empty), KNOWN LORE (names of codex entries already recorded; may be empty) " +
+               "and NEW LINES: subtitle lines in the order they appeared since the last update. A line may start with the speaker's name " +
+               "and a colon. Lines starting with \"[Screen]\" are summaries of journal, quest or codex screens the player opened. " +
+               "\"[…later…]\" marks a break in play time. OCR may contain small errors; infer the intent.\n" +
+               "A \"[Screen]\" line is reference material, not an event. When it describes who a character is, or explains a place, a " +
+               "faction, army or organisation, or a concept of the game world, it must go ONLY into \"characters\" (field \"journal\") or " +
+               "\"lore\" below: never retell it in \"part\" or \"narrative\", and never write that the player opened or read a screen. Only a " +
+               "\"[Screen]\" line that states something that happened in the story or the current objective may inform \"part\" and \"narrative\".\n" +
                $"Write in {targetName} and return JSON with:\n" +
                "- \"part\": {\"title\", \"summary\"} covering only what happens in NEW LINES. \"title\": 3–8 words. \"summary\": retell it as a clear " +
                "story: who is involved, what they say, want or decide, what is revealed, and how it ends; 2–4 sentences for a short exchange, " +
-               "up to 3 short paragraphs for a long scene. If NEW LINES contain nothing of the story (menus, combat shouts, small talk), use null.\n" +
+               "up to 3 short paragraphs for a long scene. If NEW LINES contain nothing of the story (menus, combat shouts, small talk, " +
+               "or only reference screens), use null.\n" +
                "- \"narrative\": the whole story so far as one continuous text: STORY SO FAR extended with the new events and rewritten so it " +
                "reads as one retelling, in chronological order, in short paragraphs separated by a blank line. Keep every important earlier " +
                "event, name, reveal and decision; never drop the beginning. At most about 450 words: when it would be longer, tell older " +
@@ -261,13 +267,21 @@ public sealed class GeminiBackend : ITranslationBackend
                "plus every known character about whom NEW LINES reveal something new or whose situation changes; [] if none. A character " +
                "counts as new whenever the name is missing from KNOWN CHARACTERS, even if the story treats them as familiar: always " +
                "include the protagonist and the companions travelling with them. Each is " +
-               "{\"name\", \"role\", \"personality\", \"background\", \"relations\", \"status\"}, every field at most two short sentences. " +
+               "{\"name\", \"role\", \"personality\", \"background\", \"relations\", \"status\", \"journal\"}, every field except \"journal\" at most " +
+               "two short sentences. \"journal\" holds what a \"[Screen]\" line says about this character (their profile in the game's " +
+               "journal or codex): keep all of its facts, in up to 4 sentences; \"\" when no screen describes them. A character described " +
+               "only by a \"[Screen]\" line still belongs in \"characters\". " +
                "\"status\" is the character's current situation at the end of NEW LINES: where they are, their condition (alive, dead, " +
                "wounded, captured, missing, rescued…) and what they are doing or about to do; rewrite it whenever it changes. For a known " +
                "character, write the full updated text of each field you change and \"\" for fields that do not change. Use \"\" when " +
                "something is not known; never guess. Use names exactly as in KNOWN CHARACTERS and the glossary; if a new name is clearly " +
                "the same person as a known character, use the known name. Do not add unnamed speakers (Soldier, Guard) unless they " +
                "matter to the story.\n" +
+               "- \"lore\": codex entries explained by \"[Screen]\" lines in NEW LINES: places, factions (armies, orders, nations, " +
+               "organisations) and concepts (magic, creatures, items, historical events); [] if none. Each is {\"name\", \"kind\", " +
+               "\"description\"}: \"name\" as written in the game (use the exact name from KNOWN LORE when it is the same entry); \"kind\" is " +
+               "\"place\", \"faction\", \"concept\" or \"other\"; \"description\" keeps every fact the screen gives, in up to 5 sentences. " +
+               "People go in \"characters\", not in \"lore\".\n" +
                "Stay faithful: use only STORY SO FAR and NEW LINES. Never add plot, backstory or future events from your own knowledge of " +
                "the game (no spoilers); never invent actions, gestures or feelings; when it is unclear who did something, keep it vague. " +
                "Never list the lines one by one; never give advice.\n" +
@@ -275,7 +289,7 @@ public sealed class GeminiBackend : ITranslationBackend
                note + GlossaryBlock(focus) + "\n" +
                "Reply with JSON only, no code fences and no other text, exactly in this shape (inside a string write a paragraph " +
                "break as \\n\\n, never a real line break, and use single quotes ‘…’ instead of double quotes):\n" +
-               "{\"part\": {\"title\": \"…\", \"summary\": \"…\"}, \"narrative\": \"…\", \"characters\": [{\"name\": \"…\", \"role\": \"…\", \"personality\": \"…\", \"background\": \"…\", \"relations\": \"…\", \"status\": \"…\"}]}";
+               "{\"part\": {\"title\": \"…\", \"summary\": \"…\"}, \"narrative\": \"…\", \"characters\": [{\"name\": \"…\", \"role\": \"…\", \"personality\": \"…\", \"background\": \"…\", \"relations\": \"…\", \"status\": \"…\", \"journal\": \"…\"}], \"lore\": [{\"name\": \"…\", \"kind\": \"…\", \"description\": \"…\"}]}";
     }
 
     /// Gọi model với lời dặn và nội dung tuỳ ý (có thử model dự phòng như dịch màn hình).

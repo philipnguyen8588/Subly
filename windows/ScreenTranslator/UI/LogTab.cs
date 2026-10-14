@@ -15,8 +15,9 @@ namespace ScreenTranslator;
 /// Tab Nhật ký: phụ đề đã dịch, lịch sử dịch màn hình và các bản tóm tắt, cùng một thanh công cụ.
 public sealed class LogTab : DockPanel
 {
-    enum Section { subtitles, screens, summaries, story }
-    Section section = Section.subtitles;
+    enum Section { story, subtitles, screens, summaries }
+    /// Mở tab Nhật ký là vào thẳng mục Cốt truyện.
+    Section section = Section.story;
     string search = "";
     /// Đang xem các dòng cũ không gắn với game nào.
     bool legacy;
@@ -87,13 +88,13 @@ public sealed class LogTab : DockPanel
     public LogTab()
     {
         var tbStyle = (Style)Application.Current.FindResource(typeof(ToggleButton));
-        subBtn = new RadioButton { GroupName = "logsec", IsChecked = true, Style = tbStyle };
+        subBtn = new RadioButton { GroupName = "logsec", Style = tbStyle };
         scrBtn = new RadioButton { GroupName = "logsec", Style = tbStyle };
         sumBtn = new RadioButton { GroupName = "logsec", Style = tbStyle };
         subBtn.Checked += (_, _) => { section = Section.subtitles; Rebuild(); };
         scrBtn.Checked += (_, _) => { section = Section.screens; Rebuild(); };
         sumBtn.Checked += (_, _) => { section = Section.summaries; Rebuild(); };
-        storyBtn = new RadioButton { GroupName = "logsec", Style = tbStyle, Content = "Cốt truyện" };
+        storyBtn = new RadioButton { GroupName = "logsec", IsChecked = true, Style = tbStyle, Content = "Cốt truyện" };
         storyBtn.Checked += (_, _) => { section = Section.story; Rebuild(); };
         legacyBtn.Checked += (_, _) => { legacy = true; legacyEntries = store.LegacyEntries(); legacyAnalyses = store.LegacyAnalyses(); Rebuild(); };
         legacyBtn.Unchecked += (_, _) => { legacy = false; legacyEntries = new(); legacyAnalyses = new(); Rebuild(); };
@@ -109,9 +110,12 @@ public sealed class LogTab : DockPanel
         exportBtn.Click += (_, _) => { menu.PlacementTarget = exportBtn; menu.IsOpen = true; };
         clearBtn = Ui.IconBtn("", ConfirmClear, ClearTitle);
         var searchRow = Ui.H(6, Ui.Icon("", 13, Ui.Tertiary), searchBox);
-        var toolbar = SourceTab.Toolbar(Ui.Row(Ui.H(10, Ui.H(0, subBtn, scrBtn, sumBtn, storyBtn), legacyBtn, searchRow), exportBtn, clearBtn));
+        var toolbar = SourceTab.Toolbar(Ui.Row(Ui.H(10, Ui.H(0, storyBtn, subBtn, scrBtn, sumBtn), legacyBtn, searchRow), exportBtn, clearBtn));
         SetDock(toolbar, Dock.Top);
         Children.Add(toolbar);
+        // Câu đang dịch luôn nằm ở đáy tab, xem mục nào cũng thấy.
+        SetDock(now, Dock.Bottom);
+        Children.Add(now);
         Children.Add(content);
         subScroll.Content = subRows;
         SetDock(selBar, Dock.Bottom);
@@ -205,8 +209,6 @@ public sealed class LogTab : DockPanel
         lastListKey = listKey;
         rowViews.Clear();
         var dock = new DockPanel { Background = Brushes.White };
-        SetDock(now, Dock.Bottom);
-        dock.Children.Add(Ui.Detach(now));
         dock.Children.Add(Ui.Detach(selBar));   // nằm ngay trên khung "đang dịch"
         RefreshSelBar();
         if (rows.Count == 0)

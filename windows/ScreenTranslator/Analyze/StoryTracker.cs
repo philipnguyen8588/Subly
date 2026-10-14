@@ -127,6 +127,16 @@ public sealed class StoryTracker : INotifyPropertyChanged
     }
 
     /// Nút "Tóm tắt từ đầu nhật ký": xoá cốt truyện đang có của game rồi viết lại từ câu đầu tiên, nhiều lượt cho tới hết.
+    /// Nút "Đọc lại các màn hình đã dịch" (Bách khoa): đưa con trỏ màn hình về đầu để các màn hình nhật ký dịch trước đây
+    /// được tách thành mục bách khoa / hồ sơ nhân vật; con trỏ câu phụ đề giữ nguyên nên diễn biến không bị viết lại.
+    public void RescanScreens()
+    {
+        ResetState();
+        store.RewindStoryScreens(activeProfile);
+        RefreshPending();
+        UpdateNow();
+    }
+
     public void SummarizeFromStart()
     {
         ResetState();
@@ -201,7 +211,9 @@ public sealed class StoryTracker : INotifyPropertyChanged
             if (keep < entries.Count) { entries = entries.Take(keep).ToList(); more = true; }
             var screens = store.StoryAnalyses(profile, screenCursor);
             if (more && entries.Count > 0) { var last = entries[^1].timestamp; screens = screens.Where(s => s.timestamp <= last).ToList(); }
-            if (screens.Count > 5) { screens = screens.Take(5).ToList(); more = true; }
+            // Lượt chỉ có màn hình (không có câu phụ đề mới, ví dụ khi đọc lại màn hình cũ) lấy được nhiều màn hình hơn.
+            int screenCap = entries.Count == 0 ? 15 : 5;
+            if (screens.Count > screenCap) { screens = screens.Take(screenCap).ToList(); more = true; }
             if (entries.Count == 0 && screens.Count == 0) return;
 
             var skipped = BackendKind.skipped.ToString();
@@ -218,12 +230,14 @@ public sealed class StoryTracker : INotifyPropertyChanged
                 profile = profile,
                 narrative = StoryUpdate.MergeNarrative(current?.narrative ?? "", u),
                 characters = StoryUpdate.MergeCharacters(current?.characters ?? new(), u.characters),
+                lore = StoryUpdate.MergeLore(current?.lore ?? new(), u.lore),
                 lastEntryID = entries.Count > 0 ? entries[^1].id : cursor,
                 lastAnalysisID = screens.Count > 0 ? screens[^1].id : screenCursor,
                 updated = now, backend = outp.backend.ToString(),
             };
             var from = entries.Count > 0 ? entries[0].timestamp : screens.Count > 0 ? screens[0].timestamp : now;
             var to = entries.Count > 0 ? entries[^1].timestamp : screens.Count > 0 ? screens[^1].timestamp : now;
+            StoryUpdate.MarkSeen(story.characters, focus, u.characters, new DateTimeOffset(to).ToUnixTimeMilliseconds() / 1000.0);
             var part = u.partSummary.Length == 0 ? null : new StoryPart
             {
                 timestamp = now, profile = profile, title = u.partTitle.Length == 0 ? $"Diễn biến lúc {from:HH:mm}" : u.partTitle,
@@ -310,8 +324,10 @@ public sealed class StoryTracker : INotifyPropertyChanged
         var known = string.Join("\n", detailed);
         if (others.Count > 0) known += (known.Length == 0 ? "" : "\n") + "Other known names: " + string.Join(", ", others);
         var narrative = story?.narrative ?? "";
+        var loreNames = string.Join(", ", (story?.lore ?? new()).Select(l => l.name));
         var input = "STORY SO FAR:\n" + (narrative.Length == 0 ? "(empty: this is the first update)" : narrative) +
                     "\n\nKNOWN CHARACTERS:\n" + (known.Length == 0 ? "(none yet)" : known) +
+                    "\n\nKNOWN LORE:\n" + (loreNames.Length == 0 ? "(none yet)" : loreNames) +
                     "\n\nNEW LINES:\n" + focus;
         return (input, focus);
     }

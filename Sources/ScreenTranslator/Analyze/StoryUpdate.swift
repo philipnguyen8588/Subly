@@ -1,14 +1,16 @@
 import Foundation
 
-/// Kết quả một lần model cập nhật cốt truyện game: đoạn diễn biến mới, bài viết liền mạch, các nhân vật có thay đổi.
+/// Kết quả một lần model cập nhật cốt truyện game: đoạn diễn biến mới, bài viết liền mạch, các nhân vật có thay đổi
+/// và các mục bách khoa (địa danh, thế lực, khái niệm) lấy từ màn hình nhật ký.
 /// Việc đọc và gộp là hàm thuần, để một phản hồi hỏng hoặc bị cắt cụt không bao giờ xoá mất phần đã lưu.
 struct StoryUpdate: Equatable {
     var partTitle = ""
     var partSummary = ""
     var narrative = ""
     var characters: [StoryCharacter] = []
+    var lore: [StoryLore] = []
 
-    /// Đọc {"part": {"title", "summary"} | null, "narrative", "characters": [...]} (model đôi khi bọc trong ```json … ```).
+    /// Đọc {"part": {"title", "summary"} | null, "narrative", "characters": [...], "lore": [...]} (model đôi khi bọc trong ```json … ```).
     static func parse(_ raw: String) throws -> StoryUpdate {
         guard let start = raw.firstIndex(of: "{"), let end = raw.lastIndex(of: "}"), start < end else {
             throw TranslationRouter.StoryError.badJSON
@@ -18,7 +20,7 @@ struct StoryUpdate: Equatable {
             s.data(using: .utf8).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
         }
         guard let obj = object(body) ?? object(escapeControls(body)),
-              obj["part"] != nil || obj["narrative"] != nil || obj["characters"] != nil || obj["summary"] != nil
+              obj["part"] != nil || obj["narrative"] != nil || obj["characters"] != nil || obj["summary"] != nil || obj["lore"] != nil
         else { throw TranslationRouter.StoryError.badJSON }
         func str(_ v: Any?) -> String { TextUtils.normalize((v as? String) ?? "") }
         func paragraphs(_ v: Any?) -> String { TranslationRouter.cleanParagraphs((v as? String) ?? "") }
@@ -34,7 +36,14 @@ struct StoryUpdate: Equatable {
             guard !name.isEmpty else { continue }
             u.characters.append(StoryCharacter(name: name, role: str(c["role"]), personality: str(c["personality"]),
                                                background: str(c["background"]), relations: str(c["relations"]),
-                                               status: str(c["status"])))
+                                               status: str(c["status"]), journal: paragraphs(c["journal"])))
+        }
+        for item in (obj["lore"] as? [Any]) ?? [] {
+            guard let l = item as? [String: Any] else { continue }
+            let name = str(l["name"]), text = paragraphs(l["description"])
+            guard !name.isEmpty, !text.isEmpty else { continue }
+            let kind = str(l["kind"]).lowercased()
+            u.lore.append(StoryLore(name: name, kind: StoryLore.kinds.contains { $0.id == kind } ? kind : "other", description: text))
         }
         return u
     }
@@ -84,7 +93,8 @@ struct StoryUpdate: Equatable {
     }
 
     /// Trường có nội dung thay trường cũ, trường rỗng giữ nguyên; tên chưa có thì thêm vào cuối. Model không xoá được nhân vật.
-    static func mergeCharacters(old: [StoryCharacter], new: [StoryCharacter], limit: Int = 40) -> [StoryCharacter] {
+    /// Giới hạn chỉ để chặn dữ liệu hỏng: game nhập vai dài có cả trăm nhân vật có tên (giới hạn cũ 40 làm mất nhân vật mới).
+    static func mergeCharacters(old: [StoryCharacter], new: [StoryCharacter], limit: Int = 300) -> [StoryCharacter] {
         var out = old
         for c in new {
             if let i = out.firstIndex(where: { nameKey($0.name) == nameKey(c.name) }) {
@@ -93,8 +103,37 @@ struct StoryUpdate: Equatable {
                 if !c.background.isEmpty { out[i].background = c.background }
                 if !c.relations.isEmpty { out[i].relations = c.relations }
                 if !c.status.isEmpty { out[i].status = c.status }
+                if !c.journal.isEmpty { out[i].journal = c.journal }
             } else if out.count < limit {
                 out.append(c)
+            }
+        }
+        return out
+    }
+
+    /// Ghi thời điểm xuất hiện gần nhất cho những nhân vật có tên trong các câu mới (`text`) hoặc được model nhắc tới,
+    /// để danh sách nhân vật xếp được theo "mới xuất hiện gần đây".
+    static func markSeen(_ characters: [StoryCharacter], in text: String, mentioned: [StoryCharacter], at time: Date) -> [StoryCharacter] {
+        let haystack = nameKey(text)
+        let named = Set(mentioned.map { nameKey($0.name) })
+        return characters.map { c in
+            let key = nameKey(c.name)
+            guard named.contains(key) || haystack.contains(key) else { return c }
+            var c = c
+            c.seen = max(c.seen, time.timeIntervalSince1970)
+            return c
+        }
+    }
+
+    /// Mục bách khoa: mô tả mới thay mô tả cũ của mục cùng tên, tên chưa có thì thêm vào cuối.
+    static func mergeLore(old: [StoryLore], new: [StoryLore], limit: Int = 500) -> [StoryLore] {
+        var out = old
+        for l in new {
+            if let i = out.firstIndex(where: { nameKey($0.name) == nameKey(l.name) }) {
+                out[i].description = l.description
+                if l.kind != "other" { out[i].kind = l.kind }
+            } else if out.count < limit {
+                out.append(l)
             }
         }
         return out

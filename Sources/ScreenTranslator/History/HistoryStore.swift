@@ -75,13 +75,18 @@ struct StoryCharacter: Codable, Equatable, Identifiable {
     var relations = ""
     /// Tình trạng hiện tại (đang ở đâu, còn sống / bị bắt / bị thương, đang làm gì): viết lại mỗi khi có thay đổi.
     var status = ""
+    /// Hồ sơ nhân vật chép từ màn hình nhật ký / bách khoa của game mà người chơi đã mở và dịch.
+    var journal = ""
+    /// Thời điểm (giây Unix) của những câu phụ đề gần nhất có nhân vật này; 0 = chưa ghi nhận (dữ liệu cũ).
+    var seen: Double = 0
     var id: String { name }
 
-    init(name: String, role: String = "", personality: String = "", background: String = "", relations: String = "", status: String = "") {
+    init(name: String, role: String = "", personality: String = "", background: String = "", relations: String = "", status: String = "",
+         journal: String = "") {
         self.name = name; self.role = role; self.personality = personality; self.background = background
-        self.relations = relations; self.status = status
+        self.relations = relations; self.status = status; self.journal = journal
     }
-    enum CodingKeys: String, CodingKey { case name, role, personality, background, relations, status }
+    enum CodingKeys: String, CodingKey { case name, role, personality, background, relations, status, journal, seen }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
@@ -90,6 +95,32 @@ struct StoryCharacter: Codable, Equatable, Identifiable {
         background = try c.decodeIfPresent(String.self, forKey: .background) ?? ""
         relations = try c.decodeIfPresent(String.self, forKey: .relations) ?? ""
         status = try c.decodeIfPresent(String.self, forKey: .status) ?? ""
+        journal = try c.decodeIfPresent(String.self, forKey: .journal) ?? ""
+        seen = try c.decodeIfPresent(Double.self, forKey: .seen) ?? 0
+    }
+}
+
+/// Một mục "Bách khoa" của cốt truyện: địa danh, thế lực / đội quân, khái niệm của thế giới game, lấy từ các màn hình
+/// nhật ký / bách khoa người chơi đã dịch. Tên khoá JSON giống hệt bản Windows.
+struct StoryLore: Codable, Equatable, Identifiable {
+    var name: String
+    /// "place" (địa danh), "faction" (thế lực, đội quân, tổ chức), "concept" (khái niệm, sự kiện, vật phẩm) hoặc "other".
+    var kind = "other"
+    var description = ""
+    var id: String { name }
+
+    static let kinds: [(id: String, label: String)] = [("place", "Địa danh"), ("faction", "Thế lực"), ("concept", "Khái niệm"), ("other", "Khác")]
+    var kindLabel: String { Self.kinds.first { $0.id == kind }?.label ?? "Khác" }
+
+    init(name: String, kind: String = "other", description: String = "") {
+        self.name = name; self.kind = kind; self.description = description
+    }
+    enum CodingKeys: String, CodingKey { case name, kind, description }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? "other"
+        description = try c.decodeIfPresent(String.self, forKey: .description) ?? ""
     }
 }
 
@@ -98,6 +129,7 @@ struct GameStory: Equatable {
     var profile: String
     var narrative: String
     var characters: [StoryCharacter]
+    var lore: [StoryLore] = []
     var lastEntryID: Int64
     var lastAnalysisID: Int64
     var updated: Date
@@ -185,6 +217,7 @@ final class HistoryStore: ObservableObject {
             exec("UPDATE analyses SET thumbnail = NULL; VACUUM;")
             UserDefaults.standard.set(true, forKey: "thumbnailsPurged")
         }
+        if !columns("story").contains("lore") { exec("ALTER TABLE story ADD COLUMN lore TEXT NOT NULL DEFAULT '[]'") }
         if !columns("history").contains("kind") { exec("ALTER TABLE history ADD COLUMN kind TEXT NOT NULL DEFAULT 'subtitle'") }
         if !columns("history").contains("target") { exec("ALTER TABLE history ADD COLUMN target TEXT NOT NULL DEFAULT 'vi'") }
         if !columns("history").contains("profile") { exec("ALTER TABLE history ADD COLUMN profile TEXT NOT NULL DEFAULT ''") }
@@ -450,12 +483,14 @@ final class HistoryStore: ObservableObject {
     // MARK: story (cốt truyện game)
     func loadStory(profile: String) -> GameStory? {
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, "SELECT narrative, characters, last_entry_id, last_analysis_id, updated, backend FROM story WHERE profile = ?", -1, &stmt, nil) == SQLITE_OK else { return nil }
+        guard sqlite3_prepare_v2(db, "SELECT narrative, characters, last_entry_id, last_analysis_id, updated, backend, lore FROM story WHERE profile = ?", -1, &stmt, nil) == SQLITE_OK else { return nil }
         defer { sqlite3_finalize(stmt) }
         sqlite3_bind_text(stmt, 1, profile, -1, transient)
         guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
         let chars = (try? JSONDecoder().decode([StoryCharacter].self, from: Data(text(stmt, 1).utf8))) ?? []
+        let lore = (try? JSONDecoder().decode([StoryLore].self, from: Data(text(stmt, 6).utf8))) ?? []
         return GameStory(profile: profile, narrative: text(stmt, 0), characters: chars.filter { !$0.name.isEmpty },
+                         lore: lore.filter { !$0.name.isEmpty },
                          lastEntryID: sqlite3_column_int64(stmt, 2), lastAnalysisID: sqlite3_column_int64(stmt, 3),
                          updated: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 4)), backend: text(stmt, 5))
     }
@@ -527,14 +562,15 @@ final class HistoryStore: ObservableObject {
     func saveStoryUpdate(_ s: GameStory, expectedEntryCursor: Int64, part: StoryPart?) -> Bool {
         guard (loadStory(profile: s.profile)?.lastEntryID ?? 0) == expectedEntryCursor else { return false }
         let charsJSON = String(data: (try? JSONEncoder().encode(s.characters)) ?? Data("[]".utf8), encoding: .utf8) ?? "[]"
+        let loreJSON = String(data: (try? JSONEncoder().encode(s.lore)) ?? Data("[]".utf8), encoding: .utf8) ?? "[]"
         exec("BEGIN IMMEDIATE;")
         var ok = false
         var stmt: OpaquePointer?
         if sqlite3_prepare_v2(db, """
-            INSERT INTO story(profile, narrative, characters, last_entry_id, last_analysis_id, updated, backend) VALUES(?,?,?,?,?,?,?)
+            INSERT INTO story(profile, narrative, characters, last_entry_id, last_analysis_id, updated, backend, lore) VALUES(?,?,?,?,?,?,?,?)
             ON CONFLICT(profile) DO UPDATE SET narrative=excluded.narrative, characters=excluded.characters,
                 last_entry_id=excluded.last_entry_id, last_analysis_id=excluded.last_analysis_id,
-                updated=excluded.updated, backend=excluded.backend
+                updated=excluded.updated, backend=excluded.backend, lore=excluded.lore
             """, -1, &stmt, nil) == SQLITE_OK {
             sqlite3_bind_text(stmt, 1, s.profile, -1, transient)
             sqlite3_bind_text(stmt, 2, s.narrative, -1, transient)
@@ -543,6 +579,7 @@ final class HistoryStore: ObservableObject {
             sqlite3_bind_int64(stmt, 5, s.lastAnalysisID)
             sqlite3_bind_double(stmt, 6, s.updated.timeIntervalSince1970)
             sqlite3_bind_text(stmt, 7, s.backend, -1, transient)
+            sqlite3_bind_text(stmt, 8, loreJSON, -1, transient)
             ok = sqlite3_step(stmt) == SQLITE_DONE
             if !ok { Log.error("SQLite save story: \(String(cString: sqlite3_errmsg(db)))") }
             sqlite3_finalize(stmt)
@@ -620,6 +657,31 @@ final class HistoryStore: ObservableObject {
         let json = String(data: (try? JSONEncoder().encode(s.characters)) ?? Data("[]".utf8), encoding: .utf8) ?? "[]"
         var stmt: OpaquePointer?
         if sqlite3_prepare_v2(db, "UPDATE story SET characters = ? WHERE profile = ?", -1, &stmt, nil) == SQLITE_OK {
+            sqlite3_bind_text(stmt, 1, json, -1, transient)
+            sqlite3_bind_text(stmt, 2, scope, -1, transient)
+            sqlite3_step(stmt)
+            sqlite3_finalize(stmt)
+        }
+        story = s
+    }
+
+    /// Đưa con trỏ "màn hình đã đọc" của cốt truyện về đầu (giữ nguyên con trỏ câu phụ đề).
+    func rewindStoryScreens(profile: String) {
+        var stmt: OpaquePointer?
+        if sqlite3_prepare_v2(db, "UPDATE story SET last_analysis_id = 0 WHERE profile = ?", -1, &stmt, nil) == SQLITE_OK {
+            sqlite3_bind_text(stmt, 1, profile, -1, transient)
+            sqlite3_step(stmt)
+            sqlite3_finalize(stmt)
+        }
+        if profile == scope { story = loadStory(profile: profile) }
+    }
+
+    func deleteStoryLore(name: String) {
+        guard var s = loadStory(profile: scope) else { return }
+        s.lore.removeAll { $0.name == name }
+        let json = String(data: (try? JSONEncoder().encode(s.lore)) ?? Data("[]".utf8), encoding: .utf8) ?? "[]"
+        var stmt: OpaquePointer?
+        if sqlite3_prepare_v2(db, "UPDATE story SET lore = ? WHERE profile = ?", -1, &stmt, nil) == SQLITE_OK {
             sqlite3_bind_text(stmt, 1, json, -1, transient)
             sqlite3_bind_text(stmt, 2, scope, -1, transient)
             sqlite3_step(stmt)

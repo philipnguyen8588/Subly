@@ -7,6 +7,10 @@ struct StorySummaryView: View {
     @ObservedObject var summarizer = StorySummarizer.shared
     @State private var expanded: Set<Int64> = []
     @State private var pendingDelete: StorySummary?
+    /// ↑/↓ cuộn mượt; ←/→ chọn bản tóm tắt, Enter / Space mở hoặc thu gọn bản đang chọn.
+    @State private var selected: Int64?
+    @State private var scroller = KeyScroller()
+    @State private var keyID = UUID()
 
     private var rows: [StorySummary] {
         guard !search.isEmpty else { return summaries }
@@ -29,6 +33,7 @@ struct StorySummaryView: View {
                 }
                 .frame(maxWidth: .infinity)
             } else {
+                ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
                         if summarizer.isRunning {
@@ -43,12 +48,28 @@ struct StorySummaryView: View {
                             Label(err, systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(Theme.danger)
                         }
                         ForEach(rows) { s in
-                            StorySummaryCard(summary: s, expanded: expanded.contains(s.id),
+                            StorySummaryCard(summary: s, expanded: expanded.contains(s.id), selected: selected == s.id,
                                              onToggle: { if expanded.contains(s.id) { expanded.remove(s.id) } else { expanded.insert(s.id) } },
                                              onDelete: { pendingDelete = s })
                         }
                     }
                     .padding(14)
+                }
+                .keyScroll($scroller)
+                .logKeys(keyID) { key in
+                    switch key {
+                    case .left, .right:
+                        selected = stepSelection(self.rows.map(\.id), current: selected, by: key == .left ? -1 : 1)
+                        if let s = selected { withAnimation(.easeOut(duration: 0.16)) { proxy.scrollTo(s, anchor: nil) } }
+                        return true
+                    case .toggle:
+                        guard let s = selected else { return false }
+                        withAnimation(.easeInOut(duration: 0.12)) { if expanded.contains(s) { expanded.remove(s) } else { expanded.insert(s) } }
+                        return true
+                    default:
+                        return scroller.scroll(key)
+                    }
+                }
                 }
             }
         }
@@ -67,6 +88,7 @@ struct StorySummaryView: View {
 private struct StorySummaryCard: View {
     let summary: StorySummary
     let expanded: Bool
+    var selected = false
     let onToggle: () -> Void
     let onDelete: () -> Void
     @State private var hovering = false
@@ -125,7 +147,7 @@ private struct StorySummaryCard: View {
         }
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(hovering ? 0.05 : 0.03)))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.07)))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(selected ? Theme.accentStart : Color.primary.opacity(0.07), lineWidth: selected ? 2 : 1))
         .onHover { hovering = $0 }
         .contextMenu {
             Button { Clipboard.copy("\(summary.title)\n\n\(summary.summary)") } label: { Label("Copy bản tóm tắt", systemImage: "doc.on.doc") }

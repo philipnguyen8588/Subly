@@ -143,7 +143,8 @@ public sealed class WebServer : INotifyPropertyChanged
         HistoryStore.shared.StoryChanged += () => Broadcast("story", Encoding.UTF8.GetBytes("{}"));
         StoryTracker.shared.PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName is nameof(StoryTracker.isRunning) or nameof(StoryTracker.pendingLines)) Broadcast("story", Encoding.UTF8.GetBytes("{}"));
+            if (e.PropertyName is nameof(StoryTracker.isRunning) or nameof(StoryTracker.pendingLines) or nameof(StoryTracker.pendingScreens)
+                or nameof(StoryTracker.lastError) or nameof(StoryTracker.notice)) Broadcast("story", Encoding.UTF8.GetBytes("{}"));
         };
     }
 
@@ -341,8 +342,10 @@ public sealed class WebServer : INotifyPropertyChanged
                     updated = st != null && st.updated.Year > 1971 ? Unix(st.updated) : 0,
                     backend = BackendLabels.Label(st?.backend ?? ""),
                     running = tracker.isRunning, runningLines = tracker.runningLines, pending = tracker.pendingLines,
+                    pendingScreens = tracker.pendingScreens, note = tracker.lastError ?? tracker.notice,
                     parts = store.storyParts.Select(p => new { id = p.id, title = p.title, summary = p.summary, from = Unix(p.from), to = Unix(p.to), lines = p.lineCount }).ToList(),
                     characters = st?.characters ?? new List<StoryCharacter>(),
+                    lore = st?.lore ?? new List<StoryLore>(),
                 });
             });
             await Respond(c, s, "application/json", body);
@@ -395,6 +398,20 @@ public sealed class WebServer : INotifyPropertyChanged
                 finally { done.TrySetResult(); }
             });
             await done.Task;
+            await Respond(c, s, "application/json", J(new { ok = error == null, error }));
+        }
+        else if (method == "POST" && path == "/api/story/update")
+        {
+            // Nút "Cập nhật ngay" của tab Cốt truyện trên web: như nút cùng tên trên app.
+            string? error = null;
+            await App.InvokeOnUI(() =>
+            {
+                var tracker = StoryTracker.shared;
+                if (tracker.isRunning) error = "Đang cập nhật, đợi một chút.";
+                else if (tracker.pendingLines + tracker.pendingScreens == 0) error = "Chưa có câu mới nào để đưa vào cốt truyện.";
+                else tracker.UpdateNow();
+                Log.Info($"Web: cập nhật cốt truyện từ xa → {error ?? "đã bắt đầu"}");
+            });
             await Respond(c, s, "application/json", J(new { ok = error == null, error }));
         }
         else if (method == "POST" && path == "/api/analyze")

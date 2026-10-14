@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// Mục "Cốt truyện" của tab Nhật ký: cốt truyện của game đang chọn do app tự viết từ phụ đề: bài viết liền mạch,
-/// dòng thời gian từng đoạn diễn biến và danh sách nhân vật.
+/// dòng thời gian từng đoạn diễn biến, danh sách nhân vật và bách khoa (địa danh, thế lực, khái niệm lấy từ màn hình
+/// nhật ký đã dịch). Thanh ngang ở trên cùng nhảy nhanh tới từng mục.
 struct GameStoryView: View {
     let search: String
     @ObservedObject var store = HistoryStore.shared
@@ -11,11 +12,23 @@ struct GameStoryView: View {
     @State private var toggled: Set<Int64> = []
     @State private var pendingDeletePart: StoryPart?
     @State private var pendingDeleteCharacter: StoryCharacter?
+    @State private var pendingDeleteLore: StoryLore?
+    /// Loại mục bách khoa đang lọc ("" = tất cả).
+    @State private var loreKind = ""
+    /// ↑/↓ cuộn mượt; ←/→ chọn đoạn diễn biến, Enter / Space mở hoặc thu gọn đoạn đang chọn.
+    @State private var selectedPart: Int64?
+    @State private var scroller = KeyScroller()
+    @State private var keyID = UUID()
     @State private var confirmFromStart = false
-    /// Mục đang thu gọn (bấm vào tiêu đề mục để mở / đóng); nhớ qua các lần mở app.
-    @AppStorage("storyCollapsedNarrative") private var collapsedNarrative = false
-    @AppStorage("storyCollapsedParts") private var collapsedParts = false
-    @AppStorage("storyCollapsedCharacters") private var collapsedCharacters = false
+    /// Mục đang xem (chọn ở thanh trên cùng); mặc định là Diễn biến.
+    @AppStorage("storyShownSection") private var shown = Anchor.parts.rawValue
+    private var shownAnchor: Anchor { Anchor(rawValue: shown) ?? .parts }
+    /// Thứ tự danh sách nhân vật: true = ai vừa xuất hiện gần đây đứng trước, false = theo thứ tự gặp trong game.
+    @AppStorage("storyCharactersRecentFirst") private var recentFirst = true
+
+    /// Các mục của trang (thanh trên cùng chọn mục để xem).
+    private enum Anchor: String { case narrative, parts, characters, lore }
+    private static let topID = "story-top"
 
     private var query: String { search.lowercased() }
     private var narrative: String { store.story?.narrative ?? "" }
@@ -24,70 +37,138 @@ struct GameStoryView: View {
         return store.storyParts.filter { $0.title.lowercased().contains(query) || $0.summary.lowercased().contains(query) }
     }
     private var characters: [StoryCharacter] {
-        let all = store.story?.characters ?? []
+        // Danh sách lưu theo thứ tự gặp lần đầu. "Vừa xuất hiện": xếp theo lần xuất hiện gần nhất; nhân vật của dữ liệu cũ
+        // (chưa ghi nhận thời điểm) thì ai được thêm sau đứng trước.
+        var all = store.story?.characters ?? []
+        if recentFirst {
+            all = all.enumerated().sorted { a, b in
+                a.element.seen != b.element.seen ? a.element.seen > b.element.seen : a.offset > b.offset
+            }.map(\.element)
+        }
         guard !search.isEmpty else { return all }
         return all.filter { c in
-            [c.name, c.status, c.role, c.personality, c.background, c.relations].contains { $0.lowercased().contains(query) }
+            [c.name, c.status, c.role, c.personality, c.background, c.relations, c.journal].contains { $0.lowercased().contains(query) }
         }
     }
-    private var hasContent: Bool { !narrative.isEmpty || !store.storyParts.isEmpty || !(store.story?.characters ?? []).isEmpty }
+    /// Mục bách khoa khớp ô tìm (chưa lọc theo loại).
+    private var loreMatches: [StoryLore] {
+        let all = store.story?.lore ?? []
+        guard !search.isEmpty else { return all }
+        return all.filter { $0.name.lowercased().contains(query) || $0.description.lowercased().contains(query) }
+    }
+    private var lore: [StoryLore] { loreKind.isEmpty ? loreMatches : loreMatches.filter { $0.kind == loreKind } }
+    private var hasContent: Bool {
+        !narrative.isEmpty || !store.storyParts.isEmpty || !(store.story?.characters ?? []).isEmpty || !(store.story?.lore ?? []).isEmpty
+    }
     private var showNarrative: Bool { !narrative.isEmpty && (search.isEmpty || narrative.lowercased().contains(query)) }
 
     var body: some View {
+        ScrollViewReader { proxy in
+        VStack(spacing: 0) {
+            if hasContent { jumpBar(proxy) }
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                Color.clear.frame(height: 0).id(Self.topID)
                 statusCard
                 if !hasContent {
                     emptyState
                 } else {
-                    if showNarrative {
-                        section("Cốt truyện đến hiện tại", icon: "text.book.closed", collapsed: $collapsedNarrative) {
-                            Button { Clipboard.copy(narrative) } label: { Image(systemName: "doc.on.doc") }
-                                .buttonStyle(.borderless).help("Copy")
-                        } content: {
+                    // Chỉ dựng mục đang chọn ở thanh trên: dựng cả bốn mục một lúc làm trang dài và cuộn giật.
+                    switch shownAnchor {
+                    case .narrative:
+                        if showNarrative {
+                            header("Cốt truyện đến hiện tại", icon: "text.book.closed") {
+                                Button { Clipboard.copy(narrative) } label: { Image(systemName: "doc.on.doc") }
+                                    .buttonStyle(.borderless).help("Copy")
+                            }
                             Text(narrative)
                                 .font(.system(size: 14.5)).lineSpacing(4)
                                 .textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(12)
                                 .background(RoundedRectangle(cornerRadius: 10).fill(Theme.accentStart.opacity(0.06)))
+                        } else {
+                            sectionEmpty(narrative.isEmpty ? "Chưa có bài tóm lược." : "Bài tóm lược không có chữ nào khớp “\(search)”.")
                         }
-                    }
-                    if !parts.isEmpty {
-                        let allOpen = parts.indices.allSatisfy { partOpen(parts[$0], index: $0) }
-                        section("Diễn biến  \(parts.count)", icon: "list.bullet.rectangle", collapsed: $collapsedParts) {
-                            Button(allOpen ? "Thu gọn tất cả" : "Mở tất cả") {
-                                withAnimation(.easeInOut(duration: 0.12)) { setAllParts(open: !allOpen) }
+                    case .parts:
+                        if parts.isEmpty {
+                            sectionEmpty(search.isEmpty ? "Chưa có đoạn diễn biến nào." : "Không có đoạn diễn biến nào khớp “\(search)”.")
+                        } else {
+                            let allOpen = parts.indices.allSatisfy { partOpen(parts[$0], index: $0) }
+                            header("Diễn biến  \(parts.count)", icon: "list.bullet.rectangle") {
+                                Button(allOpen ? "Thu gọn tất cả" : "Mở tất cả") {
+                                    withAnimation(.easeInOut(duration: 0.12)) { setAllParts(open: !allOpen) }
+                                }
+                                .buttonStyle(.borderless).font(.caption.weight(.medium))
                             }
-                            .buttonStyle(.borderless).font(.caption.weight(.medium))
-                        } content: {
-                            VStack(spacing: 10) {
+                            LazyVStack(spacing: 10) {
                                 ForEach(Array(parts.enumerated()), id: \.element.id) { i, p in
-                                    StoryPartCard(part: p, expanded: partOpen(p, index: i) || !search.isEmpty,
+                                    StoryPartCard(part: p, expanded: partOpen(p, index: i) || !search.isEmpty, selected: selectedPart == p.id,
                                                   onToggle: { if toggled.contains(p.id) { toggled.remove(p.id) } else { toggled.insert(p.id) } },
                                                   onDelete: { pendingDeletePart = p })
                                 }
                             }
                         }
-                    }
-                    if !characters.isEmpty {
-                        section("Nhân vật  \(characters.count)", icon: "person.2", collapsed: $collapsedCharacters) {
-                            EmptyView()
-                        } content: {
+                    case .characters:
+                        if characters.isEmpty {
+                            sectionEmpty(search.isEmpty ? "Chưa có nhân vật nào." : "Không có nhân vật nào khớp “\(search)”.")
+                        } else {
+                            header("Nhân vật  \(characters.count)", icon: "person.2") {
+                                Picker("", selection: $recentFirst) {
+                                    Text("Vừa xuất hiện").tag(true)
+                                    Text("Theo mạch truyện").tag(false)
+                                }
+                                .pickerStyle(.segmented).labelsHidden().fixedSize()
+                                .help("Vừa xuất hiện: ai mới góp mặt trong diễn biến gần đây đứng đầu. Theo mạch truyện: xếp theo thứ tự gặp lần đầu trong game.")
+                            }
                             LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 10, alignment: .top)], alignment: .leading, spacing: 10) {
                                 ForEach(characters) { c in
                                     StoryCharacterCard(character: c, onDelete: { pendingDeleteCharacter = c })
                                 }
                             }
                         }
-                    }
-                    if !search.isEmpty, !showNarrative, characters.isEmpty, parts.isEmpty {
-                        Text("Không có gì trong cốt truyện khớp “\(search)”.").font(.callout).foregroundStyle(.tertiary)
-                            .frame(maxWidth: .infinity).padding(.top, 30)
+                    case .lore:
+                        if loreMatches.isEmpty {
+                            loreEmptyState
+                        } else {
+                            header("Bách khoa  \(loreMatches.count)", icon: "books.vertical") {
+                                Picker("", selection: $loreKind) {
+                                    Text("Tất cả").tag("")
+                                    ForEach(StoryLore.kinds, id: \.id) { k in
+                                        let n = loreMatches.filter { $0.kind == k.id }.count
+                                        if n > 0 { Text("\(k.label) \(n)").tag(k.id) }
+                                    }
+                                }
+                                .pickerStyle(.segmented).labelsHidden().fixedSize()
+                            }
+                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 10, alignment: .top)], alignment: .leading, spacing: 10) {
+                                ForEach(lore) { l in
+                                    StoryLoreCard(lore: l, onDelete: { pendingDeleteLore = l })
+                                }
+                            }
+                        }
                     }
                 }
             }
             .padding(14)
+        }
+        .keyScroll($scroller)
+        .logKeys(keyID) { key in
+            switch key {
+            case .left, .right:
+                guard shownAnchor == .parts else { return false }
+                selectedPart = stepSelection(parts.map(\.id), current: selectedPart, by: key == .left ? -1 : 1)
+                if let s = selectedPart { withAnimation(.easeOut(duration: 0.16)) { proxy.scrollTo(s, anchor: nil) } }
+                return true
+            case .toggle:
+                guard shownAnchor == .parts, let s = selectedPart else { return false }
+                withAnimation(.easeInOut(duration: 0.12)) { if toggled.contains(s) { toggled.remove(s) } else { toggled.insert(s) } }
+                return true
+            default:
+                return scroller.scroll(key)
+            }
+        }
+        }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .textBackgroundColor))
@@ -107,10 +188,86 @@ struct GameStoryView: View {
                 pendingDeleteCharacter = nil
             }
         }
+        .confirmationDialog("Xoá mục “\(pendingDeleteLore?.name ?? "")” khỏi bách khoa?",
+                            isPresented: Binding(get: { pendingDeleteLore != nil }, set: { if !$0 { pendingDeleteLore = nil } })) {
+            Button("Xoá", role: .destructive) {
+                if let l = pendingDeleteLore { store.deleteStoryLore(name: l.name) }
+                pendingDeleteLore = nil
+            }
+        }
         .confirmationDialog("Viết lại cốt truyện từ đầu nhật ký (\(tracker.backlogLines) câu)? Cốt truyện đang có của game này sẽ bị thay.",
                             isPresented: $confirmFromStart) {
             Button("Tóm tắt từ đầu nhật ký") { tracker.summarizeFromStart() }
         }
+    }
+
+    /// Thanh ngang ghim ở đầu trang: bấm để xem riêng mục đó (số bên cạnh là số mục, hoặc số mục khớp khi đang tìm).
+    private func jumpBar(_ proxy: ScrollViewProxy) -> some View {
+        let items: [(Anchor, String, String, Int?)] = [
+            (.narrative, "Tóm lược", "text.book.closed", nil),
+            (.parts, "Diễn biến", "list.bullet.rectangle", parts.count),
+            (.characters, "Nhân vật", "person.2", characters.count),
+            (.lore, "Bách khoa", "books.vertical", loreMatches.count),
+        ]
+        return VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                ForEach(items, id: \.0) { anchor, title, icon, count in
+                    let on = shownAnchor == anchor
+                    Button {
+                        shown = anchor.rawValue
+                        selectedPart = nil
+                        proxy.scrollTo(Self.topID, anchor: .top)
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: icon).font(.caption)
+                            Text(title).font(.system(size: 12.5, weight: on ? .semibold : .medium))
+                            if let n = count { Text("\(n)").font(.caption).foregroundStyle(on ? .primary : .tertiary).monospacedDigit() }
+                        }
+                        .foregroundStyle(on ? Color.white : Color.primary)
+                        .padding(.horizontal, 11).padding(.vertical, 5)
+                        .background(Capsule().fill(on ? AnyShapeStyle(Theme.accentGradient) : AnyShapeStyle(Color.primary.opacity(0.06))))
+                        .overlay(Capsule().stroke(Color.primary.opacity(on ? 0 : 0.08)))
+                        .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Xem mục \(title)")
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 14).padding(.vertical, 8)
+            Divider()
+        }
+    }
+
+    /// Tiêu đề của mục đang xem, nút riêng của mục ở bên phải.
+    private func header<Accessory: View>(_ title: String, icon: String, @ViewBuilder accessory: () -> Accessory) -> some View {
+        HStack(spacing: 6) {
+            Label(title, systemImage: icon).font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
+            Spacer()
+            accessory()
+        }
+    }
+
+    private func sectionEmpty(_ text: String) -> some View {
+        Text(text).font(.callout).foregroundStyle(.tertiary).frame(maxWidth: .infinity).padding(.top, 30)
+    }
+
+    /// Bách khoa còn trống: giải thích cách có mục, và cho đọc lại các màn hình đã dịch trước đây (chưa được đưa vào).
+    private var loreEmptyState: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "books.vertical").font(.system(size: 28)).foregroundStyle(.quaternary)
+            Text(search.isEmpty
+                 ? "Bách khoa ghi lại địa danh, thế lực, đội quân và khái niệm của thế giới game.\nMỗi khi bạn Dịch màn hình nhật ký hay bách khoa trong game, app sẽ tự thêm mục vào đây ở lần cập nhật cốt truyện kế tiếp."
+                 : "Không có mục bách khoa nào khớp “\(search)”.")
+                .font(.callout).foregroundStyle(.tertiary).multilineTextAlignment(.center)
+            if search.isEmpty, !store.analyses.isEmpty {
+                Button("Đọc lại \(store.analyses.count) màn hình đã dịch của game này") { tracker.rescanScreens() }
+                    .buttonStyle(.borderedProminent).disabled(tracker.isRunning)
+                Text("Các màn hình dịch trước đây chưa được tách ra bách khoa. App sẽ đọc lại chúng (khoảng 15 màn hình mỗi lượt) để thêm địa danh, thế lực và hồ sơ nhân vật; phần diễn biến không đổi.")
+                    .font(.caption).foregroundStyle(.tertiary).multilineTextAlignment(.center).frame(maxWidth: 520)
+            }
+        }
+        .frame(maxWidth: .infinity).padding(.vertical, 30)
     }
 
     private var statusText: String {
@@ -185,35 +342,12 @@ struct GameStoryView: View {
         let all = store.storyParts
         toggled = Set(all.indices.filter { ($0 < 3) != open }.map { all[$0].id })
     }
-
-    /// Một mục có tiêu đề bấm được để thu gọn / mở cả mục; `accessory` là nút riêng của mục, nằm bên phải tiêu đề.
-    private func section<Accessory: View, Content: View>(_ title: String, icon: String, collapsed: Binding<Bool>,
-                                                         @ViewBuilder accessory: () -> Accessory,
-                                                         @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                Button { withAnimation(.easeInOut(duration: 0.12)) { collapsed.wrappedValue.toggle() } } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: collapsed.wrappedValue ? "chevron.right" : "chevron.down")
-                            .font(.caption2.weight(.bold)).frame(width: 10)
-                        Label(title, systemImage: icon).font(.system(size: 13, weight: .semibold))
-                        Spacer()
-                    }
-                    .foregroundStyle(.secondary)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help(collapsed.wrappedValue ? "Mở mục này" : "Thu gọn mục này")
-                if !collapsed.wrappedValue { accessory() }
-            }
-            if !collapsed.wrappedValue { content() }
-        }
-    }
 }
 
 private struct StoryPartCard: View {
     let part: StoryPart
     let expanded: Bool
+    var selected = false
     let onToggle: () -> Void
     let onDelete: () -> Void
     @State private var hovering = false
@@ -259,7 +393,7 @@ private struct StoryPartCard: View {
         }
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(hovering ? 0.05 : 0.03)))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.07)))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(selected ? Theme.accentStart : Color.primary.opacity(0.07), lineWidth: selected ? 2 : 1))
         .onHover { hovering = $0 }
         .contextMenu {
             Button { Clipboard.copy("\(part.title)\n\n\(part.summary)") } label: { Label("Copy đoạn này", systemImage: "doc.on.doc") }
@@ -276,7 +410,7 @@ private struct StoryCharacterCard: View {
 
     private var rows: [(String, String)] {
         [("Hiện tại", character.status), ("Vai trò", character.role), ("Tính cách", character.personality),
-         ("Lai lịch", character.background), ("Quan hệ", character.relations)]
+         ("Lai lịch", character.background), ("Quan hệ", character.relations), ("Từ nhật ký", character.journal)]
             .filter { !$0.1.isEmpty }
     }
     private var copyText: String { ([character.name] + rows.map { "\($0.0): \($0.1)" }).joined(separator: "\n") }
@@ -309,6 +443,49 @@ private struct StoryCharacterCard: View {
             Button { Clipboard.copy(copyText) } label: { Label("Copy", systemImage: "doc.on.doc") }
             Divider()
             Button(role: .destructive, action: onDelete) { Label("Xoá nhân vật này", systemImage: "trash") }
+        }
+    }
+}
+
+/// Một mục bách khoa: tên, loại (địa danh / thế lực / khái niệm) và mô tả lấy từ màn hình nhật ký của game.
+private struct StoryLoreCard: View {
+    let lore: StoryLore
+    let onDelete: () -> Void
+    @State private var hovering = false
+
+    private var icon: String {
+        switch lore.kind {
+        case "place": return "mappin.and.ellipse"
+        case "faction": return "shield"
+        case "concept": return "sparkles"
+        default: return "book.closed"
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: icon).font(.caption).foregroundStyle(Theme.accentStart)
+                Text(lore.name).font(.system(size: 14.5, weight: .semibold))
+                Text(lore.kindLabel).font(.caption2.weight(.semibold)).foregroundStyle(.tertiary)
+                    .padding(.horizontal, 6).padding(.vertical, 1.5)
+                    .background(Capsule().fill(Color.primary.opacity(0.06)))
+                Spacer(minLength: 4)
+                Button(action: onDelete) { Image(systemName: "trash") }.buttonStyle(.borderless).help("Xoá mục này")
+                    .opacity(hovering ? 1 : 0)
+            }
+            Text(lore.description).font(.system(size: 13)).lineSpacing(2).textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(hovering ? 0.05 : 0.03)))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.07)))
+        .onHover { hovering = $0 }
+        .contextMenu {
+            Button { Clipboard.copy("\(lore.name)\n\(lore.description)") } label: { Label("Copy", systemImage: "doc.on.doc") }
+            Divider()
+            Button(role: .destructive, action: onDelete) { Label("Xoá mục này", systemImage: "trash") }
         }
     }
 }

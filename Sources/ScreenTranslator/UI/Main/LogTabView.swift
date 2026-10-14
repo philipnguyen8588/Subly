@@ -4,12 +4,12 @@ import AppKit
 /// Tab Nhật ký: phụ đề đã dịch và lịch sử dịch màn hình, cùng một thanh công cụ.
 struct LogTabView: View {
     enum Section: String, CaseIterable, Identifiable {
-        case subtitles, screens, summaries, story
+        case story, subtitles, screens, summaries
         var id: String { rawValue }
     }
 
     @ObservedObject var store = HistoryStore.shared
-    @State private var section: Section = .subtitles
+    @State private var section: Section = .story
     @State private var search = ""
     @State private var confirmClear = false
     @State private var confirmClearStory = false
@@ -46,10 +46,10 @@ struct LogTabView: View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 Picker("", selection: $section) {
+                    Text("Cốt truyện").tag(Section.story)
                     Text("Phụ đề  \(entries.count)").tag(Section.subtitles)
                     Text("Dịch màn hình  \(analyses.count)").tag(Section.screens)
                     Text("Tóm tắt  \(store.summaries.count)").tag(Section.summaries)
-                    Text("Cốt truyện").tag(Section.story)
                 }
                 .pickerStyle(.segmented).labelsHidden().fixedSize()
                 if store.legacyCount > 0 {
@@ -87,6 +87,8 @@ struct LogTabView: View {
             case .summaries: StorySummaryView(search: search, summaries: store.summaries)
             case .story: GameStoryView(search: search)
             }
+            // Câu đang dịch luôn nằm ở đáy tab, xem mục nào cũng thấy.
+            NowTranslatingPanel()
         }
         .confirmationDialog(clearQuestion, isPresented: $confirmClearStory) {
             Button("Xoá, viết lại từ đầu nhật ký", role: .destructive) { StoryTracker.shared.reset(fromNow: false) }
@@ -126,6 +128,9 @@ private struct ChatScroll<Content: View>: View {
     @ViewBuilder var content: Content
     @State private var atBottom = true
     @State private var unseen = 0
+    /// ↑/↓, Page Up/Down, Home/End cuộn mượt danh sách (không cần chọn dòng).
+    @State private var scroller = KeyScroller()
+    @State private var keyID = UUID()
     private let bottomID = "chat-bottom"
 
     var body: some View {
@@ -141,6 +146,8 @@ private struct ChatScroll<Content: View>: View {
                 .coordinateSpace(.named(Self.space))
             }
             .defaultScrollAnchor(.bottom)
+            .keyScroll($scroller)
+            .logKeys(keyID) { scroller.scroll($0) }
             .onScrollGeometryChange(for: CGRect.self) { $0.visibleRect } action: { _, r in onViewport?(r) }
             .onAppear { scroll(proxy, animated: false) }
             .onChange(of: revealID) { _, id in if let id { proxy.scrollTo(id) } }
@@ -258,7 +265,6 @@ struct SubtitleLogView: View {
             if !selectedRows.isEmpty || summarizer.isRunning || summarizer.lastError != nil {
                 selectionBar
             }
-            NowTranslatingPanel()
         }
         .sheet(item: $addSpeaker) { AddSpeakerSheet(source: $0.source) }
         .onChange(of: search) { _, _ in clearSelection() }
@@ -583,6 +589,11 @@ struct ScreenLogView: View {
     let analyses: [ScreenAnalysis]
     @ObservedObject var analyzer: ScreenAnalyzer = Pipeline.shared.analyzer
     @State private var expanded: Set<Int64> = []
+    /// Ảnh đang chọn bằng phím mũi tên (Enter / Space mở ảnh); bề rộng lưới để biết ↑/↓ nhảy bao nhiêu ảnh.
+    @State private var selected: Int64?
+    @State private var gridWidth: CGFloat = 0
+    @State private var scroller = KeyScroller()
+    @State private var keyID = UUID()
 
     /// Mới nhất trước.
     private var rows: [ScreenAnalysis] {
@@ -605,12 +616,14 @@ struct ScreenLogView: View {
                     .font(.callout).foregroundStyle(.tertiary)
                 Spacer()
             } else {
+                ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
                         if !shots.isEmpty {
                             LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 12, alignment: .top)], alignment: .leading, spacing: 12) {
-                                ForEach(shots) { a in ShotCard(analysis: a) }
+                                ForEach(shots) { a in ShotCard(analysis: a, selected: selected == a.id) }
                             }
+                            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { gridWidth = $0 }
                         }
                         if !textOnly.isEmpty {
                             Text(shots.isEmpty ? "CHỈ CÒN CHỮ" : "CŨ HƠN · CHỈ CÒN CHỮ (mỗi game giữ \(HistoryStore.maxShots) ảnh gần nhất)")
@@ -624,6 +637,28 @@ struct ScreenLogView: View {
                     }
                     .padding(14)
                 }
+                .keyScroll($scroller)
+                .logKeys(keyID) { key in
+                    let ids = self.rows.filter(\.hasImage).map(\.id)
+                    guard !ids.isEmpty else { return scroller.scroll(key) }
+                    // Số ảnh mỗi hàng của lưới (ô tối thiểu 230, cách nhau 12).
+                    let perRow = max(1, Int((gridWidth + 12) / 242))
+                    let step: Int
+                    switch key {
+                    case .left: step = -1
+                    case .right: step = 1
+                    case .up: step = -perRow
+                    case .down: step = perRow
+                    case .toggle:
+                        if let s = selected { ShotViewer.shared.show(s); return true }
+                        return false
+                    default: return scroller.scroll(key)
+                    }
+                    selected = stepSelection(ids, current: selected, by: step)
+                    if let s = selected { withAnimation(.easeOut(duration: 0.16)) { proxy.scrollTo(s, anchor: nil) } }
+                    return true
+                }
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -634,6 +669,7 @@ struct ScreenLogView: View {
 /// Một lần chụp còn ảnh: bấm để mở lại ảnh đã dịch.
 private struct ShotCard: View {
     let analysis: ScreenAnalysis
+    var selected = false
     @State private var hovering = false
 
     var body: some View {
@@ -649,7 +685,8 @@ private struct ShotCard: View {
             }
             .padding(8)
             .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(hovering ? 0.07 : 0.03)))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(hovering ? Theme.accentStart.opacity(0.5) : Color.primary.opacity(0.07)))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(selected ? Theme.accentStart : hovering ? Theme.accentStart.opacity(0.5) : Color.primary.opacity(0.07),
+                                                               lineWidth: selected ? 2 : 1))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

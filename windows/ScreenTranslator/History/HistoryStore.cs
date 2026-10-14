@@ -74,6 +74,23 @@ public class StoryCharacter
     public string relations { get; set; } = "";
     /// Tình trạng hiện tại (đang ở đâu, còn sống / bị bắt / bị thương, đang làm gì): viết lại mỗi khi có thay đổi.
     public string status { get; set; } = "";
+    /// Hồ sơ nhân vật chép từ màn hình nhật ký / bách khoa của game mà người chơi đã mở và dịch.
+    public string journal { get; set; } = "";
+    /// Thời điểm (giây Unix) của những câu phụ đề gần nhất có nhân vật này; 0 = chưa ghi nhận (dữ liệu cũ).
+    public double seen { get; set; }
+}
+
+/// Một mục "Bách khoa" của cốt truyện: địa danh, thế lực / đội quân, khái niệm của thế giới game, lấy từ các màn hình
+/// nhật ký / bách khoa người chơi đã dịch. Tên khoá JSON giống hệt bản macOS.
+public class StoryLore
+{
+    public string name { get; set; } = "";
+    /// "place" (địa danh), "faction" (thế lực, đội quân, tổ chức), "concept" (khái niệm, sự kiện, vật phẩm) hoặc "other".
+    public string kind { get; set; } = "other";
+    public string description { get; set; } = "";
+
+    public static readonly (string id, string label)[] kinds = { ("place", "Địa danh"), ("faction", "Thế lực"), ("concept", "Khái niệm"), ("other", "Khác") };
+    [System.Text.Json.Serialization.JsonIgnore] public string kindLabel => kinds.FirstOrDefault(k => k.id == kind).label ?? "Khác";
 }
 
 /// Cốt truyện của một game: bài viết liền mạch + danh sách nhân vật, kèm con trỏ tới dòng nhật ký cuối đã đưa vào.
@@ -82,6 +99,7 @@ public class GameStory
     public string profile = "";
     public string narrative = "";
     public List<StoryCharacter> characters = new();
+    public List<StoryLore> lore = new();
     public long lastEntryID, lastAnalysisID;
     public DateTime updated;
     public string backend = "";
@@ -168,6 +186,7 @@ public sealed class HistoryStore
         CREATE INDEX IF NOT EXISTS story_parts_profile ON story_parts(profile, id);
         PRAGMA journal_mode=WAL;
         """);
+        if (!Columns("story").Contains("lore")) Exec("ALTER TABLE story ADD COLUMN lore TEXT NOT NULL DEFAULT '[]'");
         if (!Columns("history").Contains("kind")) Exec("ALTER TABLE history ADD COLUMN kind TEXT NOT NULL DEFAULT 'subtitle'");
         if (!Columns("history").Contains("target")) Exec("ALTER TABLE history ADD COLUMN target TEXT NOT NULL DEFAULT 'vi'");
         if (!Columns("history").Contains("profile")) Exec("ALTER TABLE history ADD COLUMN profile TEXT NOT NULL DEFAULT ''");
@@ -501,16 +520,19 @@ public sealed class HistoryStore
         lock (lk)
         {
             using var cmd = db.CreateCommand();
-            cmd.CommandText = "SELECT narrative, characters, last_entry_id, last_analysis_id, updated, backend FROM story WHERE profile = $p";
+            cmd.CommandText = "SELECT narrative, characters, last_entry_id, last_analysis_id, updated, backend, lore FROM story WHERE profile = $p";
             cmd.Parameters.AddWithValue("$p", profile);
             using var r = cmd.ExecuteReader();
             if (!r.Read()) return null;
             List<StoryCharacter> chars;
             try { chars = JsonSerializer.Deserialize<List<StoryCharacter>>(r.GetString(1)) ?? new(); } catch { chars = new(); }
             chars.RemoveAll(c => string.IsNullOrEmpty(c.name));
+            List<StoryLore> lore;
+            try { lore = JsonSerializer.Deserialize<List<StoryLore>>(r.GetString(6)) ?? new(); } catch { lore = new(); }
+            lore.RemoveAll(l => string.IsNullOrEmpty(l.name));
             return new GameStory
             {
-                profile = profile, narrative = r.GetString(0), characters = chars, lastEntryID = r.GetInt64(2),
+                profile = profile, narrative = r.GetString(0), characters = chars, lore = lore, lastEntryID = r.GetInt64(2),
                 lastAnalysisID = r.GetInt64(3), updated = FromUnix(r.GetDouble(4)), backend = r.GetString(5),
             };
         }
@@ -607,10 +629,10 @@ public sealed class HistoryStore
                 {
                     cmd.Transaction = tx;
                     cmd.CommandText = """
-                        INSERT INTO story(profile, narrative, characters, last_entry_id, last_analysis_id, updated, backend) VALUES($p,$n,$c,$e,$a,$u,$b)
+                        INSERT INTO story(profile, narrative, characters, last_entry_id, last_analysis_id, updated, backend, lore) VALUES($p,$n,$c,$e,$a,$u,$b,$l)
                         ON CONFLICT(profile) DO UPDATE SET narrative=excluded.narrative, characters=excluded.characters,
                             last_entry_id=excluded.last_entry_id, last_analysis_id=excluded.last_analysis_id,
-                            updated=excluded.updated, backend=excluded.backend
+                            updated=excluded.updated, backend=excluded.backend, lore=excluded.lore
                         """;
                     cmd.Parameters.AddWithValue("$p", s.profile);
                     cmd.Parameters.AddWithValue("$n", s.narrative);
@@ -619,6 +641,7 @@ public sealed class HistoryStore
                     cmd.Parameters.AddWithValue("$a", s.lastAnalysisID);
                     cmd.Parameters.AddWithValue("$u", ToUnix(s.updated));
                     cmd.Parameters.AddWithValue("$b", s.backend);
+                    cmd.Parameters.AddWithValue("$l", JsonSerializer.Serialize(s.lore));
                     cmd.ExecuteNonQuery();
                 }
                 if (part != null)
@@ -707,6 +730,23 @@ public sealed class HistoryStore
         if (s == null) return;
         s.characters.RemoveAll(c => c.name == name);
         Exec("UPDATE story SET characters = $c WHERE profile = $p;", ("$c", JsonSerializer.Serialize(s.characters)), ("$p", scope));
+        story = s;
+        StoryChanged?.Invoke();
+    }
+
+    /// Đưa con trỏ "màn hình đã đọc" của cốt truyện về đầu (giữ nguyên con trỏ câu phụ đề).
+    public void RewindStoryScreens(string profile)
+    {
+        Exec("UPDATE story SET last_analysis_id = 0 WHERE profile = $p;", ("$p", profile));
+        if (profile == scope) { story = LoadStory(profile); StoryChanged?.Invoke(); }
+    }
+
+    public void DeleteStoryLore(string name)
+    {
+        var s = LoadStory(scope);
+        if (s == null) return;
+        s.lore.RemoveAll(l => l.name == name);
+        Exec("UPDATE story SET lore = $l WHERE profile = $p;", ("$l", JsonSerializer.Serialize(s.lore)), ("$p", scope));
         story = s;
         StoryChanged?.Invoke();
     }

@@ -8,7 +8,8 @@ using System.Windows.Media;
 namespace ScreenTranslator;
 
 /// Mục "Cốt truyện" của tab Nhật ký: cốt truyện của game đang chọn do app tự viết từ phụ đề: bài viết liền mạch,
-/// dòng thời gian từng đoạn diễn biến và danh sách nhân vật. Tab Nhật ký giữ một thể hiện duy nhất (không dựng lại
+/// dòng thời gian từng đoạn diễn biến, danh sách nhân vật và bách khoa (địa danh, thế lực, khái niệm lấy từ màn hình
+/// nhật ký đã dịch). Thanh ngang ở trên cùng nhảy nhanh tới từng mục. Tab Nhật ký giữ một thể hiện duy nhất (không dựng lại
 /// mỗi khi có câu phụ đề mới), view tự vẽ lại khi cốt truyện hoặc trạng thái cập nhật đổi.
 public sealed class StoryView : Border
 {
@@ -22,11 +23,32 @@ public sealed class StoryView : Border
     readonly HashSet<string> collapsed = new();
     /// Giữ một khung cuộn và chỉ thay nội dung, để vị trí đang đọc không nhảy về đầu mỗi lần trạng thái đổi.
     readonly ScrollViewer scroll = Ui.Scroll(new StackPanel());
+    /// Thanh nhảy nhanh ghim ở đầu trang, và chỗ bắt đầu của từng mục để cuộn tới.
+    readonly Border jumpBar = new() { Padding = new Thickness(14, 8, 14, 8), BorderBrush = Ui.Res("CardStroke"), BorderThickness = new Thickness(0, 0, 0, 1) };
+    readonly Dictionary<string, FrameworkElement> anchors = new();
+    /// Mục đang xem, chọn ở thanh trên cùng: chỉ dựng mục đó (dựng cả bốn mục một lúc làm trang dài và cuộn giật).
+    string shown
+    {
+        get => settings.Get("storyShownSection", "parts");
+        set => settings.Set("storyShownSection", value, "storyShownSection");
+    }
+    /// Loại mục bách khoa đang lọc ("" = tất cả).
+    string loreKind = "";
+    /// Thứ tự danh sách nhân vật: true = ai vừa xuất hiện gần đây đứng trước, false = theo thứ tự gặp trong game.
+    bool recentFirst
+    {
+        get => settings.Get("storyCharactersRecentFirst", true);
+        set => settings.Set("storyCharactersRecentFirst", value, "storyCharactersRecentFirst");
+    }
 
     public StoryView()
     {
         Background = Brushes.White;
-        Child = scroll;
+        var dock = new DockPanel();
+        DockPanel.SetDock(jumpBar, Dock.Top);
+        dock.Children.Add(jumpBar);
+        dock.Children.Add(scroll);
+        Child = dock;
         store.StoryChanged += () => Dispatcher.BeginInvoke(Refresh);
         tracker.PropertyChanged += (_, _) => Dispatcher.BeginInvoke(Refresh);
         settings.Changed += k => { if (k is "storyEnabled" or "storyIntervalMin") Dispatcher.BeginInvoke(Refresh); };
@@ -58,22 +80,30 @@ public sealed class StoryView : Border
         var narrative = story?.narrative ?? "";
         var q = search.ToLowerInvariant();
         var parts = store.storyParts.Where(p => q.Length == 0 || p.title.ToLowerInvariant().Contains(q) || p.summary.ToLowerInvariant().Contains(q)).ToList();
-        var chars = (story?.characters ?? new()).Where(c => q.Length == 0 ||
-            new[] { c.name, c.status, c.role, c.personality, c.background, c.relations }.Any(f => f.ToLowerInvariant().Contains(q))).ToList();
-        bool hasContent = narrative.Length > 0 || store.storyParts.Count > 0 || (story?.characters.Count ?? 0) > 0;
+        // Danh sách lưu theo thứ tự gặp lần đầu. "Vừa xuất hiện": xếp theo lần xuất hiện gần nhất; nhân vật của dữ liệu cũ
+        // (chưa ghi nhận thời điểm) thì ai được thêm sau đứng trước.
+        IEnumerable<StoryCharacter> ordered = story?.characters ?? new();
+        if (recentFirst) ordered = ordered.Select((c, i) => (c, i)).OrderByDescending(x => x.c.seen).ThenByDescending(x => x.i).Select(x => x.c);
+        var chars = ordered.Where(c => q.Length == 0 ||
+            new[] { c.name, c.status, c.role, c.personality, c.background, c.relations, c.journal }.Any(f => f.ToLowerInvariant().Contains(q))).ToList();
+        var loreMatches = (story?.lore ?? new()).Where(l => q.Length == 0 || l.name.ToLowerInvariant().Contains(q) || l.description.ToLowerInvariant().Contains(q)).ToList();
+        var lore = loreKind.Length == 0 ? loreMatches : loreMatches.Where(l => l.kind == loreKind).ToList();
+        bool hasContent = narrative.Length > 0 || store.storyParts.Count > 0 || (story?.characters.Count ?? 0) > 0 || (story?.lore.Count ?? 0) > 0;
+        anchors.Clear();
         bool showNarrative = narrative.Length > 0 && (q.Length == 0 || narrative.ToLowerInvariant().Contains(q));
 
         var v = Ui.V(16, StatusCard(story));
         if (!hasContent) v.Children.Add(EmptyState());
         else
         {
-            if (showNarrative)
+            var view = shown;
+            if (view == "narrative" && showNarrative)
                 v.Children.Add(Section("narrative", "Cốt truyện đến hiện tại", "\uE736", Ui.IconBtn("\uE8C8", () => Ui.CopyText(narrative), "Copy"), () => new Border
                 {
                     Padding = new Thickness(12), CornerRadius = new CornerRadius(10), Background = new SolidColorBrush(Color.FromArgb(16, 97, 111, 250)),
                     Child = ReadOnly(narrative, 14.5),
                 }));
-            if (parts.Count > 0)
+            if (view == "parts" && parts.Count > 0)
             {
                 bool PartOpen(int i) => (i < 3) != toggled.Contains(parts[i].id);
                 bool allOpen = Enumerable.Range(0, parts.Count).All(PartOpen);
@@ -92,18 +122,102 @@ public sealed class StoryView : Border
                     return list;
                 }));
             }
-            if (chars.Count > 0)
-                v.Children.Add(Section("characters", $"Nhân vật  {chars.Count}", "\uE716", null, () =>
+            if (view == "characters" && chars.Count > 0)
+            {
+                var order = Ui.LinkBtn(recentFirst ? "Vừa xuất hiện ▾" : "Theo mạch truyện ▾", () => { recentFirst = !recentFirst; Refresh(); });
+                order.ToolTip = "Vừa xuất hiện: ai mới góp mặt trong diễn biến gần đây đứng đầu. Theo mạch truyện: xếp theo thứ tự gặp lần đầu trong game. Bấm để đổi.";
+                v.Children.Add(Section("characters", $"Nhân vật  {chars.Count}", "\uE716", order, () =>
                 {
                     var grid = new WrapPanel();
                     foreach (var c in chars) grid.Children.Add(CharacterCard(c));
                     return grid;
                 }));
-            if (q.Length > 0 && !showNarrative && chars.Count == 0 && parts.Count == 0)
-                v.Children.Add(Ui.Text($"Không có gì trong cốt truyện khớp “{search}”.", color: Ui.Tertiary).Also(t => { t.HorizontalAlignment = HorizontalAlignment.Center; t.Margin = new Thickness(0, 30, 0, 0); }));
+            }
+            if (view == "lore" && loreMatches.Count > 0)
+            {
+                var filter = Ui.H(6);
+                foreach (var (id, label) in new[] { ("", "Tất cả") }.Concat(StoryLore.kinds))
+                {
+                    int n = id.Length == 0 ? loreMatches.Count : loreMatches.Count(l => l.kind == id);
+                    if (n == 0) continue;
+                    var kindId = id;
+                    var b = Ui.LinkBtn($"{label} {n}", () => { loreKind = kindId; Refresh(); });
+                    if (loreKind == id) b.FontWeight = FontWeights.Bold;
+                    filter.Children.Add(b);
+                }
+                v.Children.Add(Section("lore", $"Bách khoa  {loreMatches.Count}", "\uE82D", filter, () =>
+                {
+                    var grid = new WrapPanel();
+                    foreach (var l in lore) grid.Children.Add(LoreCard(l));
+                    return grid;
+                }));
+            }
+            if (v.Children.Count == 1)
+                v.Children.Add(view == "lore" && q.Length == 0 ? LoreEmptyState() : Ui.Text(view switch
+                {
+                    "narrative" => q.Length == 0 ? "Chưa có bài tóm lược." : $"Bài tóm lược không có chữ nào khớp “{search}”.",
+                    "characters" => q.Length == 0 ? "Chưa có nhân vật nào." : $"Không có nhân vật nào khớp “{search}”.",
+                    "lore" => $"Không có mục bách khoa nào khớp “{search}”.",
+                    _ => q.Length == 0 ? "Chưa có đoạn diễn biến nào." : $"Không có đoạn diễn biến nào khớp “{search}”.",
+                }, color: Ui.Tertiary).Also(t => { t.HorizontalAlignment = HorizontalAlignment.Center; t.Margin = new Thickness(0, 30, 0, 0); }));
         }
         v.Margin = new Thickness(14);
         scroll.Content = v;
+        BuildJumpBar(hasContent, showNarrative, parts.Count, chars.Count, loreMatches.Count);
+    }
+
+    /// Bách khoa còn trống: giải thích cách có mục, và cho đọc lại các màn hình đã dịch trước đây (chưa được đưa vào).
+    UIElement LoreEmptyState()
+    {
+        var v = Ui.V(10, Ui.Icon("\uE82D", 28, Ui.Tertiary),
+            Ui.Text("Bách khoa ghi lại địa danh, thế lực, đội quân và khái niệm của thế giới game.\nMỗi khi bạn Dịch màn hình nhật ký hay bách khoa trong game, app sẽ tự thêm mục vào đây ở lần cập nhật cốt truyện kế tiếp.",
+                color: Ui.Tertiary).Also(t => t.TextAlignment = TextAlignment.Center));
+        if (store.analyses.Count > 0)
+        {
+            v.Children.Add(Ui.Btn($"Đọc lại {store.analyses.Count} màn hình đã dịch của game này", tracker.RescanScreens, primary: true)
+                .Also(b => b.IsEnabled = !tracker.isRunning));
+            v.Children.Add(Ui.Text("Các màn hình dịch trước đây chưa được tách ra bách khoa. App sẽ đọc lại chúng (khoảng 15 màn hình mỗi lượt) để thêm địa danh, thế lực và hồ sơ nhân vật; phần diễn biến không đổi.",
+                11.5, color: Ui.Tertiary).Also(t => { t.TextAlignment = TextAlignment.Center; t.MaxWidth = 520; }));
+        }
+        foreach (FrameworkElement c in v.Children) c.HorizontalAlignment = HorizontalAlignment.Center;
+        v.Margin = new Thickness(0, 30, 0, 30);
+        return v;
+    }
+
+    /// Thanh ngang ghim ở đầu trang: bấm để xem riêng mục đó.
+    void BuildJumpBar(bool hasContent, bool narrative, int parts, int chars, int lore)
+    {
+        jumpBar.Visibility = hasContent ? Visibility.Visible : Visibility.Collapsed;
+        var bar = Ui.H(8);
+        void Add(string key, string title, string glyph, int? count, bool show)
+        {
+            if (!show) return;
+            bool on = shown == key;
+            var chip = new Button
+            {
+                Style = (Style)Application.Current.FindResource("LinkButton"), ToolTip = $"Xem mục {title}",
+                Content = new Border
+                {
+                    Padding = new Thickness(11, 4, 11, 4), CornerRadius = new CornerRadius(12),
+                    Background = on ? Ui.AccentGradient : Ui.Res("CardFill"), BorderBrush = Ui.Res("CardStroke"), BorderThickness = new Thickness(on ? 0 : 1),
+                    Child = Ui.H(5, Ui.Icon(glyph, 11, on ? Brushes.White : Ui.Secondary), Ui.Text(title, 12.5, on, on ? Brushes.White : null, wrap: false),
+                        count is int n ? Ui.Text($"{n}", 11.5, color: on ? Brushes.White : Ui.Tertiary, wrap: false) : null),
+                },
+            };
+            chip.Click += (_, _) =>
+            {
+                shown = key;
+                collapsed.Remove(key);
+                Refresh();
+                scroll.ScrollToTop();
+            };
+            bar.Children.Add(chip);
+        }
+        Add("narrative", "Tóm lược", "\uE736", null, true);
+        Add("parts", "Diễn biến", "\uE8FD", parts, true);
+        Add("characters", "Nhân vật", "\uE716", chars, true);
+        Add("lore", "Bách khoa", "\uE82D", lore, true);
+        jumpBar.Child = bar;
     }
 
     static TextBox ReadOnly(string text, double size) => new()
@@ -123,9 +237,11 @@ public sealed class StoryView : Border
             Content = Ui.H(6, Ui.Icon(closed ? "\uE76C" : "\uE70D", 9, Ui.Secondary), Ui.Icon(glyph, 13, Ui.Secondary), Ui.Text(title, 13, true, Ui.Secondary, wrap: false)),
         };
         head.Click += (_, _) => { if (!collapsed.Remove(key)) collapsed.Add(key); Refresh(); };
-        if (closed) return head;
+        if (closed) { anchors[key] = head; return head; }
         UIElement top = accessory == null ? head : Ui.Row(head, accessory);
-        return Ui.V(8, top, content());
+        var section = Ui.V(8, top, content());
+        anchors[key] = section;
+        return section;
     }
 
     UIElement StatusCard(GameStory? story)
@@ -228,7 +344,7 @@ public sealed class StoryView : Border
 
     UIElement CharacterCard(StoryCharacter c)
     {
-        var rows = new[] { ("Hiện tại", c.status), ("Vai trò", c.role), ("Tính cách", c.personality), ("Lai lịch", c.background), ("Quan hệ", c.relations) }
+        var rows = new[] { ("Hiện tại", c.status), ("Vai trò", c.role), ("Tính cách", c.personality), ("Lai lịch", c.background), ("Quan hệ", c.relations), ("Từ nhật ký", c.journal) }
             .Where(r => r.Item2.Length > 0).ToList();
         var copyText = string.Join("\n", new[] { c.name }.Concat(rows.Select(r => $"{r.Item1}: {r.Item2}")));
         void Delete()
@@ -245,6 +361,36 @@ public sealed class StoryView : Border
         cm.Items.Add(Mi("Copy", () => Ui.CopyText(copyText), ""));
         cm.Items.Add(new Separator());
         cm.Items.Add(Mi("Xoá nhân vật này", Delete, ""));
+        var card = new Border
+        {
+            Child = v, Padding = new Thickness(12), CornerRadius = new CornerRadius(10), Width = 320, Margin = new Thickness(0, 0, 10, 10),
+            VerticalAlignment = VerticalAlignment.Top,
+            Background = Ui.Res("CardFill"), BorderBrush = Ui.Res("CardStroke"), BorderThickness = new Thickness(1), ContextMenu = cm,
+        };
+        card.MouseEnter += (_, _) => { del.Opacity = 1; card.Background = new SolidColorBrush(Color.FromArgb(13, 0, 0, 0)); };
+        card.MouseLeave += (_, _) => { del.Opacity = 0; card.Background = Ui.Res("CardFill"); };
+        return card;
+    }
+
+    /// Một mục bách khoa: tên, loại (địa danh / thế lực / khái niệm) và mô tả lấy từ màn hình nhật ký của game.
+    UIElement LoreCard(StoryLore l)
+    {
+        void Delete()
+        {
+            if (Ui.Confirm($"Xoá mục “{l.name}” khỏi bách khoa?")) store.DeleteStoryLore(l.name);
+        }
+        var del = Ui.IconBtn("\uE74D", Delete, "Xoá mục này");
+        del.Opacity = 0;
+        var kind = new Border
+        {
+            Padding = new Thickness(6, 1, 6, 1), CornerRadius = new CornerRadius(8), Background = Ui.Res("CardStroke"),
+            VerticalAlignment = VerticalAlignment.Center, Child = Ui.Text(l.kindLabel, 10.5, true, Ui.Tertiary, wrap: false),
+        };
+        var v = Ui.V(6, Ui.Row(Ui.H(6, Ui.Text(l.name, 14.5, true, wrap: false), kind), del), ReadOnly(l.description, 13));
+        var cm = new ContextMenu();
+        cm.Items.Add(Mi("Copy", () => Ui.CopyText($"{l.name}\n{l.description}"), "\uE8C8"));
+        cm.Items.Add(new Separator());
+        cm.Items.Add(Mi("Xoá mục này", Delete, "\uE74D"));
         var card = new Border
         {
             Child = v, Padding = new Thickness(12), CornerRadius = new CornerRadius(10), Width = 320, Margin = new Thickness(0, 0, 10, 10),

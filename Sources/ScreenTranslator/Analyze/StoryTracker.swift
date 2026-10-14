@@ -121,6 +121,15 @@ final class StoryTracker: ObservableObject {
         updateNow()
     }
 
+    /// Nút "Đọc lại các màn hình đã dịch" (Bách khoa): đưa con trỏ màn hình về đầu để các màn hình nhật ký dịch trước đây
+    /// được tách thành mục bách khoa / hồ sơ nhân vật; con trỏ câu phụ đề giữ nguyên nên diễn biến không bị viết lại.
+    func rescanScreens() {
+        resetState()
+        store.rewindStoryScreens(profile: activeProfile)
+        refreshPending()
+        updateNow()
+    }
+
     /// Xoá cốt truyện của game đang chọn. `fromNow`: chỉ viết tiếp từ những câu sau lúc này.
     func reset(fromNow: Bool) {
         resetState()
@@ -184,7 +193,9 @@ final class StoryTracker: ObservableObject {
         if keep < entries.count { entries = Array(entries.prefix(keep)); more = true }
         var screens = store.storyAnalyses(profile: profile, after: screenCursor)
         if more, let last = entries.last { screens = screens.filter { $0.timestamp <= last.timestamp } }
-        if screens.count > 5 { screens = Array(screens.prefix(5)); more = true }
+        // Lượt chỉ có màn hình (không có câu phụ đề mới, ví dụ khi đọc lại màn hình cũ) lấy được nhiều màn hình hơn.
+        let screenCap = entries.isEmpty ? 15 : 5
+        if screens.count > screenCap { screens = Array(screens.prefix(screenCap)); more = true }
         guard !entries.isEmpty || !screens.isEmpty else { return }
 
         let skipped = BackendKind.skipped.rawValue
@@ -201,12 +212,14 @@ final class StoryTracker: ObservableObject {
                                              updated: now, backend: "")
             story.narrative = StoryUpdate.mergeNarrative(old: story.narrative, update: u)
             story.characters = StoryUpdate.mergeCharacters(old: story.characters, new: u.characters)
+            story.lore = StoryUpdate.mergeLore(old: story.lore, new: u.lore)
             story.lastEntryID = entries.last?.id ?? cursor
             story.lastAnalysisID = screens.last?.id ?? screenCursor
             story.updated = now
             story.backend = out.backend.rawValue
             let from = entries.first?.timestamp ?? screens.first?.timestamp ?? now
             let to = entries.last?.timestamp ?? screens.last?.timestamp ?? now
+            story.characters = StoryUpdate.markSeen(story.characters, in: focus, mentioned: u.characters, at: to)
             let part: StoryPart? = u.partSummary.isEmpty ? nil : StoryPart(
                 id: 0, timestamp: now, profile: profile, title: u.partTitle.isEmpty ? "Diễn biến lúc \(from.hm)" : u.partTitle,
                 summary: u.partSummary, from: from, to: to, entryFrom: entries.first?.id ?? cursor, entryTo: story.lastEntryID,
@@ -220,7 +233,7 @@ final class StoryTracker: ObservableObject {
             nextAutoAllowed = .distantPast
             Log.info("Cốt truyện [\(out.backend.rawValue)] +\(counted) câu, \(screens.count) màn hình, \(out.ms)ms: "
                      + "\(part?.title ?? "(không có diễn biến mới)") · truyện \(story.narrative.count) ký tự · "
-                     + "\(story.characters.count) nhân vật (id ≤ \(story.lastEntryID))")
+                     + "\(story.characters.count) nhân vật · \(story.lore.count) mục bách khoa (id ≤ \(story.lastEntryID))")
             if more { scheduleCatchUp(manual: manual) }
         } catch {
             if case TranslationRouter.StoryError.busy = error {
@@ -251,7 +264,8 @@ final class StoryTracker: ObservableObject {
         }
     }
 
-    /// Ba khối gửi model: cốt truyện đã có, nhân vật đã biết (chi tiết chỉ với người có mặt trong câu mới), câu mới.
+    /// Bốn khối gửi model: cốt truyện đã có, nhân vật đã biết (chi tiết chỉ với người có mặt trong câu mới),
+    /// tên các mục bách khoa đã có, câu mới.
     static func buildInput(story: GameStory?, entries: [TranslationEntry],
                            screens: [(id: Int64, timestamp: Date, summary: String)]) -> (input: String, focus: String) {
         var items: [(Date, String)] = entries.map { ($0.timestamp, $0.source) }
@@ -277,12 +291,16 @@ final class StoryTracker: ObservableObject {
         var known = detailed.joined(separator: "\n")
         if !others.isEmpty { known += (known.isEmpty ? "" : "\n") + "Other known names: " + others.joined(separator: ", ") }
         let narrative = story?.narrative ?? ""
+        let loreNames = (story?.lore ?? []).map(\.name).joined(separator: ", ")
         let input = """
         STORY SO FAR:
         \(narrative.isEmpty ? "(empty: this is the first update)" : narrative)
 
         KNOWN CHARACTERS:
         \(known.isEmpty ? "(none yet)" : known)
+
+        KNOWN LORE:
+        \(loreNames.isEmpty ? "(none yet)" : loreNames)
 
         NEW LINES:
         \(focus)

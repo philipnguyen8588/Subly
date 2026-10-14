@@ -57,8 +57,10 @@ final class WebServer: ObservableObject, @unchecked Sendable {
     private struct StoryDTO: Encodable {
         struct Part: Encodable { let id: Int64; let title, summary: String; let from, to: Double; let lines: Int }
         let narrative: String; let updated: Double; let backend: String
-        let running: Bool; let runningLines, pending: Int
-        let parts: [Part]; let characters: [StoryCharacter]
+        let running: Bool; let runningLines, pending, pendingScreens: Int
+        /// Lỗi hoặc lý do tạm hoãn của lần cập nhật gần nhất (hiện dưới dòng trạng thái trên web).
+        let note: String?
+        let parts: [Part]; let characters: [StoryCharacter]; let lore: [StoryLore]
     }
     private struct ResultDTO: Encodable { let ok: Bool; let error: String?; var id: Int64? = nil }
     private struct AudioDTO: Encodable { let id: Int; let mime: String; let flush: Bool; let text: String }
@@ -154,6 +156,10 @@ final class WebServer: ObservableObject, @unchecked Sendable {
         let tracker = StoryTracker.shared
         Publishers.Merge4(history.$story.map { _ in () }, history.$storyParts.map { _ in () },
                           tracker.$isRunning.map { _ in () }, tracker.$pendingLines.map { _ in () })
+            .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main)
+            .sink { [weak self] in self?.broadcast("story", Data("{}".utf8)) }
+            .store(in: &cancellables)
+        Publishers.Merge3(tracker.$pendingScreens.map { _ in () }, tracker.$lastError.map { _ in () }, tracker.$notice.map { _ in () })
             .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main)
             .sink { [weak self] in self?.broadcast("story", Data("{}".utf8)) }
             .store(in: &cancellables)
@@ -296,11 +302,12 @@ final class WebServer: ObservableObject, @unchecked Sendable {
                     narrative: store.story?.narrative ?? "", updated: max(0, updated),
                     backend: BackendKind.label(raw: store.story?.backend ?? ""),
                     running: tracker.isRunning, runningLines: tracker.runningLines, pending: tracker.pendingLines,
+                    pendingScreens: tracker.pendingScreens, note: tracker.lastError ?? tracker.notice,
                     parts: store.storyParts.map {
                         .init(id: $0.id, title: $0.title, summary: $0.summary, from: $0.from.timeIntervalSince1970,
                               to: $0.to.timeIntervalSince1970, lines: $0.lineCount)
                     },
-                    characters: store.story?.characters ?? []))
+                    characters: store.story?.characters ?? [], lore: store.story?.lore ?? []))
                 self.queue.async { self.respond(c, type: "application/json", body: body) }
             }
         case ("GET", _) where path.hasPrefix("/api/shot/") && path.hasSuffix(".jpg"):
@@ -337,6 +344,18 @@ final class WebServer: ObservableObject, @unchecked Sendable {
                     }
                 }
                 Log.info("Web: bật/tắt dịch phụ đề từ xa → \(error ?? (p.isRunning ? "đang chạy" : "đã dừng"))")
+                let body = Self.json(ResultDTO(ok: error == nil, error: error))
+                self.queue.async { self.respond(c, type: "application/json", body: body) }
+            }
+        case ("POST", "/api/story/update"):
+            // Nút "Cập nhật ngay" của tab Cốt truyện trên web: như nút cùng tên trên app.
+            Task { @MainActor in
+                let tracker = StoryTracker.shared
+                var error: String?
+                if tracker.isRunning { error = "Đang cập nhật, đợi một chút." }
+                else if tracker.pendingLines + tracker.pendingScreens == 0 { error = "Chưa có câu mới nào để đưa vào cốt truyện." }
+                else { tracker.updateNow() }
+                Log.info("Web: cập nhật cốt truyện từ xa → \(error ?? "đã bắt đầu")")
                 let body = Self.json(ResultDTO(ok: error == nil, error: error))
                 self.queue.async { self.respond(c, type: "application/json", body: body) }
             }
