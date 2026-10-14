@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -11,14 +12,14 @@ using System.Windows.Media.Imaging;
 
 namespace ScreenTranslator;
 
-/// Cửa sổ Cài đặt: 8 mục ở thanh bên (Dịch, Capture & OCR, Voice, Overlay, Thuật ngữ chung, Game, Phím tắt, Điện thoại / Web).
+/// Cửa sổ Cài đặt: 9 mục ở thanh bên (Dịch, AI, Capture & OCR, Voice, Overlay, Thuật ngữ chung, Game, Phím tắt, Điện thoại / Web).
 public sealed class SettingsWindow : Window
 {
     readonly ListBox sidebar = new() { Width = 200, BorderThickness = new Thickness(0), Background = Brushes.Transparent, Padding = new Thickness(6) };
     readonly ContentControl page = new();
     static readonly (string key, string title, string glyph)[] tabs =
     {
-        ("translate", "Dịch", ""), ("capture", "Capture & OCR", ""), ("voice", "Voice", ""), ("overlay", "Overlay", ""),
+        ("translate", "Dịch", ""), ("ai", "AI", "\uE99A"), ("capture", "Capture & OCR", ""), ("voice", "Voice", ""), ("overlay", "Overlay", ""),
         ("glossary", "Thuật ngữ chung", ""), ("profile", "Game", ""), ("hotkeys", "Phím tắt", ""), ("web", "Điện thoại / Web", ""),
     };
     AppSettings S => AppSettings.shared;
@@ -64,7 +65,7 @@ public sealed class SettingsWindow : Window
         var key = CurrentKey;
         UIElement body = key switch
         {
-            "translate" => Translate(), "capture" => Capture(), "voice" => Voice(), "overlay" => Overlay(),
+            "translate" => Translate(), "ai" => AI(), "capture" => Capture(), "voice" => Voice(), "overlay" => Overlay(),
             "glossary" => Glossary(), "profile" => Profiles(), "hotkeys" => Hotkeys(), _ => Web(),
         };
         if (body is FrameworkElement fe) fe.Margin = new Thickness(20, 16, 20, 16);
@@ -77,64 +78,51 @@ public sealed class SettingsWindow : Window
 
     UIElement Translate()
     {
-        var key = new PasswordBox { Password = S.geminiAPIKey, MinWidth = 320 };
-        var result = Ui.Caption("");
-        var models = GeminiBackend.models.ToList();
-        if (!models.Contains(S.geminiModel)) models.Add(S.geminiModel);
-        var modelBox = new ComboBox { MinWidth = 240, IsEditable = true, Text = S.geminiModel };
-        foreach (var m in models) modelBox.Items.Add(m);
-        modelBox.SelectedItem = S.geminiModel;
-        modelBox.SelectionChanged += (_, _) => { if (modelBox.SelectedItem is string m) S.geminiModel = m; };
-        modelBox.LostFocus += (_, _) => { var t = modelBox.Text.Trim(); if (t.Length > 0 && t != S.geminiModel) S.geminiModel = t; };
-        Button? testBtn = null, loadBtn = null;
-        testBtn = Ui.Btn("Test key", async () =>
+        // Dưới mỗi ô chọn AI: chọn model riêng cho việc đó (mặc định = model ở mục AI), hoặc cảnh báo chưa cài đặt.
+        (UIElement row, Action update) ModelRow(AITask task, Func<string> engine, Func<string> fallback)
         {
-            testBtn!.IsEnabled = false; testBtn.Content = "Đang test…"; result.Text = "";
-            var (ok, msg) = await GeminiBackend.Test(key.Password.Trim(), S.geminiModel);
-            result.Text = ok ? $"OK: {msg}" : $"Lỗi: {msg}";
-            testBtn.IsEnabled = true; testBtn.Content = "Test key";
-        });
-        loadBtn = Ui.Btn("Tải danh sách", async () =>
-        {
-            loadBtn!.IsEnabled = false; loadBtn.Content = "…";
-            try
+            var box = new ComboBox { MinWidth = 280 };
+            var text = Ui.Caption("");
+            var panel = Ui.V(6, Ui.H(8, Ui.Text("Model"), box), Ui.Row(text, Ui.Btn("Cài đặt AI…", () => Select("ai"))));
+            bool filling = false;
+            void Update()
             {
-                var list = await GeminiBackend.ListModels(S.geminiAPIKey, S.geminiBaseURL);
-                if (list.Count > 0)
-                {
-                    modelBox.Items.Clear();
-                    foreach (var m in list) modelBox.Items.Add(m);
-                    if (!list.Contains(S.geminiModel)) S.geminiModel = list[0];
-                    modelBox.SelectedItem = S.geminiModel;
-                }
-                result.Text = $"Có {list.Count} model dùng được";
+                var id = engine();
+                var info = CloudInfo(id);
+                panel.Visibility = info == null ? Visibility.Collapsed : Visibility.Visible;
+                if (info == null) return;
+                var current = S.TaskModel(task, id) ?? "";
+                var models = (S.aiModelLists.TryGetValue(id, out var saved) && saved.Count > 0 ? (IEnumerable<string>)saved : SuggestedModels(id)).ToList();
+                if (current.Length > 0 && !models.Contains(current)) models.Add(current);
+                var def = S.DefaultModel(id);
+                filling = true;
+                box.Items.Clear();
+                box.Items.Add(new ComboBoxItem { Content = $"Mặc định ({(def.Length == 0 ? "chưa chọn" : def)})", Tag = "" });
+                foreach (var name in models) box.Items.Add(new ComboBoxItem { Content = name, Tag = name });
+                box.SelectedIndex = current.Length == 0 ? 0 : models.IndexOf(current) + 1;
+                filling = false;
+                text.Text = info.ready ? "Thiếu model cần dùng? Bấm Tải model ở mục AI." : $"Chưa cài đặt {info.name} {fallback()}";
+                text.Foreground = info.ready ? Ui.Secondary : Ui.Orange;
             }
-            catch (Exception e) { result.Text = $"Không tải được danh sách: {e.Message}"; }
-            loadBtn.IsEnabled = true; loadBtn.Content = "Tải danh sách";
-        }, tip: "Lấy danh sách model thật mà key này dùng được");
-        // Cảnh báo khi engine dịch màn hình thiếu key (cập nhật ngay khi lưu / xoá key).
-        var screenWarn = Ui.Caption("", Ui.Orange);
-        void UpdateScreenWarn()
-        {
-            screenWarn.Text = S.effectiveScreenEngine == ScreenEngine.openAI && S.openAIKey.Length == 0
-                ? "Chưa có OpenAI API key (nhập ở mục OpenAI phía trên) nên sẽ dùng Google Translate."
-                : S.effectiveScreenEngine == ScreenEngine.gemini && S.geminiAPIKey.Length == 0
-                ? "Chưa có Gemini API key (nhập ở mục Gemini phía trên) nên sẽ dùng Google Translate." : "";
-            screenWarn.Visibility = screenWarn.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+            box.SelectionChanged += (_, _) =>
+            {
+                if (filling || box.SelectedItem is not ComboBoxItem item || item.Tag is not string chosen) return;
+                var all = S.taskModels;
+                var key = $"{task}.{engine()}";
+                if (chosen.Length == 0) all.Remove(key); else all[key] = chosen;
+                S.taskModels = all;
+            };
+            Update();
+            return (panel, Update);
         }
-        UpdateScreenWarn();
-        var summaryWarn = Ui.Caption("", Ui.Orange);
-        void UpdateSummaryWarn()
-        {
-            summaryWarn.Text = S.effectiveSummaryEngine == SummaryEngine.openAI && S.openAIKey.Length == 0
-                ? "Chưa có OpenAI API key (nhập ở mục OpenAI phía trên) nên sẽ dùng Gemini."
-                : S.effectiveSummaryEngine == SummaryEngine.gemini && S.geminiAPIKey.Length == 0
-                ? "Chưa có Gemini API key (nhập ở mục Gemini phía trên): Tóm tắt sẽ thử OpenAI, Cốt truyện không chạy được." : "";
-            summaryWarn.Visibility = summaryWarn.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
-        }
-        UpdateSummaryWarn();
-        var keyButtons = Ui.H(8, Ui.Btn("Lưu key", () => { S.geminiAPIKey = key.Password.Trim(); result.Text = "Đã lưu"; UpdateScreenWarn(); }, primary: true), testBtn,
-            Ui.Btn("Xoá key", () => { S.geminiAPIKey = ""; key.Password = ""; result.Text = ""; UpdateScreenWarn(); }));
+        var (subNote, updateSub) = ModelRow(AITask.subtitle, () => S.translationEngine == TranslationEngine.auto ? "gemini" : S.translationEngine.ToString(),
+            () => "nên sẽ dùng Google Translate.");
+        var (screenNote, updateScreen) = ModelRow(AITask.screen, () => S.effectiveScreenEngine.ToString(), () => "nên sẽ dùng Google Translate.");
+        var (summaryNote, updateSummary) = ModelRow(AITask.summary, () => S.effectiveSummaryEngine.ToString(),
+            () => S.effectiveSummaryEngine == SummaryEngine.gemini
+                ? "nên Tóm tắt sẽ thử AI khác đã có key, Cốt truyện không chạy được."
+                : "nên sẽ dùng Gemini.");
+        void UpdateNotes() { updateSub(); updateScreen(); updateSummary(); }
 
         // Mục Tài khoản: email gửi lên server để chủ app nhận diện/duyệt máy (chỉ bản phát hành có kiểm tra máy).
         UIElement? account = null;
@@ -149,23 +137,18 @@ public sealed class SettingsWindow : Window
             account,
             Ui.Section("Ngôn ngữ",
                 Ui.Picker("Dịch sang", TargetLanguage.all.Select(l => (l.code, l.name)), () => S.targetLanguage, v => S.targetLanguage = v)),
-            Ui.Section("Engine dịch phụ đề",
-                Ui.Picker("Engine", Enum.GetValues<TranslationEngine>().Select(e => (e, Labels.Of(e))), () => S.translationEngine, v => { S.translationEngine = v; UpdateScreenWarn(); }, 420)),
-            OpenAISection(UpdateScreenWarn),
-            Ui.Section("Gemini API (free tier)",
-                Ui.V(3, Ui.Caption("API key (aistudio.google.com/apikey)"), key),
-                keyButtons, result,
-                Ui.Row(Ui.H(8, Ui.Text("Model"), modelBox), loadBtn),
-                Ui.Slider("Timeout phụ đề", 2, 10, 0.5, () => S.geminiTimeout, v => S.geminiTimeout = v, v => $"{v:0.0}s"),
+            Ui.Section("Dịch phụ đề",
+                Ui.Picker("AI", Enum.GetValues<TranslationEngine>().Select(e => (e, Labels.Of(e))), () => S.translationEngine, v => { S.translationEngine = v; UpdateNotes(); }, 420),
+                subNote,
                 Ui.Stepper(() => $"Ngữ cảnh: {S.contextPairs} câu trước", 0, 10, 1, () => S.contextPairs, v => S.contextPairs = v)),
             Ui.Section("Dịch màn hình (thủ công)",
-                Ui.Picker("Engine", Enum.GetValues<ScreenEngine>().Select(e => (e, Labels.Of(e))), () => S.screenEngine, v => { S.screenEngine = v; UpdateScreenWarn(); }, 420),
-                screenWarn,
+                Ui.Picker("AI", Enum.GetValues<ScreenEngine>().Select(e => (e, Labels.Of(e))), () => S.screenEngine, v => { S.screenEngine = v; UpdateNotes(); }, 420),
+                screenNote,
                 Ui.Toggle("Đọc tóm tắt bằng giọng nói", () => S.analyzeSpeakSummary, v => S.analyzeSpeakSummary = v),
                 Ui.Slider("Timeout", 5, 60, 5, () => S.analyzeTimeout, v => S.analyzeTimeout = v, v => $"{(int)v}s")),
             Ui.Section("Tóm tắt & cốt truyện (tab Nhật ký)",
-                Ui.Picker("Engine", Enum.GetValues<SummaryEngine>().Select(e => (e, Labels.Of(e))), () => S.summaryEngine, v => { S.summaryEngine = v; UpdateSummaryWarn(); }, 420),
-                summaryWarn,
+                Ui.Picker("AI", Enum.GetValues<SummaryEngine>().Select(e => (e, Labels.Of(e))), () => S.summaryEngine, v => { S.summaryEngine = v; UpdateNotes(); }, 420),
+                summaryNote,
                 Ui.Toggle("Tự động viết cốt truyện game khi đang dịch", () => S.storyEnabled, v => S.storyEnabled = v),
                 Ui.Stepper(() => $"Cập nhật mỗi {S.storyIntervalMin} phút (khi có đủ câu mới)", 5, 60, 5, () => S.storyIntervalMin, v => S.storyIntervalMin = v),
                 Ui.Caption("Mỗi lần cập nhật tốn 1 request, dùng chung quota với dịch phụ đề. Xem ở Nhật ký → Cốt truyện.")),
@@ -173,35 +156,233 @@ public sealed class SettingsWindow : Window
                 Ui.Picker("Chế độ", Enum.GetValues<QueueMode>().Select(q => (q, Labels.Of(q))), () => S.queueMode, v => S.queueMode = v)));
     }
 
-    /// Mục OpenAI trong Cài đặt → Dịch: key, model, thời gian chờ.
-    UIElement OpenAISection(Action keyChanged)
+    record CloudInfoRow(string name, string model, bool ready);
+    /// Tên, model đang chọn và đã cài đặt chưa của một AI qua mạng (theo tên engine); null = Google Translate.
+    CloudInfoRow? CloudInfo(string engine) => engine switch
     {
-        var key = new PasswordBox { Password = S.openAIKey, MinWidth = 320 };
+        "gemini" => new CloudInfoRow("Gemini", S.geminiModel, S.geminiAPIKeys.Count > 0),
+        "openAI" => new CloudInfoRow("OpenAI", S.openAIModel, S.openAIKey.Length > 0),
+        "anthropic" => new CloudInfoRow("Anthropic", S.anthropicModel, S.anthropicKey.Length > 0),
+        "custom" => new CloudInfoRow("API tuỳ chỉnh", S.customModel, S.customReady),
+        _ => null,
+    };
+
+    /// Model gợi ý sẵn của từng nhà cung cấp khi chưa bấm "Tải model" ở mục AI.
+    static IEnumerable<string> SuggestedModels(string provider) => provider switch
+    {
+        "gemini" => GeminiBackend.models, "openAI" => OpenAIBackend.models, "anthropic" => AnthropicBackend.models, _ => Array.Empty<string>(),
+    };
+
+    // MARK: AI
+
+    /// Một nhà cung cấp trả phí trong mục AI (Gemini có mục riêng vì lưu được nhiều key).
+    record AiProvider(string id, string title, string keyHint, string[] suggested,
+        Func<string> getKey, Action<string> setKey, Func<string> getModel, Action<string> setModel,
+        Func<double> getTimeout, Action<double> setTimeout,
+        Func<string, Task<List<string>>> listModels, Func<string, Task<(bool ok, string message)>> test);
+
+    /// Kết quả "Test key" của từng key Gemini đã lưu (giữ lại khi trang vẽ lại sau khi thêm / xoá key).
+    readonly Dictionary<string, string> geminiKeyResults = new();
+
+    /// Che key khi hiện trong danh sách: chỉ để lại vài ký tự đầu và cuối.
+    static string Mask(string key) => key.Length > 12 ? $"{key[..6]}…{key[^4..]}" : new string('•', key.Length);
+
+    /// Ô chọn model (gõ tay được) + hàm nạp lại danh sách sau khi bấm "Tải model".
+    (ComboBox box, Action<IEnumerable<string>> fill) ModelBox(string id, IEnumerable<string> suggested, Func<string> get, Action<string> set)
+    {
+        var box = new ComboBox { MinWidth = 260, IsEditable = true };
+        void Fill(IEnumerable<string> items)
+        {
+            var cur = get();
+            box.Items.Clear();
+            foreach (var m in items) box.Items.Add(m);
+            if (cur.Length > 0 && !box.Items.Contains(cur)) box.Items.Add(cur);
+            box.SelectedItem = cur.Length > 0 ? cur : null;
+            box.Text = cur;
+        }
+        Fill(S.aiModelLists.TryGetValue(id, out var saved) && saved.Count > 0 ? saved : suggested);
+        box.SelectionChanged += (_, _) => { if (box.SelectedItem is string m && m != get()) set(m); };
+        box.LostFocus += (_, _) => { var t = box.Text.Trim(); if (t.Length > 0 && t != get()) set(t); };
+        return (box, Fill);
+    }
+
+    void SaveModelList(string id, List<string> list)
+    {
+        var all = S.aiModelLists;
+        all[id] = list;
+        S.aiModelLists = all;
+    }
+
+    /// Cài đặt → AI: key và model của từng nhà cung cấp. Mục Dịch chỉ còn chọn dùng AI nào.
+    UIElement AI()
+    {
+        var providers = new[]
+        {
+            new AiProvider("openAI", "OpenAI (trả phí)", "API key (platform.openai.com/api-keys)", OpenAIBackend.models,
+                () => S.openAIKey, v => S.openAIKey = v, () => S.openAIModel, v => S.openAIModel = v,
+                () => S.openAITimeout, v => S.openAITimeout = v,
+                k => OpenAIBackend.ListModels(k), k => OpenAIBackend.Test(k, S.openAIModel)),
+            new AiProvider("anthropic", "Anthropic Claude (trả phí)", "API key (console.anthropic.com → API keys)", AnthropicBackend.models,
+                () => S.anthropicKey, v => S.anthropicKey = v, () => S.anthropicModel, v => S.anthropicModel = v,
+                () => S.anthropicTimeout, v => S.anthropicTimeout = v,
+                k => AnthropicBackend.ListModels(k), k => AnthropicBackend.Test(k, S.anthropicModel)),
+            new AiProvider("custom", "API tuỳ chỉnh (tương thích OpenAI)", "API key (bỏ trống nếu máy chủ không cần)", Array.Empty<string>(),
+                () => S.customKey, v => S.customKey = v, () => S.customModel, v => S.customModel = v,
+                () => S.customTimeout, v => S.customTimeout = v,
+                k => OpenAIBackend.ListModels(k, OpenAIBackend.NormalizeBaseURL(S.customBaseURL)),
+                k => OpenAIBackend.Test(k, S.customModel, OpenAIBackend.NormalizeBaseURL(S.customBaseURL), requiresKey: false)),
+        };
+        var stack = Ui.V(14, GeminiSection());
+        foreach (var p in providers) stack.Children.Add(ProviderSection(p));
+        return stack;
+    }
+
+    /// Gemini miễn phí: lưu nhiều key, app dùng xoay vòng để chia đều quota.
+    UIElement GeminiSection()
+    {
+        var keys = S.geminiAPIKeys;
+        var rows = new List<UIElement?>();
+        async Task TestKey(string k, Button btn, TextBlock target)
+        {
+            btn.IsEnabled = false; btn.Content = "Đang test…"; target.Text = "";
+            var (ok, msg) = await GeminiBackend.Test(k, S.geminiModel);
+            target.Text = ok ? $"OK: {msg}" : $"Lỗi: {msg}";
+            if (S.geminiAPIKeys.Contains(k)) geminiKeyResults[k] = target.Text;
+            btn.IsEnabled = true; btn.Content = "Test key";
+        }
+        var savedTests = new List<Action>();
+        foreach (var k in keys)
+        {
+            var key = k;
+            var status = Ui.Caption(geminiKeyResults.TryGetValue(key, out var r) ? r : "");
+            status.MaxWidth = 300; status.TextTrimming = TextTrimming.CharacterEllipsis; status.TextWrapping = TextWrapping.NoWrap;
+            Button? testBtn = null;
+            testBtn = Ui.Btn("Test key", async () => await TestKey(key, testBtn!, status));
+            savedTests.Add(async () => await TestKey(key, testBtn!, status));
+            var mask = Ui.Text(Mask(key), wrap: false);
+            mask.FontFamily = new FontFamily("Consolas");
+            rows.Add(Ui.Row(Ui.H(8, Ui.Icon("\uE8D7", 13, Ui.Secondary), mask, status),
+                testBtn,
+                Ui.Btn("Xoá key", () => { S.geminiAPIKeys = S.geminiAPIKeys.Where(x => x != key).ToList(); geminiKeyResults.Remove(key); Reload(); })));
+        }
+
+        var newKey = new PasswordBox { MinWidth = 320 };
         var result = Ui.Caption("");
-        var models = OpenAIBackend.models.ToList();
-        if (!models.Contains(S.openAIModel)) models.Add(S.openAIModel);
-        var modelBox = new ComboBox { MinWidth = 240, IsEditable = true, Text = S.openAIModel };
-        foreach (var m in models) modelBox.Items.Add(m);
-        modelBox.SelectedItem = S.openAIModel;
-        modelBox.SelectionChanged += (_, _) => { if (modelBox.SelectedItem is string m) S.openAIModel = m; };
-        modelBox.LostFocus += (_, _) => { var t = modelBox.Text.Trim(); if (t.Length > 0 && t != S.openAIModel) S.openAIModel = t; };
-        Button? testBtn = null;
+        Button? testNew = null;
+        testNew = Ui.Btn("Test key", async () =>
+        {
+            var k = newKey.Password.Trim();
+            if (k.Length > 0) await TestKey(k, testNew!, result);
+        });
+        var buttons = Ui.H(8,
+            Ui.Btn("Lưu key", () =>
+            {
+                var k = newKey.Password.Trim();
+                if (k.Length == 0) return;
+                if (S.geminiAPIKeys.Contains(k)) { result.Text = "Key này đã có trong danh sách"; return; }
+                S.geminiAPIKeys = S.geminiAPIKeys.Append(k).ToList();
+                Reload();
+            }, primary: true),
+            testNew);
+        if (keys.Count > 1)
+        {
+            buttons.Children.Add(Ui.Btn("Test tất cả", () => { foreach (var t in savedTests) t(); }));
+            buttons.Children.Add(Ui.Btn("Xoá tất cả", () =>
+            {
+                if (!Ui.Confirm($"Xoá cả {keys.Count} key Gemini đã lưu?")) return;
+                S.geminiAPIKeys = new List<string>(); geminiKeyResults.Clear(); Reload();
+            }));
+        }
+        rows.Add(Ui.V(3, Ui.Caption("Thêm API key (aistudio.google.com/apikey)"), newKey));
+        rows.Add(buttons);
+        rows.Add(result);
+
+        var (modelBox, fill) = ModelBox("gemini", GeminiBackend.models, () => S.geminiModel, m => S.geminiModel = m);
+        Button? loadBtn = null;
+        loadBtn = Ui.Btn("Tải model", async () =>
+        {
+            var k = newKey.Password.Trim().Length > 0 ? newKey.Password.Trim() : S.geminiAPIKey;
+            if (k.Length == 0) { result.Text = "Chưa có key để tải danh sách model"; return; }
+            loadBtn!.IsEnabled = false; loadBtn.Content = "Đang tải…";
+            try
+            {
+                var list = await GeminiBackend.ListModels(k, S.geminiBaseURL);
+                if (list.Count > 0)
+                {
+                    SaveModelList("gemini", list);
+                    if (!list.Contains(S.geminiModel)) S.geminiModel = list[0];
+                    fill(list);
+                }
+                result.Text = $"Có {list.Count} model dùng được";
+            }
+            catch (Exception e) { result.Text = $"Không tải được danh sách: {e.Message}"; }
+            loadBtn.IsEnabled = true; loadBtn.Content = "Tải model";
+        }, tip: "Lấy danh sách model thật mà key này dùng được");
+        rows.Add(Ui.Row(Ui.H(8, Ui.Text("Model"), modelBox), loadBtn));
+        rows.Add(Ui.Slider("Timeout phụ đề", 2, 10, 0.5, () => S.geminiTimeout, x => S.geminiTimeout = x, x => $"{x:0.0}s"));
+        rows.Add(Ui.Caption(keys.Count > 1
+            ? $"Đang có {keys.Count} key: mỗi request dùng key kế tiếp, key nào hết quota (429) thì nghỉ và các key còn lại chạy tiếp. Quota gộp khoảng {S.geminiRPM} request/phút, {S.geminiRPD} request/ngày."
+            : "Thêm nhiều key (mỗi key từ một tài khoản Google) để app dùng xoay vòng: quota miễn phí được cộng lại và ít bị gián đoạn khi một key hết lượt."));
+        return Ui.Section("Gemini (miễn phí, nhiều key dùng xoay vòng)", rows.ToArray());
+    }
+
+    /// Một nhà cung cấp trả phí: key (lưu / test / xoá), model (chọn hoặc tải danh sách), thời gian chờ.
+    UIElement ProviderSection(AiProvider p)
+    {
+        bool isCustom = p.id == "custom";
+        var rows = new List<UIElement?>();
+        if (isCustom)
+        {
+            var url = new TextBox { Text = S.customBaseURL, MinWidth = 320 };
+            url.LostFocus += (_, _) => { var t = url.Text.Trim(); if (t != S.customBaseURL) S.customBaseURL = t; };
+            rows.Add(Ui.V(3, Ui.Caption("Địa chỉ API (ví dụ https://openrouter.ai/api/v1)"), url));
+        }
+        var key = new PasswordBox { Password = p.getKey(), MinWidth = 320 };
+        var result = Ui.Caption("");
+        // API tuỳ chỉnh có thể không cần key; hai hãng còn lại bắt buộc.
+        bool CanCall(string k) => isCustom ? S.customBaseURL.Trim().Length > 0 : k.Length > 0;
+        Button? testBtn = null, loadBtn = null;
         testBtn = Ui.Btn("Test key", async () =>
         {
             var k = key.Password.Trim();
-            if (k.Length == 0) return;
+            if (!CanCall(k)) { result.Text = isCustom ? "Chưa nhập địa chỉ API" : "Chưa nhập key"; return; }
             testBtn!.IsEnabled = false; testBtn.Content = "Đang test…"; result.Text = "";
-            var (ok, msg) = await OpenAIBackend.Test(k, S.openAIModel);
+            var (ok, msg) = await p.test(k);
             result.Text = ok ? $"OK: {msg}" : $"Lỗi: {msg}";
             testBtn.IsEnabled = true; testBtn.Content = "Test key";
         });
-        var keyButtons = Ui.H(8, Ui.Btn("Lưu key", () => { S.openAIKey = key.Password.Trim(); result.Text = "Đã lưu"; keyChanged(); }, primary: true), testBtn,
-            Ui.Btn("Xoá key", () => { S.openAIKey = ""; key.Password = ""; result.Text = ""; keyChanged(); }));
-        return Ui.Section("OpenAI API (trả phí)",
-            Ui.V(3, Ui.Caption("API key (platform.openai.com/api-keys)"), key),
-            keyButtons, result,
-            Ui.H(8, Ui.Text("Model"), modelBox),
-            Ui.Slider("Timeout phụ đề", 2, 10, 0.5, () => S.openAITimeout, v => S.openAITimeout = v, v => $"{v:0.0}s"));
+        rows.Add(Ui.V(3, Ui.Caption(p.keyHint), key));
+        rows.Add(Ui.H(8,
+            Ui.Btn("Lưu key", () => { p.setKey(key.Password.Trim()); result.Text = "Đã lưu"; }, primary: true),
+            testBtn,
+            Ui.Btn("Xoá key", () => { p.setKey(""); key.Password = ""; result.Text = "Đã xoá key"; })));
+        rows.Add(result);
+
+        var (modelBox, fill) = ModelBox(p.id, p.suggested, p.getModel, p.setModel);
+        loadBtn = Ui.Btn("Tải model", async () =>
+        {
+            var k = key.Password.Trim();
+            if (!CanCall(k)) { result.Text = isCustom ? "Chưa nhập địa chỉ API" : "Chưa nhập key"; return; }
+            loadBtn!.IsEnabled = false; loadBtn.Content = "Đang tải…";
+            try
+            {
+                var list = await p.listModels(k);
+                if (list.Count > 0)
+                {
+                    SaveModelList(p.id, list);
+                    if (isCustom && p.getModel().Length == 0) p.setModel(list[0]);
+                    fill(list);
+                }
+                result.Text = $"Có {list.Count} model dùng được";
+            }
+            catch (Exception e) { result.Text = $"Không tải được danh sách: {e.Message}"; }
+            loadBtn.IsEnabled = true; loadBtn.Content = "Tải model";
+        }, tip: "Lấy danh sách model thật mà key này dùng được");
+        rows.Add(Ui.Row(Ui.H(8, Ui.Text("Model"), modelBox), loadBtn));
+        rows.Add(Ui.Slider("Timeout phụ đề", 2, 15, 0.5, p.getTimeout, p.setTimeout, x => $"{x:0.0}s"));
+        if (isCustom)
+            rows.Add(Ui.Caption("Dùng cho máy chủ nói giao thức Chat Completions của OpenAI: OpenRouter, Groq, DeepSeek, hoặc model chạy trên máy như Ollama (http://localhost:11434/v1), LM Studio. Model: gõ tên vào ô hoặc bấm Tải model."));
+        return Ui.Section(p.title, rows.ToArray());
     }
 
     // MARK: Capture & OCR

@@ -399,7 +399,8 @@ final class Pipeline: ObservableObject {
         }
         let regions = settings.subtitleRegions.filter(\.enabled)
         guard !regions.isEmpty else { showAlert("Chưa có vùng phụ đề", "Mở tab Màn hình: chọn vùng game (hoặc kết nối PS5) rồi vẽ khung phụ đề."); return }
-        if settings.geminiAPIKey.isEmpty && apple.installed != true && !router.ai.isAvailable {
+        let noCloud = settings.geminiAPIKey.isEmpty && settings.openAIKey.isEmpty && settings.anthropicKey.isEmpty && !settings.customReady
+        if noCloud && apple.installed != true && !router.ai.isAvailable {
             Log.warn("No translation backend available")
             showNoBackendAlert()
         }

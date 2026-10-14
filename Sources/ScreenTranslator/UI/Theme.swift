@@ -16,6 +16,8 @@ enum Theme {
         case "gemini": return gemini
         case "appleAI": return Color.purple
         case "openAI": return Color(red: 0.06, green: 0.64, blue: 0.5)
+        case "anthropic": return Color(red: 0.85, green: 0.47, blue: 0.34)
+        case "custom": return Color(red: 0.45, green: 0.5, blue: 0.85)
         default: return apple
         }
     }

@@ -133,7 +133,7 @@ struct HeaderBar: View {
             .help("Chụp màn hình game, dịch toàn bộ chữ và mở ảnh với bản dịch đặt đè đúng vị trí (\(settings.hotkeyAnalyze.display))")
 
             StatusPill(color: statusColor, text: router.state.label,
-                       detail: settings.geminiAPIKey.isEmpty ? nil : "\(router.usedToday)/\(settings.rpd)")
+                       detail: settings.geminiAPIKey.isEmpty ? nil : "\(router.usedToday)/\(settings.geminiRPD)")
                 .lineLimit(1)
 
             Spacer(minLength: 8)

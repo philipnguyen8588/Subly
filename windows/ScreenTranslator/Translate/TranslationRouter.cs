@@ -13,23 +13,25 @@ namespace ScreenTranslator;
 /// Chọn backend: Gemini nếu có key, còn quota, không cooldown, có mạng; ngược lại Google Translate.
 public sealed class TranslationRouter : INotifyPropertyChanged
 {
-    public enum StateKind { gemini, googleQuota, googleNoKey, offline, googleOnly, googleError, openAI, openAIFallback }
+    /// `cloud`: đang dùng một AI trả phí (OpenAI, Claude, API tuỳ chỉnh; tên ở `name`). `cloudFallback`: chọn AI đó nhưng
+    /// không dùng được (chưa key, mất mạng, lỗi) → Google Translate.
+    public enum StateKind { gemini, googleQuota, googleNoKey, offline, googleOnly, googleError, cloud, cloudFallback }
 
-    public record State(StateKind kind, string detail = "")
+    public record State(StateKind kind, string detail = "", string name = "")
     {
         public bool isGemini => kind == StateKind.gemini;
         /// 0 xanh, 1 vàng, 2 đỏ
         public int level => kind switch
         {
-            StateKind.gemini or StateKind.googleOnly or StateKind.openAI => 0,
-            StateKind.googleQuota or StateKind.googleError or StateKind.googleNoKey or StateKind.openAIFallback => 1,
+            StateKind.gemini or StateKind.googleOnly or StateKind.cloud => 0,
+            StateKind.googleQuota or StateKind.googleError or StateKind.googleNoKey or StateKind.cloudFallback => 1,
             _ => 2,
         };
         public string label => kind switch
         {
             StateKind.gemini => "Gemini",
-            StateKind.openAI => "OpenAI",
-            StateKind.openAIFallback => $"Google · OpenAI {detail}",
+            StateKind.cloud => name,
+            StateKind.cloudFallback => $"Google · {name} {detail}",
             StateKind.googleQuota => $"Google · Gemini {detail}",
             StateKind.googleNoKey => "Google · chưa có Gemini key",
             StateKind.offline => "Offline · không dịch được",
@@ -58,6 +60,9 @@ public sealed class TranslationRouter : INotifyPropertyChanged
     public readonly GeminiBackend gemini;
     public readonly GoogleFreeBackend google = new();
     public readonly OpenAIBackend openai = new();
+    public readonly AnthropicBackend anthropic = new();
+    /// API tuỳ chỉnh: cùng giao thức với OpenAI, khác địa chỉ.
+    public readonly OpenAIBackend custom = new() { requiresKey = false };
     public readonly RateLimiter limiter;
     readonly AppSettings settings = AppSettings.shared;
     readonly List<TranslationPair> context = new();
@@ -67,11 +72,15 @@ public sealed class TranslationRouter : INotifyPropertyChanged
 
     public TranslationRouter()
     {
-        gemini = new GeminiBackend(settings.geminiAPIKey, settings.geminiModel, settings.geminiTimeout);
-        limiter = new RateLimiter(settings.rpm, settings.rpd);
+        gemini = new GeminiBackend(settings.geminiAPIKeys, settings.geminiModel, settings.geminiTimeout);
+        limiter = new RateLimiter(settings.geminiRPM, settings.geminiRPD);
         lastTarget = settings.targetLanguage;
         openai.subtitlePrompt = () => gemini.subtitleSystemPrompt;
         openai.analysisPrompt = () => gemini.analysisSystemPrompt;
+        anthropic.subtitlePrompt = () => gemini.subtitleSystemPrompt;
+        anthropic.analysisPrompt = () => gemini.analysisSystemPrompt;
+        custom.subtitlePrompt = () => gemini.subtitleSystemPrompt;
+        custom.analysisPrompt = () => gemini.analysisSystemPrompt;
         ApplyGeminiSettings();
         online = NetworkInterface.GetIsNetworkAvailable();
         NetworkChange.NetworkAvailabilityChanged += (_, e) => { online = e.IsAvailable; RefreshState(); };
@@ -87,7 +96,7 @@ public sealed class TranslationRouter : INotifyPropertyChanged
 
     void ApplyGeminiSettings()
     {
-        gemini.apiKey = settings.geminiAPIKey;
+        gemini.apiKeys = settings.geminiAPIKeys;
         gemini.model = settings.geminiModel;
         gemini.timeout = settings.geminiTimeout;
         gemini.baseURL = settings.geminiBaseURL;
@@ -101,12 +110,29 @@ public sealed class TranslationRouter : INotifyPropertyChanged
         openai.apiKey = settings.openAIKey;
         openai.model = settings.openAIModel;
         openai.timeout = settings.openAITimeout;
+        anthropic.apiKey = settings.anthropicKey;
+        anthropic.model = settings.anthropicModel;
+        anthropic.timeout = settings.anthropicTimeout;
+        custom.apiKey = settings.customKey;
+        custom.model = settings.customModel;
+        custom.timeout = settings.customTimeout;
+        custom.baseURL = OpenAIBackend.NormalizeBaseURL(settings.customBaseURL);
     }
 
-    bool useOpenAI => settings.engine == TranslationEngine.openAI;
+    record Cloud(ICloudChatBackend backend, BackendKind kind, string name, string id);
+    /// Nhà cung cấp trả phí ứng với một lựa chọn engine (theo tên, vì ba loại engine dùng chung tên);
+    /// null = Gemini hoặc Google Translate.
+    Cloud? CloudFor(string engine) => engine switch
+    {
+        "openAI" => new Cloud(openai, BackendKind.openAI, "OpenAI", engine),
+        "anthropic" => new Cloud(anthropic, BackendKind.anthropic, "Claude", engine),
+        "custom" => new Cloud(custom, BackendKind.custom, "API tuỳ chỉnh", engine),
+        _ => null,
+    };
+    Cloud? subtitleCloud => CloudFor(settings.engine.ToString());
 
-    /// Số câu nên dịch cùng lúc. Gemini / OpenAI (qua mạng) chạy song song được; Google cũng nhanh nên chỉ 1 để giữ thứ tự gọn.
-    public int parallelism => state.kind is StateKind.gemini or StateKind.openAI ? 3 : 1;
+    /// Số câu nên dịch cùng lúc. Gemini / AI trả phí (qua mạng) chạy song song được; Google cũng nhanh nên chỉ 1 để giữ thứ tự gọn.
+    public int parallelism => state.kind is StateKind.gemini or StateKind.cloud ? 3 : 1;
 
     public void ApplySettings()
     {
@@ -116,7 +142,7 @@ public sealed class TranslationRouter : INotifyPropertyChanged
             lastTarget = settings.targetLanguage;
             ResetContext();
         }
-        limiter.Configure(settings.rpm, settings.rpd);
+        limiter.Configure(settings.geminiRPM, settings.geminiRPD);
         RefreshState();
     }
 
@@ -138,12 +164,12 @@ public sealed class TranslationRouter : INotifyPropertyChanged
 
     void RefreshState()
     {
-        if (useOpenAI)
+        if (subtitleCloud is Cloud c)
         {
-            if (openai.apiKey.Length == 0) { state = new State(StateKind.openAIFallback, "chưa có key"); return; }
-            if (!online) { state = new State(StateKind.openAIFallback, "offline"); return; }
-            if (state.kind == StateKind.openAIFallback && lastError != null) return;
-            state = new State(StateKind.openAI);
+            if (!c.backend.isReady) { state = new State(StateKind.cloudFallback, "chưa cài đặt", c.name); return; }
+            if (!online) { state = new State(StateKind.cloudFallback, "offline", c.name); return; }
+            if (state.kind == StateKind.cloudFallback && lastError != null) return;
+            state = new State(StateKind.cloud, "", c.name);
             return;
         }
         if (!online) { state = new State(StateKind.offline); return; }
@@ -223,29 +249,29 @@ public sealed class TranslationRouter : INotifyPropertyChanged
         RefreshStory();
         var ctx = RecentContext();
         gemini.glossaryFocus = string.Join("\n", new[] { text }.Concat(ctx.Select(p => p.source)));
-        if (useOpenAI && openai.apiKey.Length > 0 && online)
+        if (subtitleCloud is Cloud c && c.backend.isReady && online)
         {
             try
             {
-                var outp = await openai.Translate(text, ctx);
-                state = new State(StateKind.openAI);
+                var outp = await c.backend.Translate(text, ctx, modelOverride: settings.TaskModel(AITask.subtitle, c.id));
+                state = new State(StateKind.cloud, "", c.name);
                 lastError = null;
                 var fixedText = FixSpeaker(text, outp);
                 Remember(text, fixedText);
-                return new Output(fixedText, BackendKind.openAI, Ms(t0));
+                return new Output(fixedText, c.kind, Ms(t0));
             }
             catch (Exception e)
             {
-                state = new State(StateKind.openAIFallback, "lỗi");
+                state = new State(StateKind.cloudFallback, "lỗi", c.name);
                 lastError = e.Message;
-                Log.Warn($"OpenAI lỗi → Google: {e.Message}");
+                Log.Warn($"{c.name} lỗi → Google: {e.Message}");
             }
         }
         if (AcquireGemini())
         {
             try
             {
-                var outp = await gemini.Translate(text, ctx);
+                var outp = await gemini.TranslateWith(text, ctx, settings.TaskModel(AITask.subtitle, "gemini"));
                 usedToday = limiter.usedToday;
                 state = new State(StateKind.gemini);
                 lastError = null;
@@ -281,26 +307,28 @@ public sealed class TranslationRouter : INotifyPropertyChanged
     {
         var t0 = DateTime.UtcNow;
         gemini.glossaryFocus = string.Join("\n", lines);
-        if (settings.effectiveScreenEngine == ScreenEngine.openAI && openai.apiKey.Length > 0 && online)
+        if (CloudFor(settings.effectiveScreenEngine.ToString()) is Cloud c && c.backend.isReady && online)
         {
             try
             {
-                var r = await openai.Analyze(lines, settings.analyzeTimeout);
-                Log.Info($"Dịch màn hình bằng OpenAI ({openai.model})");
+                var screenModel = settings.TaskModel(AITask.screen, c.id);
+                var r = await c.backend.Analyze(lines, settings.analyzeTimeout, modelOverride: screenModel);
+                Log.Info($"Dịch màn hình bằng {c.name} ({screenModel ?? c.backend.modelName})");
                 var translations = lines.Select((_, i) => r.translations.GetValueOrDefault(i + 1) ?? "").ToList();
-                return new AnalysisOutput(r.summary, translations, BackendKind.openAI, Ms(t0));
+                return new AnalysisOutput(r.summary, translations, c.kind, Ms(t0));
             }
-            catch (Exception e) { Log.Warn($"OpenAI (dịch màn hình) lỗi → Google: {e.Message}"); }
+            catch (Exception e) { Log.Warn($"{c.name} (dịch màn hình) lỗi → Google: {e.Message}"); }
         }
         if (AcquireGemini(forScreen: true))
         {
             try
             {
-                var r = await gemini.Analyze(lines, settings.analyzeTimeout);
+                var geminiScreenModel = settings.TaskModel(AITask.screen, "gemini");
+                var r = await gemini.Analyze(lines, settings.analyzeTimeout, modelOverride: geminiScreenModel);
                 usedToday = limiter.usedToday;
                 activeModel = gemini.activeModel;
                 AdoptFallbackModelIfNeeded();
-                Log.Info($"Dịch màn hình bằng Gemini ({gemini.activeModel ?? settings.geminiModel})");
+                Log.Info($"Dịch màn hình bằng Gemini ({geminiScreenModel ?? gemini.activeModel ?? settings.geminiModel})");
                 var translations = lines.Select((_, i) => r.translations.GetValueOrDefault(i + 1) ?? "").ToList();
                 return new AnalysisOutput(r.summary, translations, BackendKind.gemini, Ms(t0));
             }
@@ -321,8 +349,8 @@ public sealed class TranslationRouter : INotifyPropertyChanged
 
     // MARK: story summary
 
-    /// Tóm tắt các câu phụ đề người dùng chọn trong nhật ký. Dùng engine của "Tóm tắt & cốt truyện" trước (OpenAI / Gemini),
-    /// lỗi hoặc không có thì thử engine trên mạng còn lại (Windows không có model trên máy như Apple Intelligence).
+    /// Tóm tắt các câu phụ đề người dùng chọn trong nhật ký. Dùng AI của "Tóm tắt & cốt truyện" trước, lỗi hoặc chưa cài đặt
+    /// thì thử Gemini rồi các AI trả phí còn lại (Windows không có model trên máy như Apple Intelligence).
     public async Task<StoryOutput> SummarizeStory(IList<string> lines)
     {
         var t0 = DateTime.UtcNow;
@@ -331,34 +359,41 @@ public sealed class TranslationRouter : INotifyPropertyChanged
         const string jsonRule = "\nReply with JSON only, no code fences and no other text, exactly in this shape:\n{\"title\": \"…\", \"summary\": \"…\"}";
         var input = string.Join("\n", lines);
         double timeout = Math.Max(settings.analyzeTimeout, 60);
-        Exception lastErr = new InvalidOperationException("Không có engine nào tóm tắt được (cần OpenAI hoặc Gemini API key)");
+        Exception lastErr = new InvalidOperationException("Không có AI nào tóm tắt được (nhập API key ở Cài đặt → AI)");
         StoryOutput Out(string raw, BackendKind backend)
         {
             var (title, summary) = ParseStory(raw);
             if (summary.Length == 0) throw new InvalidOperationException("Model trả về tóm tắt rỗng");
             return new StoryOutput(title, summary, backend, Ms(t0));
         }
-        var order = settings.effectiveSummaryEngine == SummaryEngine.openAI ? new[] { BackendKind.openAI, BackendKind.gemini } : new[] { BackendKind.gemini, BackendKind.openAI };
-        foreach (var b in order)
+        async Task<StoryOutput?> ViaCloud(Cloud c)
         {
-            if (b == BackendKind.openAI && openai.apiKey.Length > 0 && online)
-            {
-                try { return Out(await openai.Complete(system + jsonRule, input, true, 2500, timeout), BackendKind.openAI); }
-                catch (Exception e) { Log.Warn($"OpenAI (tóm tắt) lỗi → engine khác: {e.Message}"); lastErr = e; }
-            }
-            if (b == BackendKind.gemini && !string.IsNullOrEmpty(gemini.apiKey) && online && limiter.Acquire() == null)
-            {
-                try
-                {
-                    var raw = await gemini.Generate(system + jsonRule, input, timeout);
-                    usedToday = limiter.usedToday;
-                    activeModel = gemini.activeModel;
-                    return Out(raw, BackendKind.gemini);
-                }
-                catch (Exception e) { HandleGeminiError(e); lastErr = e; }
-            }
+            if (!c.backend.isReady || !online) return null;
+            try { return Out(await c.backend.Complete(system + jsonRule, input, true, 2500, timeout, modelOverride: settings.TaskModel(AITask.summary, c.id)), c.kind); }
+            catch (Exception e) { Log.Warn($"{c.name} (tóm tắt) lỗi → engine khác: {e.Message}"); lastErr = e; return null; }
         }
-        throw lastErr;
+        async Task<StoryOutput?> ViaGemini()
+        {
+            if (string.IsNullOrEmpty(gemini.apiKey) || !online || limiter.Acquire() != null) return null;
+            try
+            {
+                var raw = await gemini.Generate(system + jsonRule, input, timeout, modelOverride: settings.TaskModel(AITask.summary, "gemini"));
+                usedToday = limiter.usedToday;
+                activeModel = gemini.activeModel;
+                return Out(raw, BackendKind.gemini);
+            }
+            catch (Exception e) { HandleGeminiError(e); lastErr = e; return null; }
+        }
+        var chosen = CloudFor(settings.effectiveSummaryEngine.ToString());
+        StoryOutput? done = chosen != null ? await ViaCloud(chosen) : null;
+        done ??= await ViaGemini();
+        foreach (var name in new[] { "openAI", "anthropic", "custom" })
+        {
+            if (done != null) break;
+            var other = CloudFor(name)!;
+            if (other.kind != chosen?.kind) done = await ViaCloud(other);
+        }
+        return done ?? throw lastErr;
     }
 
     /// Chuẩn hoá từng dòng, giữ xuống đoạn.
@@ -388,11 +423,11 @@ public sealed class TranslationRouter : INotifyPropertyChanged
         if (!online) throw new StoryException("Không có mạng");
         var t0 = DateTime.UtcNow;
         var system = gemini.StoryUpdatePrompt(focus);
-        Exception lastErr = new StoryException("Cốt truyện cần Gemini hoặc OpenAI. Nhập key và chọn engine ở Cài đặt → Dịch → Tóm tắt & cốt truyện");
-        if (settings.effectiveSummaryEngine == SummaryEngine.openAI && openai.apiKey.Length > 0)
+        Exception lastErr = new StoryException("Cốt truyện cần một AI qua mạng. Nhập key ở Cài đặt → AI rồi chọn AI ở Cài đặt → Dịch → Tóm tắt & cốt truyện");
+        if (CloudFor(settings.effectiveSummaryEngine.ToString()) is Cloud c && c.backend.isReady)
         {
-            try { return new StoryUpdateOutput(StoryUpdate.Parse(await openai.Complete(system, input, true, 6000, 75)), BackendKind.openAI, Ms(t0)); }
-            catch (Exception e) { Log.Warn($"OpenAI (cốt truyện) lỗi: {e.Message}"); lastErr = e; }
+            try { return new StoryUpdateOutput(StoryUpdate.Parse(await c.backend.Complete(system, input, true, 6000, 75, modelOverride: settings.TaskModel(AITask.summary, c.id))), c.kind, Ms(t0)); }
+            catch (Exception e) { Log.Warn($"{c.name} (cốt truyện) lỗi: {e.Message}"); lastErr = e; }
         }
         if (string.IsNullOrEmpty(gemini.apiKey)) throw lastErr;
         if (background)
@@ -400,7 +435,7 @@ public sealed class TranslationRouter : INotifyPropertyChanged
             var room = limiter.Headroom();
             if (room.cooldown) throw StoryException.Busy("đang chờ sau khi hết quota");
             if (room.minuteLeft < 4) throw StoryException.Busy("đang bận dịch phụ đề");
-            if (room.dayLeft < Math.Max(20, settings.rpd / 10)) throw StoryException.Busy("sắp hết quota trong ngày");
+            if (room.dayLeft < Math.Max(20, settings.geminiRPD / 10)) throw StoryException.Busy("sắp hết quota trong ngày");
         }
         // Model đôi khi trả JSON hỏng hoặc bị cắt cụt: thử lại một lần ngay, vẫn hỏng mới báo lỗi.
         for (int attempt = 1; attempt <= 2; attempt++)
@@ -416,7 +451,7 @@ public sealed class TranslationRouter : INotifyPropertyChanged
             string raw;
             try
             {
-                raw = await gemini.Generate(system, input, 75, maxOutputTokens: 8192);
+                raw = await gemini.Generate(system, input, 75, maxOutputTokens: 8192, modelOverride: settings.TaskModel(AITask.summary, "gemini"));
                 usedToday = limiter.usedToday;
             }
             catch (GeminiException g) when (g.kind == GeminiException.Kind.rateLimited)

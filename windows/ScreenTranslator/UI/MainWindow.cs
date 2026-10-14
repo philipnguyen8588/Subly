@@ -171,7 +171,7 @@ public sealed class HeaderBar : Border
         analyzeBtn.IsEnabled = !an.isRunning;
         analyzeBtn.ToolTip = $"Chụp màn hình game, dịch toàn bộ chữ và mở ảnh với bản dịch đặt đè đúng vị trí ({s.hotkeyAnalyze.display})";
         var color = router.state.level switch { 0 => Ui.Gemini, 1 => Ui.Orange, _ => Ui.Danger };
-        var detail = s.geminiAPIKey.Length == 0 ? "" : $"  {router.usedToday}/{s.rpd}";
+        var detail = s.geminiAPIKey.Length == 0 ? "" : $"  {router.usedToday}/{s.geminiRPD}";
         pill.Background = new SolidColorBrush(((SolidColorBrush)color).Color) { Opacity = 0.14 };
         pill.Child = Ui.H(6, Ui.Dot(color, 7), Ui.Text(router.state.label + detail, 12, color: color, wrap: false));
         pill.MaxWidth = 300;

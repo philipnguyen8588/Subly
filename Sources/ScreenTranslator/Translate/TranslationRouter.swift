@@ -16,22 +16,22 @@ final class TranslationRouter: ObservableObject {
         case geminiFailedNoApple(String)   // Gemini lỗi và Apple chưa cài → không dịch được
         case appleAI                       // Apple Intelligence (model trên máy)
         case aiUnavailable(String)         // chọn Apple Intelligence nhưng chưa dùng được → Apple Translation
-        case openAI                        // OpenAI (trả phí)
-        case openAIFallback(String)        // chọn OpenAI nhưng không dùng được (chưa key, mất mạng, lỗi) → Apple Intelligence
+        case cloud(String)                 // nhà cung cấp trả phí (OpenAI, Claude, API tuỳ chỉnh), kèm tên
+        case cloudFallback(String, String) // chọn nhà cung cấp đó nhưng không dùng được (chưa key, mất mạng, lỗi) → Apple Intelligence
 
         var isGemini: Bool { self == .gemini }
         var level: Int {   // 0 xanh, 1 vàng, 2 đỏ
             switch self {
-            case .gemini, .appleAI, .openAI: return 0
-            case .appleQuota, .appleError, .appleOnly, .aiUnavailable, .openAIFallback: return 1
+            case .gemini, .appleAI, .cloud: return 0
+            case .appleQuota, .appleError, .appleOnly, .aiUnavailable, .cloudFallback: return 1
             case .appleNoKey, .appleOffline, .appleNotInstalled, .geminiFailedNoApple: return 2
             }
         }
         var label: String {
             switch self {
             case .gemini: return "Gemini"
-            case .openAI: return "OpenAI"
-            case .openAIFallback(let s): return "Apple Intelligence · OpenAI \(s)"
+            case .cloud(let name): return name
+            case .cloudFallback(let name, let s): return "Apple Intelligence · \(name) \(s)"
             case .appleAI: return "Apple Intelligence"
             case .aiUnavailable(let s): return "Apple · Apple Intelligence \(s)"
             case .appleQuota(let s): return "Apple · Gemini \(s)"
@@ -68,6 +68,9 @@ final class TranslationRouter: ObservableObject {
     let apple: AppleTranslationBackend
     let ai = AppleIntelligenceBackend()
     let openai = OpenAIBackend()
+    let anthropic = AnthropicBackend()
+    /// API tuỳ chỉnh: cùng giao thức với OpenAI, khác địa chỉ.
+    let custom = OpenAIBackend()
     let limiter: RateLimiter
     private let settings = AppSettings.shared
     private var context: [TranslationPair] = []
@@ -77,13 +80,18 @@ final class TranslationRouter: ObservableObject {
 
     init(apple: AppleTranslationBackend) {
         self.apple = apple
-        self.gemini = GeminiBackend(apiKey: settings.geminiAPIKey, model: settings.geminiModel, timeout: settings.geminiTimeout)
-        self.limiter = RateLimiter(rpm: settings.rpm, rpd: settings.rpd)
+        self.gemini = GeminiBackend(apiKeys: settings.geminiAPIKeys, model: settings.geminiModel, timeout: settings.geminiTimeout)
+        self.limiter = RateLimiter(rpm: settings.geminiRPM, rpd: settings.geminiRPD)
         self.lastTarget = settings.targetLanguage
         applyGeminiSettings()
         ai.instructions = { [gemini] in gemini.subtitleSystemPrompt }
         openai.subtitlePrompt = { [gemini] in gemini.subtitleSystemPrompt }
         openai.analysisPrompt = { [gemini] in gemini.analysisSystemPrompt }
+        anthropic.subtitlePrompt = { [gemini] in gemini.subtitleSystemPrompt }
+        anthropic.analysisPrompt = { [gemini] in gemini.analysisSystemPrompt }
+        custom.subtitlePrompt = { [gemini] in gemini.subtitleSystemPrompt }
+        custom.analysisPrompt = { [gemini] in gemini.analysisSystemPrompt }
+        custom.requiresKey = false
         ai.summaryInstructions = { [gemini] in
             "You are helping a player understand a video game screen. The user gives numbered lines of English text extracted by OCR from one screenshot. " +
             "Reply in \(gemini.targetName) with a summary of the screen. " + GeminiBackend.summaryGuide + " Output only that summary."
@@ -104,7 +112,7 @@ final class TranslationRouter: ObservableObject {
     }
 
     private func applyGeminiSettings() {
-        gemini.apiKey = settings.geminiAPIKey
+        gemini.apiKeys = settings.geminiAPIKeys
         gemini.model = settings.geminiModel
         gemini.timeout = settings.geminiTimeout
         gemini.baseURL = settings.geminiBaseURL
@@ -119,14 +127,36 @@ final class TranslationRouter: ObservableObject {
         openai.apiKey = settings.openAIKey
         openai.model = settings.openAIModel
         openai.timeout = settings.openAITimeout
+        anthropic.apiKey = settings.anthropicKey
+        anthropic.model = settings.anthropicModel
+        anthropic.timeout = settings.anthropicTimeout
+        custom.apiKey = settings.customKey
+        custom.model = settings.customModel
+        custom.timeout = settings.customTimeout
+        custom.baseURL = OpenAIBackend.normalize(baseURL: settings.customBaseURL)
     }
 
     private var useAI: Bool { settings.engine == .appleIntelligence }
-    private var useOpenAI: Bool { settings.engine == .openAI }
+
+    typealias Cloud = (backend: CloudChatBackend, kind: BackendKind, name: String, id: String)
+    /// Nhà cung cấp trả phí ứng với một lựa chọn engine (theo rawValue, vì ba loại engine dùng chung tên);
+    /// nil = Gemini hoặc engine trên máy.
+    private func cloud(_ engine: String) -> Cloud? {
+        switch engine {
+        case "openAI": return (openai, .openAI, "OpenAI", engine)
+        case "anthropic": return (anthropic, .anthropic, "Claude", engine)
+        case "custom": return (custom, .custom, "API tuỳ chỉnh", engine)
+        default: return nil
+        }
+    }
+    private var subtitleCloud: Cloud? { cloud(settings.engine.rawValue) }
 
     /// Số câu nên dịch cùng lúc. Gemini (qua mạng) chạy song song được; model trên máy của Apple Intelligence xử lý
     /// lần lượt (đo thực tế: gửi song song không nhanh hơn mà còn đảo thứ tự) nên chỉ 1; Apple Translation vốn tức thì.
-    var parallelism: Int { state == .gemini || state == .openAI ? 3 : 1 }
+    var parallelism: Int {
+        if case .cloud = state { return 3 }
+        return state == .gemini ? 3 : 1
+    }
     func prewarm() { if useAI { ai.prewarm() } }
 
     func applySettings() {
@@ -136,7 +166,7 @@ final class TranslationRouter: ObservableObject {
             resetContext()
         }
         Task {
-            await limiter.configure(rpm: settings.rpm, rpd: settings.rpd)
+            await limiter.configure(rpm: settings.geminiRPM, rpd: settings.geminiRPD)
             refreshState()
         }
     }
@@ -157,11 +187,11 @@ final class TranslationRouter: ObservableObject {
     private func refreshUsage() async { usedToday = await limiter.usedToday }
 
     private func refreshState() {
-        if useOpenAI {
-            if openai.apiKey.isEmpty { state = .openAIFallback("chưa có key"); return }
-            if !online { state = .openAIFallback("offline"); return }
-            if case .openAIFallback = state, lastError != nil { return }
-            state = .openAI
+        if let c = subtitleCloud {
+            if !c.backend.isReady { state = .cloudFallback(c.name, "chưa cài đặt"); return }
+            if !online { state = .cloudFallback(c.name, "offline"); return }
+            if case .cloudFallback = state, lastError != nil { return }
+            state = .cloud(c.name)
             return
         }
         if settings.preferSpeed { state = apple.installed == false ? .appleNotInstalled : .appleOnly; return }
@@ -234,23 +264,26 @@ final class TranslationRouter: ObservableObject {
         let t0 = Date()
         refreshStory()
         gemini.glossaryFocus = ([text] + context.suffix(settings.contextPairs).map(\.source)).joined(separator: "\n")
-        if useOpenAI, !openai.apiKey.isEmpty, online {
+        let useCloud = subtitleCloud != nil
+        if let c = subtitleCloud, c.backend.isReady, online {
             do {
-                let out = try await openai.translate(text, context: Array(context.suffix(settings.contextPairs)))
-                state = .openAI
+                let out = try await c.backend.translate(text, context: Array(context.suffix(settings.contextPairs)),
+                                                        model: settings.taskModel(.subtitle, c.id))
+                state = .cloud(c.name)
                 lastError = nil
                 let fixed = Self.fixSpeaker(source: text, translated: out)
                 remember(text, fixed)
-                return Output(text: fixed, backend: .openAI, ms: Int(Date().timeIntervalSince(t0) * 1000))
+                return Output(text: fixed, backend: c.kind, ms: Int(Date().timeIntervalSince(t0) * 1000))
             } catch {
-                state = .openAIFallback("lỗi")
+                state = .cloudFallback(c.name, "lỗi")
                 lastError = error.localizedDescription
-                Log.warn("OpenAI lỗi → Apple Intelligence: \(error.localizedDescription)")
+                Log.warn("\(c.name) lỗi → Apple Intelligence: \(error.localizedDescription)")
             }
         }
         if await acquireGemini() {
             do {
-                let out = try await gemini.translate(text, context: Array(context.suffix(settings.contextPairs)))
+                let out = try await gemini.translate(text, context: Array(context.suffix(settings.contextPairs)),
+                                                     model: settings.taskModel(.subtitle, "gemini"))
                 usedToday = await limiter.usedToday
                 state = .gemini
                 lastError = nil
@@ -264,7 +297,7 @@ final class TranslationRouter: ObservableObject {
             }
         }
         // Apple Intelligence: khi được chọn, hoặc làm dự phòng cuối khi chưa cài gói Apple Translation.
-        if (useAI || useOpenAI || apple.installed != true), ai.isAvailable {
+        if (useAI || useCloud || apple.installed != true), ai.isAvailable {
             do {
                 let out = try await ai.translate(text, context: Array(context.suffix(settings.contextPairs)))
                 if useAI { state = .appleAI; lastError = nil }
@@ -306,10 +339,10 @@ final class TranslationRouter: ObservableObject {
         case noEngine, empty, offline, needsCloud, busy(String), badJSON
         var errorDescription: String? {
             switch self {
-            case .noEngine: return "Không có engine nào tóm tắt được (cần OpenAI, Gemini hoặc Apple Intelligence)"
+            case .noEngine: return "Không có engine nào tóm tắt được (cần một AI qua mạng hoặc Apple Intelligence)"
             case .empty: return "Model trả về tóm tắt rỗng"
             case .offline: return "Không có mạng"
-            case .needsCloud: return "Cốt truyện cần Gemini hoặc OpenAI. Nhập key và chọn engine ở Cài đặt → Dịch → Tóm tắt & cốt truyện"
+            case .needsCloud: return "Cốt truyện cần một AI qua mạng. Nhập key ở Cài đặt → AI rồi chọn engine ở Cài đặt → Dịch → Tóm tắt & cốt truyện"
             case .busy(let s): return "Tạm hoãn: Gemini \(s)"
             case .badJSON: return "Model trả về dữ liệu không đọc được"
             }
@@ -332,18 +365,20 @@ final class TranslationRouter: ObservableObject {
             return StoryOutput(title: title, summary: summary, backend: backend, ms: Int(Date().timeIntervalSince(t0) * 1000))
         }
         let engine = settings.effectiveSummaryEngine
-        if engine == .openAI, !openai.apiKey.isEmpty, online {
+        if let c = cloud(engine.rawValue), c.backend.isReady, online {
             do {
-                let raw = try await openai.complete(system: system + jsonRule, user: input, json: true, maxTokens: 2500, timeout: timeout)
-                return try output(raw, .openAI)
+                let raw = try await c.backend.complete(system: system + jsonRule, user: input, json: true, maxTokens: 2500, timeout: timeout,
+                                                       model: settings.taskModel(.summary, c.id))
+                return try output(raw, c.kind)
             } catch {
-                Log.warn("OpenAI (tóm tắt) lỗi → engine khác: \(error.localizedDescription)")
+                Log.warn("\(c.name) (tóm tắt) lỗi → engine khác: \(error.localizedDescription)")
                 lastErr = error
             }
         }
         if engine != .appleIntelligence, await acquireGemini(forSummary: true) {
             do {
-                let raw = try await gemini.generate(system: system + jsonRule, input: input, timeout: timeout)
+                let raw = try await gemini.generate(system: system + jsonRule, input: input, timeout: timeout,
+                                                    model: settings.taskModel(.summary, "gemini"))
                 usedToday = await limiter.usedToday
                 activeModel = gemini.activeModel
                 return try output(raw, .gemini)
@@ -429,11 +464,12 @@ final class TranslationRouter: ObservableObject {
         func output(_ raw: String, _ backend: BackendKind) throws -> StoryUpdateOutput {
             StoryUpdateOutput(update: try StoryUpdate.parse(raw), backend: backend, ms: Int(Date().timeIntervalSince(t0) * 1000))
         }
-        if settings.effectiveSummaryEngine == .openAI, !openai.apiKey.isEmpty {
+        if let c = cloud(settings.effectiveSummaryEngine.rawValue), c.backend.isReady {
             do {
-                return try output(try await openai.complete(system: system, user: input, json: true, maxTokens: 6000, timeout: 75), .openAI)
+                return try output(try await c.backend.complete(system: system, user: input, json: true, maxTokens: 6000, timeout: 75,
+                                                               model: settings.taskModel(.summary, c.id)), c.kind)
             } catch {
-                Log.warn("OpenAI (cốt truyện) lỗi: \(error.localizedDescription)")
+                Log.warn("\(c.name) (cốt truyện) lỗi: \(error.localizedDescription)")
                 lastErr = error
             }
         }
@@ -442,7 +478,7 @@ final class TranslationRouter: ObservableObject {
             let room = await limiter.headroom()
             if room.cooldown { throw StoryError.busy("đang chờ sau khi hết quota") }
             if room.minuteLeft < 4 { throw StoryError.busy("đang bận dịch phụ đề") }
-            if room.dayLeft < max(20, settings.rpd / 10) { throw StoryError.busy("sắp hết quota trong ngày") }
+            if room.dayLeft < max(20, settings.geminiRPD / 10) { throw StoryError.busy("sắp hết quota trong ngày") }
         }
         // Model đôi khi trả JSON hỏng hoặc bị cắt cụt: thử lại một lần ngay, vẫn hỏng mới báo lỗi.
         for attempt in 1...2 {
@@ -454,7 +490,8 @@ final class TranslationRouter: ObservableObject {
                 }
             }
             do {
-                let raw = try await gemini.generate(system: system, input: input, timeout: 75, maxOutputTokens: 8192)
+                let raw = try await gemini.generate(system: system, input: input, timeout: 75, maxOutputTokens: 8192,
+                                                    model: settings.taskModel(.summary, "gemini"))
                 usedToday = await limiter.usedToday
                 do { return try output(raw, .gemini) } catch StoryError.badJSON {
                     Log.warn("Cốt truyện: JSON không đọc được (lần \(attempt), \(raw.count) ký tự): "
@@ -475,24 +512,26 @@ final class TranslationRouter: ObservableObject {
     func analyze(lines: [String]) async -> AnalysisOutput? {
         let t0 = Date()
         gemini.glossaryFocus = lines.joined(separator: "\n")
-        if settings.effectiveScreenEngine == .openAI, !openai.apiKey.isEmpty, online {
+        if let c = cloud(settings.effectiveScreenEngine.rawValue), c.backend.isReady, online {
             do {
-                let r = try await openai.analyze(lines: lines, timeout: settings.analyzeTimeout)
-                Log.info("Dịch màn hình bằng OpenAI (\(openai.model))")
+                let model = settings.taskModel(.screen, c.id)
+                let r = try await c.backend.analyze(lines: lines, timeout: settings.analyzeTimeout, model: model)
+                Log.info("Dịch màn hình bằng \(c.name) (\(model ?? c.backend.model))")
                 let translations = lines.indices.map { r.translations[$0 + 1] ?? "" }
-                return AnalysisOutput(summary: r.summary, translations: translations, backend: .openAI,
+                return AnalysisOutput(summary: r.summary, translations: translations, backend: c.kind,
                                       ms: Int(Date().timeIntervalSince(t0) * 1000))
             } catch {
-                Log.warn("OpenAI (dịch màn hình) lỗi → engine trên máy: \(error.localizedDescription)")
+                Log.warn("\(c.name) (dịch màn hình) lỗi → engine trên máy: \(error.localizedDescription)")
             }
         }
         if await acquireGemini(forScreen: true) {
             do {
-                let r = try await gemini.analyze(lines: lines, timeout: settings.analyzeTimeout)
+                let model = settings.taskModel(.screen, "gemini")
+                let r = try await gemini.analyze(lines: lines, timeout: settings.analyzeTimeout, model: model)
                 usedToday = await limiter.usedToday
                 activeModel = gemini.activeModel
                 adoptFallbackModelIfNeeded()
-                Log.info("Dịch màn hình bằng Gemini (\(gemini.activeModel ?? settings.geminiModel))")
+                Log.info("Dịch màn hình bằng Gemini (\(model ?? gemini.activeModel ?? settings.geminiModel))")
                 let translations = lines.indices.map { r.translations[$0 + 1] ?? "" }
                 return AnalysisOutput(summary: r.summary, translations: translations, backend: .gemini,
                                       ms: Int(Date().timeIntervalSince(t0) * 1000))

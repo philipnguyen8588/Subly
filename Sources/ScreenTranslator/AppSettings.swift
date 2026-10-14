@@ -98,7 +98,7 @@ final class AppSettings: ObservableObject {
             case .gemini: summaryEngine = .gemini
             case .openAI: summaryEngine = .openAI
             case .appleIntelligence: summaryEngine = .appleIntelligence
-            case .sameAsSubtitle, .appleTranslation: break
+            case .sameAsSubtitle, .appleTranslation, .anthropic, .custom: break
             }
             UserDefaults.standard.set(true, forKey: "summaryEngineMigrated")
         }
@@ -267,6 +267,8 @@ final class AppSettings: ObservableObject {
         switch engine {
         case .auto: return .gemini
         case .openAI: return .openAI
+        case .anthropic: return .anthropic
+        case .custom: return .custom
         case .appleIntelligence: return .appleIntelligence
         case .appleTranslation: return .appleTranslation
         }
@@ -282,6 +284,8 @@ final class AppSettings: ObservableObject {
         switch engine {
         case .auto, .appleTranslation: return .gemini
         case .openAI: return .openAI
+        case .anthropic: return .anthropic
+        case .custom: return .custom
         case .appleIntelligence: return .appleIntelligence
         }
     }
@@ -336,7 +340,7 @@ final class AppSettings: ObservableObject {
     @Stored("hotkeyOverlay") var hotkeyOverlay: KeyCombo = KeyCombo(keyCode: 31, modifiers: KeyCombo.cmd | KeyCombo.option)  // ⌥⌘O
     @Stored("hotkeysEnabled") var hotkeysEnabled: Bool = true
 
-    // MARK: OpenAI (trả phí)
+    // MARK: AI (Cài đặt → AI: key và model của từng nhà cung cấp)
     @Stored("openAIModel") var openAIModel: String = "gpt-5.4-nano"
     @Stored("openAITimeout") var openAITimeout: Double = 4.0
     var openAIKey: String {
@@ -344,10 +348,65 @@ final class AppSettings: ObservableObject {
         set { objectWillChange.send(); SecretStore.set(newValue, name: "openai-api-key") }
     }
 
-    var geminiAPIKey: String {
-        get { SecretStore.get("gemini-api-key") ?? "" }
-        set { objectWillChange.send(); SecretStore.set(newValue, name: "gemini-api-key") }
+    @Stored("anthropicModel") var anthropicModel: String = "claude-haiku-5-5"
+    @Stored("anthropicTimeout") var anthropicTimeout: Double = 5.0
+    var anthropicKey: String {
+        get { SecretStore.get("anthropic-api-key") ?? "" }
+        set { objectWillChange.send(); SecretStore.set(newValue, name: "anthropic-api-key") }
     }
+
+    /// API tuỳ chỉnh: máy chủ bất kỳ nói giao thức Chat Completions của OpenAI (OpenRouter, Ollama, LM Studio…).
+    @Stored("customBaseURL") var customBaseURL: String = ""
+    @Stored("customModel") var customModel: String = ""
+    @Stored("customTimeout") var customTimeout: Double = 6.0
+    var customKey: String {
+        get { SecretStore.get("custom-api-key") ?? "" }
+        set { objectWillChange.send(); SecretStore.set(newValue, name: "custom-api-key") }
+    }
+    /// Máy chủ chạy trên máy (Ollama…) không cần key, nên chỉ cần địa chỉ và model.
+    var customReady: Bool { !customBaseURL.trimmingCharacters(in: .whitespaces).isEmpty && !customModel.isEmpty }
+
+    /// Model riêng cho từng việc, chọn ở Cài đặt → Dịch. Khoá "<việc>.<nhà cung cấp>" (ví dụ "summary.anthropic");
+    /// không có hoặc trống = dùng model mặc định của nhà cung cấp đó ở Cài đặt → AI.
+    @Stored("taskModels") var taskModels: [String: String] = [:]
+    func taskModel(_ task: AITask, _ provider: String) -> String? {
+        guard let m = taskModels["\(task.rawValue).\(provider)"], !m.isEmpty else { return nil }
+        return m
+    }
+    /// Model mặc định của một nhà cung cấp (gemini / openAI / anthropic / custom).
+    func defaultModel(_ provider: String) -> String {
+        switch provider {
+        case "gemini": return geminiModel
+        case "openAI": return openAIModel
+        case "anthropic": return anthropicModel
+        case "custom": return customModel
+        default: return ""
+        }
+    }
+
+    /// Danh sách model đã tải về bằng nút "Tải model" của từng nhà cung cấp (giữ lại giữa các lần mở app).
+    @Stored("aiModelLists") var aiModelLists: [String: [String]] = [:]
+
+    /// Gemini miễn phí nên cho lưu nhiều key (mỗi dòng một key trong file bí mật) và dùng xoay vòng.
+    var geminiAPIKeys: [String] {
+        get {
+            (SecretStore.get("gemini-api-key") ?? "").split(whereSeparator: \.isNewline)
+                .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        }
+        set {
+            objectWillChange.send()
+            var seen = Set<String>()
+            SecretStore.set(newValue.filter { !$0.isEmpty && seen.insert($0).inserted }.joined(separator: "\n"), name: "gemini-api-key")
+        }
+    }
+    /// Key đầu tiên (đặt = thay toàn bộ danh sách bằng một key; dùng cho cờ --gemini-key).
+    var geminiAPIKey: String {
+        get { geminiAPIKeys.first ?? "" }
+        set { geminiAPIKeys = newValue.isEmpty ? [] : [newValue] }
+    }
+    /// Quota mỗi phút / mỗi ngày tính gộp trên mọi key.
+    var geminiRPM: Int { rpm * max(1, geminiAPIKeys.count) }
+    var geminiRPD: Int { rpd * max(1, geminiAPIKeys.count) }
 
     var target: TargetLanguage { TargetLanguage.find(targetLanguage) }
     var voiceOn: Bool { voiceEnabled }

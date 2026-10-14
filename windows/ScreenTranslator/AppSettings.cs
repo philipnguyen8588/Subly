@@ -302,6 +302,8 @@ public sealed class AppSettings : INotifyPropertyChanged
     {
         TranslationEngine.auto => ScreenEngine.gemini,
         TranslationEngine.openAI => ScreenEngine.openAI,
+        TranslationEngine.anthropic => ScreenEngine.anthropic,
+        TranslationEngine.custom => ScreenEngine.custom,
         _ => ScreenEngine.google,
     };
     public bool analyzeSpeakSummary { get => Get("analyzeSpeakSummary", false); set => Set("analyzeSpeakSummary", value); }
@@ -311,7 +313,13 @@ public sealed class AppSettings : INotifyPropertyChanged
     public SummaryEngine summaryEngine { get => Get("summaryEngine", SummaryEngine.sameAsSubtitle); set => Set("summaryEngine", value); }
     /// Engine thật sự viết tóm tắt / cốt truyện. Engine phụ đề không tóm tắt được (Google Translate) thì dùng Gemini.
     public SummaryEngine effectiveSummaryEngine => summaryEngine != SummaryEngine.sameAsSubtitle ? summaryEngine
-        : engine == TranslationEngine.openAI ? SummaryEngine.openAI : SummaryEngine.gemini;
+        : engine switch
+        {
+            TranslationEngine.openAI => SummaryEngine.openAI,
+            TranslationEngine.anthropic => SummaryEngine.anthropic,
+            TranslationEngine.custom => SummaryEngine.custom,
+            _ => SummaryEngine.gemini,
+        };
     /// Tự viết cốt truyện game từ phụ đề (nút trên thanh đầu cửa sổ chính; xem ở Nhật ký → Cốt truyện).
     public bool storyEnabled { get => Get("storyEnabled", false); set => Set("storyEnabled", value); }
     public int storyIntervalMin { get => Get("storyIntervalMin", 10); set => Set("storyIntervalMin", value); }
@@ -364,7 +372,7 @@ public sealed class AppSettings : INotifyPropertyChanged
     // MARK: Cửa sổ
     public double[]? mainWindowFrame { get => Get<double[]?>("mainWindowFrame", null); set => Set("mainWindowFrame", value); }
 
-    // MARK: OpenAI (trả phí)
+    // MARK: AI (Cài đặt → AI: key và model của từng nhà cung cấp)
     public string openAIModel { get => Get("openAIModel", "gpt-5.4-nano"); set => Set("openAIModel", value); }
     public double openAITimeout { get => Get("openAITimeout", 4.0); set => Set("openAITimeout", value); }
     public string openAIKey
@@ -373,11 +381,59 @@ public sealed class AppSettings : INotifyPropertyChanged
         set { SecretStore.Set(value, "openai-api-key"); OnPropertyChanged(nameof(openAIKey)); Changed?.Invoke(nameof(openAIKey)); }
     }
 
+    public string anthropicModel { get => Get("anthropicModel", "claude-haiku-5-5"); set => Set("anthropicModel", value); }
+    public double anthropicTimeout { get => Get("anthropicTimeout", 5.0); set => Set("anthropicTimeout", value); }
+    public string anthropicKey
+    {
+        get => SecretStore.Get("anthropic-api-key") ?? "";
+        set { SecretStore.Set(value, "anthropic-api-key"); OnPropertyChanged(nameof(anthropicKey)); Changed?.Invoke(nameof(anthropicKey)); }
+    }
+
+    /// API tuỳ chỉnh: máy chủ bất kỳ nói giao thức Chat Completions của OpenAI (OpenRouter, Ollama, LM Studio…).
+    public string customBaseURL { get => Get("customBaseURL", ""); set => Set("customBaseURL", value); }
+    public string customModel { get => Get("customModel", ""); set => Set("customModel", value); }
+    public double customTimeout { get => Get("customTimeout", 6.0); set => Set("customTimeout", value); }
+    public string customKey
+    {
+        get => SecretStore.Get("custom-api-key") ?? "";
+        set { SecretStore.Set(value, "custom-api-key"); OnPropertyChanged(nameof(customKey)); Changed?.Invoke(nameof(customKey)); }
+    }
+    /// Máy chủ chạy trên máy (Ollama…) không cần key, nên chỉ cần địa chỉ và model.
+    public bool customReady => customBaseURL.Trim().Length > 0 && customModel.Length > 0;
+
+    /// Model riêng cho từng việc, chọn ở Cài đặt → Dịch. Khoá "<việc>.<nhà cung cấp>" (ví dụ "summary.anthropic");
+    /// không có hoặc trống = dùng model mặc định của nhà cung cấp đó ở Cài đặt → AI.
+    public Dictionary<string, string> taskModels { get => Get("taskModels", new Dictionary<string, string>()); set => Set("taskModels", value); }
+    public string? TaskModel(AITask task, string provider) =>
+        taskModels.TryGetValue($"{task}.{provider}", out var m) && m.Length > 0 ? m : null;
+    /// Model mặc định của một nhà cung cấp (gemini / openAI / anthropic / custom).
+    public string DefaultModel(string provider) => provider switch
+    {
+        "gemini" => geminiModel, "openAI" => openAIModel, "anthropic" => anthropicModel, "custom" => customModel, _ => "",
+    };
+
+    /// Danh sách model đã tải về bằng nút "Tải model" của từng nhà cung cấp (giữ lại giữa các lần mở app).
+    public Dictionary<string, List<string>> aiModelLists { get => Get("aiModelLists", new Dictionary<string, List<string>>()); set => Set("aiModelLists", value); }
+
+    /// Gemini miễn phí nên cho lưu nhiều key (mỗi dòng một key trong file bí mật) và dùng xoay vòng.
+    public List<string> geminiAPIKeys
+    {
+        get => (SecretStore.Get("gemini-api-key") ?? "").Split('\n', '\r').Select(k => k.Trim()).Where(k => k.Length > 0).Distinct().ToList();
+        set
+        {
+            SecretStore.Set(string.Join("\n", value.Select(k => k.Trim()).Where(k => k.Length > 0).Distinct()), "gemini-api-key");
+            OnPropertyChanged(nameof(geminiAPIKeys)); Changed?.Invoke(nameof(geminiAPIKeys));
+        }
+    }
+    /// Key đầu tiên (đặt = thay toàn bộ danh sách bằng một key; dùng cho cờ --gemini-key).
     public string geminiAPIKey
     {
-        get => SecretStore.Get("gemini-api-key") ?? "";
-        set { SecretStore.Set(value, "gemini-api-key"); OnPropertyChanged(nameof(geminiAPIKey)); Changed?.Invoke(nameof(geminiAPIKey)); }
+        get => geminiAPIKeys.FirstOrDefault() ?? "";
+        set => geminiAPIKeys = value.Length == 0 ? new List<string>() : new List<string> { value };
     }
+    /// Quota mỗi phút / mỗi ngày tính gộp trên mọi key.
+    public int geminiRPM => rpm * Math.Max(1, geminiAPIKeys.Count);
+    public int geminiRPD => rpd * Math.Max(1, geminiAPIKeys.Count);
 
     public TargetLanguage target => TargetLanguage.Find(targetLanguage);
     public bool voiceOn => voiceEnabled;

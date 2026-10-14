@@ -59,9 +59,9 @@ make icon    # sinh lại Resources/AppIcon.icns từ Scripts/make-icon.swift
 ## Lần đầu sử dụng
 
 1. **Quyền Ghi màn hình**: bấm *Bắt đầu* lần đầu, macOS sẽ hỏi. Bật ScreenTranslator trong *System Settings → Privacy & Security → Screen & System Audio Recording*.
-2. **Engine dịch** (⚙ → tab *Dịch*), một hoặc cả hai:
-   - Dán Gemini API key → *Lưu key* → *Test key*.
-   - *Tải gói ngôn ngữ Anh → Việt* của Apple (offline; dùng khi hết quota / mất mạng / không có key).
+2. **Engine dịch**, một hoặc cả hai:
+   - ⚙ → tab *AI*: dán Gemini API key → *Lưu key* → *Test key* (lưu được nhiều key Gemini, app dùng xoay vòng). Cùng tab này nhập key OpenAI, Anthropic hoặc một API tuỳ chỉnh tương thích OpenAI. Sau đó chọn AI và model cho từng việc (phụ đề, dịch màn hình, tóm tắt) ở tab *Dịch*.
+   - ⚙ → tab *Apple (offline)*: *Tải gói ngôn ngữ Anh → Việt* của Apple (dùng khi hết quota / mất mạng / không có key).
 3. **Vùng phụ đề**: bấm *+ Thêm* ở mục Vùng phụ đề → kéo chuột quanh chỗ phụ đề → đặt tên.
 4. **Vùng thủ công**: bấm *+ Thêm* ở mục Vùng dịch thủ công → kéo quanh toàn bộ cửa sổ game.
 5. **Bắt đầu** (⌥⌘S). Khi cần hiểu cả màn hình: **⌥⌘T**.
@@ -84,11 +84,14 @@ Vùng gắn với toạ độ màn hình. Di chuyển/resize cửa sổ game th�
 
 ## Engine dịch, giọng AI offline, Remote Play
 
-**Engine dịch phụ đề** (Cài đặt → Dịch):
+**Engine dịch phụ đề** (chọn ở Cài đặt → Dịch; key và model nhập ở Cài đặt → AI):
 
 | Engine | Tốc độ đo trên M4 | Ghi chú |
 |---|---|---|
-| Tự động: Gemini → Apple Translation | ~1 s (Gemini) | Cần key và mạng, chất lượng tốt nhất |
+| Gemini → Apple Translation | ~1–4 s (Gemini) | Cần key và mạng, miễn phí; nhiều key thì dùng xoay vòng |
+| OpenAI | ~0,8–0,9 s | Trả phí, cần key và mạng. Lỗi thì rơi về Apple Intelligence |
+| Anthropic Claude | ~1,3–1,5 s | Trả phí, cần key và mạng. Lỗi thì rơi về Apple Intelligence |
+| API tuỳ chỉnh | tuỳ máy chủ | Máy chủ tương thích OpenAI (OpenRouter, Ollama, LM Studio…) |
 | Apple Intelligence | 0,4–1,3 s, trung vị ~0,8 s | Model ngôn ngữ trên máy (FoundationModels, macOS 26+). Miễn phí, offline, dùng ngữ cảnh + thuật ngữ + tên nhân vật. Cần bật Apple Intelligence trong System Settings. Lỗi/quá thời gian thì rơi về Apple Translation |
 | Apple Translation | 20–60 ms | Nhanh nhất, dịch từng câu rời |
 
@@ -189,9 +192,9 @@ App ký ad-hoc đổi chữ ký mỗi lần build, macOS có thể hỏi lại q
 ## Khi thấy "Gemini lỗi …" ở thanh trạng thái
 
 - **503 quá tải**: model 3.x-lite trên free tier thường xuyên quá tải; app tự chuyển model dự phòng, chỉ cần đợi câu tiếp theo.
-- **404 model không có**: đổi model trong Cài đặt → Dịch → *Tải danh sách*.
+- **404 model không có**: đổi model trong Cài đặt → AI → *Tải model*.
 - **401/403**: key sai hoặc bị thu hồi, tạo key mới.
-- Nếu muốn không bao giờ mất câu kể cả khi Gemini lỗi: tải gói ngôn ngữ Apple (Cài đặt → Dịch), app sẽ tự dùng làm dự phòng.
+- Nếu muốn không bao giờ mất câu kể cả khi Gemini lỗi: tải gói ngôn ngữ Apple (Cài đặt → Apple (offline)), app sẽ tự dùng làm dự phòng.
 
 ## Lưu ý về Gemini free tier
 

@@ -44,7 +44,17 @@ public sealed class GeminiBackend : ITranslationBackend
     /// Thứ tự thử khi model đã chọn bị 503/404/timeout.
     public static readonly string[] fallbackModels = { "gemini-3.5-flash-lite", "gemini-flash-lite-latest", "gemini-3.1-flash-lite", "gemini-3.5-flash" };
 
-    public string apiKey;
+    /// Nhiều key miễn phí dùng xoay vòng: mỗi request lấy key kế tiếp để chia đều quota; key bị 429 thì nghỉ đến hết
+    /// thời gian Google báo, các key còn lại chạy tiếp.
+    public List<string> apiKeys = new();
+    public string apiKey
+    {
+        get => apiKeys.FirstOrDefault() ?? "";
+        set => apiKeys = string.IsNullOrEmpty(value) ? new List<string>() : new List<string> { value };
+    }
+    int keyIndex;
+    readonly Dictionary<string, DateTime> keyCooldown = new();
+    readonly object keyLock = new();
     public string model;
     public double timeout;
     public string baseURL = "https://generativelanguage.googleapis.com/v1beta";
@@ -73,6 +83,11 @@ public sealed class GeminiBackend : ITranslationBackend
     public GeminiBackend(string apiKey, string model, double timeout)
     {
         this.apiKey = apiKey; this.model = model; this.timeout = timeout;
+    }
+
+    public GeminiBackend(List<string> apiKeys, string model, double timeout)
+    {
+        this.apiKeys = apiKeys; this.model = model; this.timeout = timeout;
     }
 
     /// Danh sách model để thử theo thứ tự cho một request.
@@ -264,16 +279,20 @@ public sealed class GeminiBackend : ITranslationBackend
     }
 
     /// Gọi model với lời dặn và nội dung tuỳ ý (có thử model dự phòng như dịch màn hình).
-    public Task<string> Generate(string system, string input, double timeout, CancellationToken ct = default, int maxOutputTokens = 4096)
+    public Task<string> Generate(string system, string input, double timeout, CancellationToken ct = default, int maxOutputTokens = 4096, string? modelOverride = null)
     {
         if (string.IsNullOrEmpty(apiKey)) throw GeminiException.NoKey();
         var gen = new JsonObject { ["temperature"] = 0.4, ["max_output_tokens"] = maxOutputTokens };
-        return SendWithFallback(system, input, gen, timeout, 3, ct);
+        return SendWithFallback(system, input, gen, timeout, 3, ct, modelOverride);
     }
 
     // MARK: subtitle translate
 
-    public async Task<string> Translate(string text, IList<TranslationPair> context, CancellationToken ct = default)
+    public Task<string> Translate(string text, IList<TranslationPair> context, CancellationToken ct = default) =>
+        TranslateWith(text, context, null, ct);
+
+    /// `modelOverride`: model riêng cho việc dịch phụ đề (Cài đặt → Dịch); null = model mặc định.
+    public async Task<string> TranslateWith(string text, IList<TranslationPair> context, string? modelOverride, CancellationToken ct = default)
     {
         if (string.IsNullOrEmpty(apiKey)) throw GeminiException.NoKey();
         // Interactions API nhận một đoạn input: gộp các câu trước làm ngữ cảnh.
@@ -286,7 +305,7 @@ public sealed class GeminiBackend : ITranslationBackend
         }
         input += "Translate this new line:\n" + text;
         var gen = new JsonObject { ["temperature"] = 0.2, ["max_output_tokens"] = 256 };
-        var raw = await SendWithFallback(subtitleSystemPrompt, input, gen, timeout, 2, ct);
+        var raw = await SendWithFallback(subtitleSystemPrompt, input, gen, timeout, 2, ct, modelOverride);
         var cleaned = Clean(raw);
         if (cleaned.Length == 0) throw GeminiException.Empty();
         return cleaned;
@@ -296,14 +315,14 @@ public sealed class GeminiBackend : ITranslationBackend
 
     public record AnalysisResult(string summary, Dictionary<int, string> translations);
 
-    public async Task<AnalysisResult> Analyze(IList<string> lines, double timeout, CancellationToken ct = default)
+    public async Task<AnalysisResult> Analyze(IList<string> lines, double timeout, CancellationToken ct = default, string? modelOverride = null)
     {
         if (string.IsNullOrEmpty(apiKey)) throw GeminiException.NoKey();
         var numbered = string.Join("\n", lines.Select((l, i) => $"{i + 1}. {l}"));
         var gen = new JsonObject { ["temperature"] = 0.3, ["max_output_tokens"] = 4096 };
         var system = analysisSystemPrompt + "\nReply with JSON only, no code fences and no other text, exactly in this shape:\n" +
                      "{\"summary\": \"…\", \"lines\": [{\"i\": 1, \"t\": \"…\"}, {\"i\": 2, \"t\": \"…\"}]}";
-        var raw = await SendWithFallback(system, numbered, gen, timeout, 3, ct);
+        var raw = await SendWithFallback(system, numbered, gen, timeout, 3, ct, modelOverride);
         // Lấy phần {...} (model đôi khi bọc trong ```json … ```).
         var obj = ParseObject(raw) ?? throw GeminiException.BadJSON();
         var summary = obj["summary"]?.GetValue<string>() ?? "";
@@ -332,9 +351,29 @@ public sealed class GeminiBackend : ITranslationBackend
     // MARK: transport
 
     /// Thử lần lượt các model; 503/404/timeout → model tiếp theo. Model thành công được "dính" 5 phút.
-    async Task<string> SendWithFallback(string system, string input, JsonObject generation, double timeout, int maxAttempts, CancellationToken ct)
+    /// `preferred`: model riêng của một việc (khác model mặc định) → thử nó trước rồi tới các model dự phòng, và không
+    /// đụng tới trạng thái "dính" / "model không tồn tại" của model mặc định.
+    async Task<string> SendWithFallback(string system, string input, JsonObject generation, double timeout, int maxAttempts, CancellationToken ct, string? preferred = null)
     {
         Exception lastErr = GeminiException.Empty();
+        if (!string.IsNullOrEmpty(preferred) && preferred != model)
+        {
+            foreach (var pm in new[] { preferred }.Concat(fallbackModels).Distinct().Take(maxAttempts))
+            {
+                try
+                {
+                    var res = await Send(pm, system, input, generation, timeout, ct);
+                    if (pm != preferred) Log.Warn($"Gemini chuyển sang model dự phòng {pm} (model đã chọn: {preferred})");
+                    return res;
+                }
+                catch (Exception ex) when (IsRetryable(ex))
+                {
+                    lastErr = ex;
+                    Log.Warn($"Gemini {pm} lỗi ({Trunc(ex.Message, 60)}) → thử model khác");
+                }
+            }
+            throw lastErr;
+        }
         foreach (var m in CandidateModels(maxAttempts))
         {
             try
@@ -374,9 +413,42 @@ public sealed class GeminiBackend : ITranslationBackend
         }
     }
 
+    /// Các key cho request này, bắt đầu từ key kế tiếp trong vòng; key đang nghỉ vì 429 bị bỏ qua (trừ khi mọi key đều nghỉ).
+    List<string> KeysForRequest()
+    {
+        lock (keyLock)
+        {
+            var keys = apiKeys;
+            if (keys.Count == 0) return new List<string>();
+            int start = keyIndex % keys.Count;
+            keyIndex = (start + 1) % keys.Count;
+            var ordered = keys.Skip(start).Concat(keys.Take(start)).ToList();
+            var now = DateTime.UtcNow;
+            var ready = ordered.Where(k => !keyCooldown.TryGetValue(k, out var until) || until <= now).ToList();
+            return ready.Count == 0 ? new List<string> { ordered[0] } : ready;
+        }
+    }
+
+    /// Gửi bằng key kế tiếp; key nào bị 429 thì cho nghỉ và thử ngay key khác. Chỉ báo hết quota khi mọi key đều hết.
+    async Task<string> Request(string model, string system, string input, JsonObject generation, double timeout, bool thinking, CancellationToken ct)
+    {
+        GeminiException limited = GeminiException.NoKey();
+        foreach (var key in KeysForRequest())
+        {
+            try { return await Request(key, model, system, input, generation, timeout, thinking, ct); }
+            catch (GeminiException e) when (e.kind == GeminiException.Kind.rateLimited)
+            {
+                lock (keyLock) keyCooldown[key] = DateTime.UtcNow.AddSeconds(e.retryAfter ?? 60);
+                if (apiKeys.Count > 1) Log.Warn($"Gemini key …{(key.Length > 4 ? key[^4..] : key)} hết quota (429) → thử key khác");
+                limited = e;
+            }
+        }
+        throw limited;
+    }
+
     /// POST /interactions (Gemini Interactions API): lời dặn ở `system_instruction`, nội dung ở `input`,
     /// kết quả là các bước `model_output` trong `steps` (bỏ qua bước `thought`).
-    async Task<string> Request(string model, string system, string input, JsonObject generation, double timeout, bool thinking, CancellationToken ct)
+    async Task<string> Request(string key, string model, string system, string input, JsonObject generation, double timeout, bool thinking, CancellationToken ct)
     {
         var gen = (JsonObject)generation.DeepClone();
         if (thinking) gen["thinking_level"] = "low";
@@ -385,7 +457,7 @@ public sealed class GeminiBackend : ITranslationBackend
             ["model"] = model, ["system_instruction"] = system, ["input"] = input, ["generation_config"] = gen,
         };
         using var req = new HttpRequestMessage(HttpMethod.Post, $"{baseURL}/interactions");
-        req.Headers.Add("x-goog-api-key", apiKey);
+        req.Headers.Add("x-goog-api-key", key);
         req.Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json");
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);

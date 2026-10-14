@@ -31,7 +31,16 @@ final class GeminiBackend: TranslationBackend {
         }
     }
 
-    var apiKey: String
+    /// Nhiều key miễn phí dùng xoay vòng: mỗi request lấy key kế tiếp để chia đều quota; key bị 429 thì nghỉ đến hết
+    /// thời gian Google báo, các key còn lại chạy tiếp.
+    var apiKeys: [String]
+    var apiKey: String {
+        get { apiKeys.first ?? "" }
+        set { apiKeys = newValue.isEmpty ? [] : [newValue] }
+    }
+    private var keyIndex = 0
+    private var keyCooldown: [String: Date] = [:]
+    private let keyLock = NSLock()
     var model: String
     var timeout: TimeInterval
     var baseURL: String = "https://generativelanguage.googleapis.com/v1beta"
@@ -72,8 +81,12 @@ final class GeminiBackend: TranslationBackend {
         return false
     }
 
-    init(apiKey: String, model: String, timeout: TimeInterval) {
-        self.apiKey = apiKey
+    convenience init(apiKey: String, model: String, timeout: TimeInterval) {
+        self.init(apiKeys: apiKey.isEmpty ? [] : [apiKey], model: model, timeout: timeout)
+    }
+
+    init(apiKeys: [String], model: String, timeout: TimeInterval) {
+        self.apiKeys = apiKeys
         self.model = model
         self.timeout = timeout
         let cfg = URLSessionConfiguration.ephemeral
@@ -275,15 +288,20 @@ final class GeminiBackend: TranslationBackend {
     }
 
     /// Gọi model với lời dặn và nội dung tuỳ ý (có thử model dự phòng như dịch màn hình).
-    func generate(system: String, input: String, timeout: TimeInterval, maxOutputTokens: Int = 4096) async throws -> String {
+    func generate(system: String, input: String, timeout: TimeInterval, maxOutputTokens: Int = 4096, model preferred: String? = nil) async throws -> String {
         guard !apiKey.isEmpty else { throw GeminiError.noKey }
         let gen: [String: Any] = ["temperature": 0.4, "max_output_tokens": maxOutputTokens]
-        return try await sendWithFallback(system: system, input: input, generation: gen, timeout: timeout, maxAttempts: 3)
+        return try await sendWithFallback(system: system, input: input, generation: gen, timeout: timeout, maxAttempts: 3, preferred: preferred)
     }
 
     // MARK: subtitle translate
 
     func translate(_ text: String, context: [TranslationPair]) async throws -> String {
+        try await translate(text, context: context, model: nil)
+    }
+
+    /// `model`: model riêng cho việc dịch phụ đề (Cài đặt → Dịch); nil = model mặc định.
+    func translate(_ text: String, context: [TranslationPair], model preferred: String?) async throws -> String {
         guard !apiKey.isEmpty else { throw GeminiError.noKey }
         // Interactions API nhận một đoạn input: gộp các câu trước làm ngữ cảnh (như với Apple Intelligence).
         var input = ""
@@ -295,7 +313,7 @@ final class GeminiBackend: TranslationBackend {
         input += "Translate this new line:\n" + text
         let gen: [String: Any] = ["temperature": 0.2, "max_output_tokens": 256]
         let raw = try await sendWithFallback(system: subtitleSystemPrompt, input: input, generation: gen,
-                                             timeout: timeout, maxAttempts: 2)
+                                             timeout: timeout, maxAttempts: 2, preferred: preferred)
         let cleaned = Self.clean(raw)
         guard !cleaned.isEmpty else { throw GeminiError.empty }
         return cleaned
@@ -308,7 +326,7 @@ final class GeminiBackend: TranslationBackend {
         let translations: [Int: String]
     }
 
-    func analyze(lines: [String], timeout: TimeInterval) async throws -> AnalysisResult {
+    func analyze(lines: [String], timeout: TimeInterval, model preferred: String? = nil) async throws -> AnalysisResult {
         guard !apiKey.isEmpty else { throw GeminiError.noKey }
         let numbered = lines.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n")
         let gen: [String: Any] = ["temperature": 0.3, "max_output_tokens": 4096]
@@ -320,7 +338,7 @@ final class GeminiBackend: TranslationBackend {
         Never merge, split, skip or reorder lines, even when a line looks like a fragment of another one.
         """
         let raw = try await sendWithFallback(system: system, input: numbered, generation: gen,
-                                             timeout: timeout, maxAttempts: 3)
+                                             timeout: timeout, maxAttempts: 3, preferred: preferred)
         // Lấy phần {...} (model đôi khi bọc trong ```json … ```).
         guard let start = raw.firstIndex(of: "{"), let end = raw.lastIndex(of: "}"), start < end,
               let data = String(raw[start...end]).data(using: .utf8),
@@ -336,9 +354,26 @@ final class GeminiBackend: TranslationBackend {
     // MARK: transport
 
     /// Thử lần lượt các model; 503/404/timeout → model tiếp theo. Model thành công được "dính" 5 phút.
+    /// `preferred`: model riêng của một việc (khác model mặc định) → thử nó trước rồi tới các model dự phòng, và không
+    /// đụng tới trạng thái "dính" / "model không tồn tại" của model mặc định.
     private func sendWithFallback(system: String, input: String, generation: [String: Any],
-                                  timeout: TimeInterval, maxAttempts: Int) async throws -> String {
+                                  timeout: TimeInterval, maxAttempts: Int, preferred: String? = nil) async throws -> String {
         var lastErr: Error = GeminiError.empty
+        if let p = preferred, !p.isEmpty, p != model {
+            var seen = Set<String>()
+            for m in ([p] + Self.fallbackModels).filter({ seen.insert($0).inserted }).prefix(maxAttempts) {
+                do {
+                    let out = try await send(model: m, system: system, input: input, generation: generation, timeout: timeout)
+                    if m != p { Log.warn("Gemini chuyển sang model dự phòng \(m) (model đã chọn: \(p))") }
+                    return out
+                } catch {
+                    lastErr = error
+                    guard Self.isRetryable(error) else { throw error }
+                    Log.warn("Gemini \(m) lỗi (\(error.localizedDescription.prefix(60))) → thử model khác")
+                }
+            }
+            throw lastErr
+        }
         for m in candidateModels(maxAttempts: maxAttempts) {
             do {
                 let out = try await send(model: m, system: system, input: input, generation: generation, timeout: timeout)
@@ -370,9 +405,36 @@ final class GeminiBackend: TranslationBackend {
         }
     }
 
+    /// Các key cho request này, bắt đầu từ key kế tiếp trong vòng; key đang nghỉ vì 429 bị bỏ qua (trừ khi mọi key đều nghỉ).
+    private func keysForRequest() -> [String] {
+        keyLock.lock(); defer { keyLock.unlock() }
+        guard !apiKeys.isEmpty else { return [] }
+        let start = keyIndex % apiKeys.count
+        keyIndex = (start + 1) % apiKeys.count
+        let ordered = Array(apiKeys[start...] + apiKeys[..<start])
+        let now = Date()
+        let ready = ordered.filter { (keyCooldown[$0] ?? .distantPast) <= now }
+        return ready.isEmpty ? [ordered[0]] : ready
+    }
+
+    /// Gửi bằng key kế tiếp; key nào bị 429 thì cho nghỉ và thử ngay key khác. Chỉ báo hết quota khi mọi key đều hết.
+    private func request(model: String, system: String, input: String, generation: [String: Any], timeout: TimeInterval, thinking: Bool) async throws -> String {
+        var limited: Error = GeminiError.noKey
+        for key in keysForRequest() {
+            do {
+                return try await request(key: key, model: model, system: system, input: input, generation: generation, timeout: timeout, thinking: thinking)
+            } catch GeminiError.rateLimited(let retry) {
+                keyLock.withLock { keyCooldown[key] = Date().addingTimeInterval(retry ?? 60) }
+                if apiKeys.count > 1 { Log.warn("Gemini key …\(key.suffix(4)) hết quota (429) → thử key khác") }
+                limited = GeminiError.rateLimited(retryAfter: retry)
+            }
+        }
+        throw limited
+    }
+
     /// POST /interactions (Gemini Interactions API): lời dặn ở `system_instruction`, nội dung ở `input`,
     /// kết quả là các bước `model_output` trong `steps` (bỏ qua bước `thought`).
-    private func request(model: String, system: String, input: String, generation: [String: Any], timeout: TimeInterval, thinking: Bool) async throws -> String {
+    private func request(key: String, model: String, system: String, input: String, generation: [String: Any], timeout: TimeInterval, thinking: Bool) async throws -> String {
         var gen = generation
         if thinking { gen["thinking_level"] = "low" }
         let body: [String: Any] = ["model": model, "system_instruction": system, "input": input, "generation_config": gen]
@@ -380,7 +442,7 @@ final class GeminiBackend: TranslationBackend {
         req.httpMethod = "POST"
         req.timeoutInterval = timeout
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
+        req.setValue(key, forHTTPHeaderField: "x-goog-api-key")
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, resp) = try await session.data(for: req)
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0

@@ -9,18 +9,18 @@ struct SettingsView: View {
     @State private var tab: Tab = .translate
 
     enum Tab: String, CaseIterable, Identifiable {
-        case translate, capture, voice, overlay, glossary, profile, hotkeys, web
+        case translate, ai, apple, capture, voice, overlay, glossary, profile, hotkeys, web
         var id: String { rawValue }
         var title: String {
             switch self {
-            case .translate: return "Dịch"; case .capture: return "Capture & OCR"; case .voice: return "Voice"
+            case .translate: return "Dịch"; case .ai: return "AI"; case .apple: return "Apple (offline)"; case .capture: return "Capture & OCR"; case .voice: return "Voice"
             case .overlay: return "Overlay"; case .glossary: return "Thuật ngữ chung"; case .profile: return "Game"; case .hotkeys: return "Phím tắt"
             case .web: return "iPhone / Web"
             }
         }
         var icon: String {
             switch self {
-            case .translate: return "character.bubble"; case .capture: return "rectangle.dashed"; case .voice: return "speaker.wave.2"
+            case .translate: return "character.bubble"; case .ai: return "sparkles"; case .apple: return "apple.logo"; case .capture: return "rectangle.dashed"; case .voice: return "speaker.wave.2"
             case .overlay: return "captions.bubble"; case .glossary: return "character.book.closed"; case .profile: return "gamecontroller"; case .hotkeys: return "keyboard"
             case .web: return "iphone"
             }
@@ -37,7 +37,9 @@ struct SettingsView: View {
             Divider()
             Group {
                 switch tab {
-                case .translate: TranslateSettings(settings: settings, pipeline: pipeline)
+                case .translate: TranslateSettings(settings: settings, pipeline: pipeline, openAI: { tab = .ai })
+                case .ai: AISettings(settings: settings)
+                case .apple: AppleSettings(settings: settings, pipeline: pipeline)
                 case .capture: CaptureSettings(settings: settings)
                 case .voice: VoiceSettings(settings: settings)
                 case .overlay: OverlaySettings(settings: settings, pipeline: pipeline)
@@ -56,11 +58,8 @@ struct SettingsView: View {
 struct TranslateSettings: View {
     @ObservedObject var settings: AppSettings
     @ObservedObject var pipeline: Pipeline
-    @State private var key = ""
-    @State private var testResult = ""
-    @State private var testing = false
-    @State private var models: [String] = GeminiBackend.models
-    @State private var loadingModels = false
+    /// Chuyển sang tab AI (nơi nhập key và chọn model).
+    var openAI: () -> Void = {}
 
     var body: some View {
         Form {
@@ -74,78 +73,19 @@ struct TranslateSettings: View {
                     ForEach(TargetLanguage.all) { l in Text(l.name).tag(l.code) }
                 }
             }
-            Section("Engine dịch phụ đề") {
-                Picker("Engine", selection: $settings.translationEngine) {
+            Section("Dịch phụ đề") {
+                Picker("AI", selection: $settings.translationEngine) {
                     ForEach(TranslationEngine.allCases) { Text($0.label).tag($0) }
                 }
-                HStack {
-                    Text("Apple Intelligence:")
-                    let st = pipeline.router.ai.status
-                    Text(st.label).foregroundStyle(st == .available ? .green : .orange)
-                    Spacer()
-                    if st != .available {
-                        Button("Mở System Settings…") {
-                            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Siri-Settings.extension")!)
-                        }.controlSize(.small)
-                    }
-                }
-                if settings.translationEngine == .appleIntelligence {
-                    HStack {
-                        Text("Timeout")
-                        Slider(value: $settings.aiTimeout, in: 1.5...8, step: 0.5)
-                        Text("\(settings.aiTimeout, specifier: "%.1f")s").monospacedDigit()
-                    }
-                }
-            }
-            OpenAISettings(settings: settings)
-            Section("Gemini API (free tier)") {
-                SecureField("API key (aistudio.google.com/apikey)", text: $key)
-                HStack {
-                    Button("Lưu key") { settings.geminiAPIKey = key.trimmingCharacters(in: .whitespaces); testResult = "Đã lưu" }
-                    Button(testing ? "Đang test…" : "Test key") { testKey() }.disabled(testing || key.isEmpty)
-                    if !settings.geminiAPIKey.isEmpty {
-                        Button("Xoá key", role: .destructive) { settings.geminiAPIKey = ""; key = ""; testResult = "" }
-                    }
-                }
-                if !testResult.isEmpty { Text(testResult).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
-                HStack {
-                    Picker("Model", selection: $settings.geminiModel) {
-                        ForEach(models, id: \.self) { Text($0) }
-                    }
-                    Button(loadingModels ? "…" : "Tải danh sách") { loadModels() }
-                        .disabled(loadingModels || settings.geminiAPIKey.isEmpty)
-                        .help("Lấy danh sách model thật mà key này dùng được")
-                }
-                HStack {
-                    Text("Timeout phụ đề")
-                    Slider(value: $settings.geminiTimeout, in: 2...10, step: 0.5)
-                    Text("\(settings.geminiTimeout, specifier: "%.1f")s").monospacedDigit()
-                }
+                modelRow(.subtitle, settings.translationEngine == .auto ? "gemini" : settings.translationEngine.rawValue,
+                         fallback: "nên sẽ dùng engine trên máy.")
                 Stepper("Ngữ cảnh: \(settings.contextPairs) câu trước", value: $settings.contextPairs, in: 0...10)
             }
-            Section("Apple Translation (on-device, fallback)") {
-                HStack {
-                    Text("Gói ngôn ngữ Anh → \(settings.target.name):")
-                    switch pipeline.apple.installed {
-                    case .some(true): Text("đã cài").foregroundStyle(.green)
-                    case .some(false): Text("chưa cài").foregroundStyle(.red)
-                    case .none: Text("đang kiểm tra…").foregroundStyle(.secondary)
-                    }
-                }
-                LanguageDownloadButton(backend: pipeline.apple)
-            }
             Section("Dịch màn hình (thủ công)") {
-                Picker("Engine", selection: $settings.screenEngine) {
+                Picker("AI", selection: $settings.screenEngine) {
                     ForEach(ScreenEngine.allCases) { Text($0.label).tag($0) }
                 }
-                if settings.effectiveScreenEngine == .openAI, settings.openAIKey.isEmpty {
-                    Text("Chưa có OpenAI API key (nhập ở mục OpenAI phía trên) nên sẽ dùng engine trên máy.")
-                        .font(.caption).foregroundStyle(.orange)
-                }
-                if settings.effectiveScreenEngine == .gemini, settings.geminiAPIKey.isEmpty {
-                    Text("Chưa có Gemini API key (nhập ở mục Gemini phía trên) nên sẽ dùng engine trên máy.")
-                        .font(.caption).foregroundStyle(.orange)
-                }
+                modelRow(.screen, settings.effectiveScreenEngine.rawValue, fallback: "nên sẽ dùng engine trên máy.")
                 Toggle("Đọc tóm tắt bằng giọng nói", isOn: $settings.analyzeSpeakSummary)
                 HStack {
                     Text("Timeout")
@@ -154,17 +94,13 @@ struct TranslateSettings: View {
                 }
             }
             Section("Tóm tắt & cốt truyện (tab Nhật ký)") {
-                Picker("Engine", selection: $settings.summaryEngine) {
+                Picker("AI", selection: $settings.summaryEngine) {
                     ForEach(SummaryEngine.allCases) { Text($0.label).tag($0) }
                 }
-                if settings.effectiveSummaryEngine == .openAI, settings.openAIKey.isEmpty {
-                    Text("Chưa có OpenAI API key (nhập ở mục OpenAI phía trên) nên sẽ dùng Gemini hoặc engine trên máy.")
-                        .font(.caption).foregroundStyle(.orange)
-                }
-                if settings.effectiveSummaryEngine == .gemini, settings.geminiAPIKey.isEmpty {
-                    Text("Chưa có Gemini API key (nhập ở mục Gemini phía trên): Tóm tắt sẽ dùng engine trên máy, Cốt truyện không chạy được.")
-                        .font(.caption).foregroundStyle(.orange)
-                }
+                modelRow(.summary, settings.effectiveSummaryEngine.rawValue,
+                         fallback: settings.effectiveSummaryEngine == .gemini
+                             ? "nên Tóm tắt sẽ dùng engine trên máy, Cốt truyện không chạy được."
+                             : "nên sẽ dùng Gemini hoặc engine trên máy.")
                 if settings.effectiveSummaryEngine == .appleIntelligence {
                     Text("Apple Intelligence chỉ viết được Tóm tắt thủ công. Cốt truyện sẽ dùng Gemini nếu có key.")
                         .font(.caption).foregroundStyle(.orange)
@@ -181,84 +117,97 @@ struct TranslateSettings: View {
             }
         }
         .formStyle(.grouped)
-        .onAppear {
-            key = settings.geminiAPIKey
-            if !models.contains(settings.geminiModel) { models.append(settings.geminiModel) }
+    }
+
+    /// Tên và đã có key chưa của một AI qua mạng (theo rawValue của engine); nil = engine trên máy.
+    private func cloudInfo(_ engine: String) -> (name: String, ready: Bool)? {
+        switch engine {
+        case "gemini": return ("Gemini", !settings.geminiAPIKeys.isEmpty)
+        case "openAI": return ("OpenAI", !settings.openAIKey.isEmpty)
+        case "anthropic": return ("Anthropic", !settings.anthropicKey.isEmpty)
+        case "custom": return ("API tuỳ chỉnh", settings.customReady)
+        default: return nil
         }
     }
 
-    private func loadModels() {
-        loadingModels = true
-        let k = settings.geminiAPIKey, base = settings.geminiBaseURL
-        Task {
-            do {
-                let list = try await GeminiBackend.listModels(apiKey: k, baseURL: base)
-                if !list.isEmpty {
-                    models = list
-                    if !list.contains(settings.geminiModel) { settings.geminiModel = list[0] }
+    /// Model gợi ý sẵn của từng nhà cung cấp khi chưa bấm "Tải model" ở tab AI.
+    private func suggestedModels(_ provider: String) -> [String] {
+        switch provider {
+        case "gemini": return GeminiBackend.models
+        case "openAI": return OpenAIBackend.models
+        case "anthropic": return AnthropicBackend.models
+        default: return []
+        }
+    }
+
+    /// Dòng dưới ô chọn AI: chọn model riêng cho việc này (mặc định = model ở tab AI), hoặc cảnh báo chưa cài đặt.
+    @ViewBuilder
+    private func modelRow(_ task: AITask, _ engine: String, fallback: String) -> some View {
+        if let info = cloudInfo(engine) {
+            let key = "\(task.rawValue).\(engine)"
+            let current = settings.taskModels[key] ?? ""
+            let base = settings.aiModelLists[engine] ?? suggestedModels(engine)
+            let models = current.isEmpty || base.contains(current) ? base : base + [current]
+            Picker("Model", selection: Binding(get: { settings.taskModels[key] ?? "" },
+                                               set: { settings.taskModels[key] = $0.isEmpty ? nil : $0 })) {
+                Text("Mặc định (\(settings.defaultModel(engine).isEmpty ? "chưa chọn" : settings.defaultModel(engine)))").tag("")
+                ForEach(models, id: \.self) { Text($0).tag($0) }
+            }
+            HStack {
+                if info.ready {
+                    Text("Thiếu model cần dùng? Bấm Tải model ở tab AI.").font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Text("Chưa cài đặt \(info.name) \(fallback)").font(.caption).foregroundStyle(.orange)
                 }
-                testResult = "Có \(list.count) model dùng được"
-            } catch {
-                testResult = "Không tải được danh sách: \(error.localizedDescription)"
+                Spacer()
+                Button("Cài đặt AI…") { openAI() }.controlSize(.small)
             }
-            loadingModels = false
-        }
-    }
-
-    private func testKey() {
-        testing = true; testResult = ""
-        let k = key.trimmingCharacters(in: .whitespaces), m = settings.geminiModel
-        Task {
-            switch await GeminiBackend.test(apiKey: k, model: m) {
-            case .success(let s): testResult = "OK: \(s)"
-            case .failure(let e): testResult = "Lỗi: \(e.localizedDescription)"
-            }
-            testing = false
         }
     }
 }
 
-/// Mục OpenAI trong Cài đặt → Dịch: key, model, thời gian chờ.
-struct OpenAISettings: View {
+/// Cài đặt → Apple (offline): hai engine dịch trên máy, dùng khi chọn chúng hoặc làm dự phòng khi AI qua mạng lỗi.
+struct AppleSettings: View {
     @ObservedObject var settings: AppSettings
-    @State private var key = ""
-    @State private var result = ""
-    @State private var testing = false
+    @ObservedObject var pipeline: Pipeline
 
     var body: some View {
-        Section("OpenAI API (trả phí)") {
-            SecureField("API key (platform.openai.com/api-keys)", text: $key)
-            HStack {
-                Button("Lưu key") { settings.openAIKey = key.trimmingCharacters(in: .whitespacesAndNewlines); result = "Đã lưu" }
-                Button(testing ? "Đang test…" : "Test key") { test() }.disabled(testing || key.isEmpty)
-                if !settings.openAIKey.isEmpty {
-                    Button("Xoá key", role: .destructive) { settings.openAIKey = ""; key = ""; result = "" }
+        Form {
+            Section("Apple Intelligence (offline, có ngữ cảnh)") {
+                HStack {
+                    Text("Trạng thái:")
+                    let st = pipeline.router.ai.status
+                    Text(st.label).foregroundStyle(st == .available ? .green : .orange)
+                    Spacer()
+                    if st != .available {
+                        Button("Mở System Settings…") {
+                            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Siri-Settings.extension")!)
+                        }.controlSize(.small)
+                    }
                 }
+                HStack {
+                    Text("Timeout phụ đề")
+                    Slider(value: $settings.aiTimeout, in: 1.5...8, step: 0.5)
+                    Text("\(settings.aiTimeout, specifier: "%.1f")s").monospacedDigit()
+                }
+                Text("Model ngôn ngữ chạy ngay trên máy, khoảng 0,8 s mỗi câu. Là dự phòng khi OpenAI, Claude hoặc API tuỳ chỉnh lỗi.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
-            if !result.isEmpty { Text(result).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
-            Picker("Model", selection: $settings.openAIModel) {
-                ForEach(OpenAIBackend.models, id: \.self) { Text($0).tag($0) }
-                if !OpenAIBackend.models.contains(settings.openAIModel) { Text(settings.openAIModel).tag(settings.openAIModel) }
-            }
-            HStack {
-                Text("Timeout phụ đề")
-                Slider(value: $settings.openAITimeout, in: 2...10, step: 0.5)
-                Text("\(settings.openAITimeout, specifier: "%.1f")s").monospacedDigit()
+            Section("Apple Translation (offline, nhanh nhất)") {
+                HStack {
+                    Text("Gói ngôn ngữ Anh → \(settings.target.name):")
+                    switch pipeline.apple.installed {
+                    case .some(true): Text("đã cài").foregroundStyle(.green)
+                    case .some(false): Text("chưa cài").foregroundStyle(.red)
+                    case .none: Text("đang kiểm tra…").foregroundStyle(.secondary)
+                    }
+                }
+                LanguageDownloadButton(backend: pipeline.apple)
+                Text("Dịch từng câu rời, khoảng 30 ms. Là dự phòng cuối cùng khi Gemini hết quota, mất mạng hoặc chưa có key.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }
-        .onAppear { key = settings.openAIKey }
-    }
-
-    private func test() {
-        testing = true; result = ""
-        let k = key.trimmingCharacters(in: .whitespacesAndNewlines), m = settings.openAIModel
-        Task {
-            switch await OpenAIBackend.test(apiKey: k, model: m) {
-            case .success(let s): result = "OK: \(s)"
-            case .failure(let e): result = "Lỗi: \(e.localizedDescription)"
-            }
-            testing = false
-        }
+        .formStyle(.grouped)
     }
 }
 

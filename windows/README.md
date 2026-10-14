@@ -50,7 +50,7 @@ chủ app nhận ra máy. Máy đã duyệt nhận vé ký Ed25519 hạn 7 ngày
 ## Lần đầu sử dụng
 
 1. **OCR tiếng Anh**: app dùng Windows OCR có sẵn. Nếu báo "Chưa cài OCR tiếng Anh": Settings → Time & language → Language & region → thêm *English (United States)*.
-2. **Engine dịch** (⚙ → Dịch): dán Gemini API key miễn phí (<https://aistudio.google.com/apikey>) → *Lưu key* → *Test key*. Không có key thì app dùng Google Translate (miễn phí, không cần key).
+2. **Engine dịch**: ⚙ → *AI*: dán Gemini API key miễn phí (<https://aistudio.google.com/apikey>) → *Lưu key* → *Test key* (lưu được nhiều key, app dùng xoay vòng; cùng mục này nhập key OpenAI, Anthropic hoặc API tuỳ chỉnh). Sau đó chọn AI muốn dùng ở ⚙ → *Dịch*. Không có key thì app dùng Google Translate (miễn phí, không cần key).
 3. **Giọng đọc** (⚙ → Voice):
    - **Windows**: giọng có sẵn, tức thì. Muốn giọng tiếng Việt: Settings → Time & language → Speech → Add voices → Vietnamese.
    - **Giọng AI offline**: Piper tiếng Việt (NGHI-TTS), tải ngay trong Cài đặt (61 MB mỗi giọng).

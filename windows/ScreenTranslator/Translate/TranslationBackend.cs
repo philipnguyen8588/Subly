@@ -8,7 +8,7 @@ namespace ScreenTranslator;
 
 public record TranslationPair(string source, string target);
 
-public enum BackendKind { gemini, google, skipped, openAI }
+public enum BackendKind { gemini, google, skipped, openAI, anthropic, custom }
 
 public static class BackendLabels
 {
@@ -17,6 +17,8 @@ public static class BackendLabels
         BackendKind.skipped => "Không dịch",
         BackendKind.gemini => "Gemini",
         BackendKind.openAI => "OpenAI",
+        BackendKind.anthropic => "Claude",
+        BackendKind.custom => "API tuỳ chỉnh",
         _ => "Google",
     };
     public static string Label(string raw) => Enum.TryParse<BackendKind>(raw, out var k) ? Label(k) : raw switch
@@ -29,6 +31,20 @@ public interface ITranslationBackend
 {
     BackendKind kind { get; }
     Task<string> Translate(string text, IList<TranslationPair> context, CancellationToken ct = default);
+}
+
+/// Nhà cung cấp AI qua mạng dùng API kiểu chat (OpenAI, Anthropic, API tuỳ chỉnh): chung một giao diện để router
+/// không phải viết riêng cho từng hãng.
+public interface ICloudChatBackend
+{
+    /// Đã đủ key / địa chỉ / model để gọi.
+    bool isReady { get; }
+    /// Model mặc định (Cài đặt → AI). `modelOverride` ở các hàm dưới là model riêng của từng việc (Cài đặt → Dịch);
+    /// null hoặc rỗng = dùng mặc định.
+    string modelName { get; }
+    Task<string> Translate(string text, IList<TranslationPair> context, CancellationToken ct = default, string? modelOverride = null);
+    Task<GeminiBackend.AnalysisResult> Analyze(IList<string> lines, double timeout, CancellationToken ct = default, string? modelOverride = null);
+    Task<string> Complete(string system, string user, bool json, int maxTokens, double timeout, CancellationToken ct = default, string? modelOverride = null);
 }
 
 /// Token bucket theo phút (cửa sổ trượt) + bộ đếm theo ngày (reset 00:00 giờ Pacific, như quota Gemini).

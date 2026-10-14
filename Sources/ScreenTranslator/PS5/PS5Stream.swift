@@ -261,7 +261,8 @@ final class PS5Stream: ObservableObject, @unchecked Sendable {
     private func handleEvent(_ type: Int32, _ msg: String) {
         switch type {
         case 0:   // ST_EVENT_LOG
-            if msg.contains("rror") || msg.contains("ailed") { Log.warn("chiaki: \(msg)") }
+            if msg.contains("PROBE") { Log.info("chiaki: \(msg)") }      // dò tín hiệu nút mute mic (tạm thời)
+            else if msg.contains("rror") || msg.contains("ailed") { Log.warn("chiaki: \(msg)") }
         case 1:   // ST_EVENT_CONNECTED
             setState(.streaming)
         case 3:   // ST_EVENT_PIN_REQUEST

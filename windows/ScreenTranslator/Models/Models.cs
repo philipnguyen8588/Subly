@@ -19,17 +19,21 @@ public enum ProfileSource { external, ps5 }
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum QueueMode { latestWins, fifo }
 
-/// Windows: Gemini → Google Translate (thay Apple Translation); chỉ Google Translate; hoặc OpenAI (trả phí) → Google Translate.
+/// Windows: Gemini → Google Translate (thay Apple Translation); chỉ Google Translate; hoặc một AI trả phí
+/// (OpenAI, Anthropic, API tuỳ chỉnh) → Google Translate.
 [JsonConverter(typeof(JsonStringEnumConverter))]
-public enum TranslationEngine { auto, google, openAI }
+public enum TranslationEngine { auto, openAI, anthropic, custom, google }
+
+/// Ba việc dùng AI, mỗi việc chọn được AI và model riêng ở Cài đặt → Dịch.
+public enum AITask { subtitle, screen, summary }
 
 /// Engine cho "Dịch màn hình" (chọn riêng với phụ đề: phụ đề cần nhanh, dịch màn hình cần hiểu kỹ).
 [JsonConverter(typeof(JsonStringEnumConverter))]
-public enum ScreenEngine { sameAsSubtitle, gemini, openAI, google }
+public enum ScreenEngine { sameAsSubtitle, gemini, openAI, anthropic, custom, google }
 
 /// Engine viết "Tóm tắt" (thủ công) và "Cốt truyện" (tự động) trong tab Nhật ký.
 [JsonConverter(typeof(JsonStringEnumConverter))]
-public enum SummaryEngine { sameAsSubtitle, gemini, openAI }
+public enum SummaryEngine { sameAsSubtitle, gemini, openAI, anthropic, custom }
 
 /// Giọng văn và cách xưng hô khi dịch phụ đề, chọn theo bối cảnh của game.
 [JsonConverter(typeof(JsonStringEnumConverter))]
@@ -63,8 +67,10 @@ public static class Labels
     public static string Of(QueueMode q) => q == QueueMode.latestWins ? "Phụ đề (chỉ giữ câu mới nhất)" : "Hội thoại (đọc lần lượt)";
     public static string Of(TranslationEngine e) => e switch
     {
-        TranslationEngine.auto => "Tự động: Gemini → Google Translate",
+        TranslationEngine.auto => "Gemini (cần mạng, miễn phí) → dự phòng Google Translate",
         TranslationEngine.openAI => "OpenAI (cần mạng, trả phí, ~0,9 s/câu) → dự phòng Google Translate",
+        TranslationEngine.anthropic => "Anthropic Claude (cần mạng, trả phí, ~1,3 s/câu) → dự phòng Google Translate",
+        TranslationEngine.custom => "API tuỳ chỉnh → dự phòng Google Translate",
         _ => "Google Translate (miễn phí, nhanh, dịch từng câu rời)",
     };
     public static string Of(ScreenEngine e) => e switch
@@ -72,12 +78,16 @@ public static class Labels
         ScreenEngine.sameAsSubtitle => "Giống engine dịch phụ đề",
         ScreenEngine.gemini => "Gemini (cần mạng, miễn phí, ~4–8 s) → dự phòng Google Translate",
         ScreenEngine.openAI => "OpenAI (cần mạng, trả phí, ~3,5 s) → dự phòng Google Translate",
+        ScreenEngine.anthropic => "Anthropic Claude (cần mạng, trả phí) → dự phòng Google Translate",
+        ScreenEngine.custom => "API tuỳ chỉnh → dự phòng Google Translate",
         _ => "Google Translate (nhanh, không có tóm tắt)",
     };
     public static string Of(SummaryEngine e) => e switch
     {
         SummaryEngine.sameAsSubtitle => "Giống engine dịch phụ đề",
         SummaryEngine.gemini => "Gemini (cần mạng, miễn phí)",
+        SummaryEngine.anthropic => "Anthropic Claude (cần mạng, trả phí)",
+        SummaryEngine.custom => "API tuỳ chỉnh",
         _ => "OpenAI (cần mạng, trả phí)",
     };
     public static string Of(TranslationStyle s) => s switch
