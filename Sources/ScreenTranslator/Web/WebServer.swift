@@ -34,6 +34,8 @@ final class WebServer: ObservableObject, @unchecked Sendable {
     /// `speakers` + `names`: để trang web tô màu tên nhân vật giống trên app (màu theo thứ tự tên đã học của game).
     private struct StateDTO: Encodable, Equatable {
         let running, analyzing: Bool; let profile, profileID: String; let names: Bool; let speakers: [String]
+        /// Phiên bản trang web đang phục vụ: trang đã mở so với giá trị này để biết cần tải lại.
+        var page = WebPage.version
     }
     private var sentState: StateDTO?                               // chỉ dùng trên main
     private struct EntryDTO: Encodable {
@@ -275,7 +277,7 @@ final class WebServer: ObservableObject, @unchecked Sendable {
 
         switch (method, path) {
         case ("GET", "/"), ("GET", "/index.html"):
-            respond(c, type: "text/html; charset=utf-8", body: Data(WebPage.html.utf8))
+            respond(c, type: "text/html; charset=utf-8", body: Data(WebPage.served.utf8))
         case ("GET", "/events"):
             // App TV xin nhận giọng đọc bằng ?audio=1; bản app TV cũ chưa có tham số này thì nhận ra qua User-Agent Tizen.
             let ua = lines.first { $0.lowercased().hasPrefix("user-agent:") }?.lowercased() ?? ""

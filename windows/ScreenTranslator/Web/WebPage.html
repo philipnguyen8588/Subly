@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Phụ đề">
 <meta name="theme-color" content="#000000">
 <link rel="apple-touch-icon" href="/icon.png">
@@ -41,8 +41,9 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
   font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", sans-serif; -webkit-text-size-adjust: 100%; }
 body { touch-action: manipulation; overflow: hidden; }
 button, input { font: inherit; color: inherit; }
-/* Bám bốn mép bằng position: fixed thay vì height: 100dvh: mở từ icon trên màn hình chính của iOS, 100dvh có lúc ngắn hơn
-   màn hình, để lại dải đen ở đáy và đẩy phần đầu trang lên dưới thanh trạng thái. */
+/* Bám bốn mép bằng position: fixed thay vì height: 100dvh (mở từ icon trên màn hình chính của iOS, 100dvh có lúc ngắn hơn
+   màn hình). Đo trên iPhone thật (iOS 18.7): với thanh trạng thái kiểu "black-translucent", iOS đặt trang ngay dưới đồng hồ
+   và vừa khít phần còn lại của màn hình; kiểu "black" thì trang nằm dưới đồng hồ mà vùng an toàn phía trên lại báo 0. */
 #app { display: flex; flex-direction: column; position: fixed; inset: 0;
   padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left); }
 
@@ -55,8 +56,13 @@ header { display: flex; align-items: center; gap: 8px; padding: 10px 16px; font-
 .tools button { min-width: 40px; height: 32px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px;
   background: var(--panel); color: var(--dim); font-size: 13px; font-weight: 600; }
 .tools button.active { color: var(--accent); border-color: var(--accent); }
-#themeBtn { width: 32px; height: 32px; flex: none; padding: 0; border: 1px solid var(--line); border-radius: 8px;
+#themeBtn, #reloadBtn { width: 32px; height: 32px; flex: none; padding: 0; border: 1px solid var(--line); border-radius: 8px;
   background: var(--panel); color: var(--dim); font-size: 15px; line-height: 1; }
+#reloadBtn svg { width: 15px; height: 15px; fill: currentColor; vertical-align: middle; }
+/* App trên máy tính đã có trang mới hơn: nút tải lại sáng lên. */
+#reloadBtn.fresh { width: auto; padding: 0 10px; border-color: var(--accent); background: var(--accent); color: var(--on-accent);
+  font-size: 13px; font-weight: 700; }
+#reloadBtn.fresh span { margin-left: 5px; }
 
 main { flex: 1; min-height: 0; position: relative; }
 section { position: absolute; inset: 0; display: none; }
@@ -241,6 +247,7 @@ nav button.active { color: var(--accent); }
     <div class="tools" id="tools">
       <button id="srcBtn">EN</button><button id="minus">A−</button><button id="plus">A+</button>
     </div>
+    <button id="reloadBtn" title="Tải lại trang"><svg viewBox="0 0 16 16"><path d="M8 2.5a5.5 5.5 0 1 0 5.3 7h-1.7A4 4 0 1 1 8 4v2l3.2-2.8L8 .5z"/></svg></button>
     <button id="themeBtn" title="Giao diện: tự động theo máy / sáng / tối"></button>
   </header>
   <div id="float">
@@ -271,7 +278,7 @@ nav button.active { color: var(--accent); }
       <div class="scroll" id="scanList"><div id="shots"></div><div id="texts"></div></div>
     </section>
   </main>
-  <nav>
+  <nav id="nav">
     <button data-tab="live" class="active">Phụ đề</button>
     <button data-tab="log">Nhật ký</button>
     <button data-tab="story">Cốt truyện</button>
@@ -295,6 +302,18 @@ const dayTime = at => new Date(at * 1000).toLocaleString('vi-VN', { hour12: fals
 const post = async path => (await fetch(path, { method: 'POST', headers: { 'X-ScreenTranslator': '1' } })).json();
 const OFFLINE = 'Không gọi được máy tính. Kiểm tra app còn mở và cùng mạng Wi‑Fi.';
 const EMPTY = 'Chưa có phụ đề. Câu dịch mới sẽ hiện ở đây.';
+
+
+// ---- Tải lại trang: nút ↻ ở thanh đầu (mở từ màn hình chính không có nút tải lại của Safari). App gửi kèm phiên bản
+// trang trong trạng thái; khác với trang đang mở nghĩa là app vừa cập nhật → nút sáng lên "Bản mới".
+const PAGE_VERSION = '__PAGE_VERSION__';
+$('reloadBtn').onclick = () => location.reload();
+function checkPageVersion(v) {
+  if (!v || v === PAGE_VERSION || $('reloadBtn').classList.contains('fresh')) return;
+  $('reloadBtn').classList.add('fresh');
+  $('reloadBtn').title = 'App trên máy tính đã có trang mới, bấm để tải lại';
+  $('reloadBtn').insertAdjacentHTML('beforeend', '<span>Bản mới</span>');
+}
 
 // ---- Giao diện sáng / tối: "auto" theo cài đặt của máy, hoặc người dùng chọn bằng nút ở thanh đầu trang
 const THEMES = ['auto', 'light', 'dark'], THEME_ICON = { auto: '◐', light: '☀', dark: '☾' },
@@ -816,7 +835,7 @@ function connect() {
   es.onerror = () => { online = false; renderStatus(); };
   es.addEventListener('state', e => {
     const old = state.profileID;
-    state = JSON.parse(e.data); renderStatus();
+    state = JSON.parse(e.data); renderStatus(); checkPageVersion(state.page);
     if (old && old !== state.profileID) { switchGame(); return; }
     renderCurrent(); renderHist(); if (tab === 'log') renderLog(); if (tab === 'story') renderStory();     // tên nhân vật mới học → tô lại màu
   });

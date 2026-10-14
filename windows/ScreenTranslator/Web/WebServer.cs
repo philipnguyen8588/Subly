@@ -163,6 +163,8 @@ public sealed class WebServer : INotifyPropertyChanged
         {
             running = p.isRunning, analyzing = p.analyzer.isRunning, profile = prof.name,
             profileID = HistoryStore.ProfileKey(prof.id), names = prof.showsSpeakerNames, speakers = prof.speakers,
+            // Phiên bản trang web đang phục vụ: trang đã mở so với giá trị này để biết cần tải lại.
+            page = WebPage.Version,
         };
         var data = J(state);
         var str = Encoding.UTF8.GetString(data);
@@ -562,16 +564,38 @@ public sealed class WebServer : INotifyPropertyChanged
 public static class WebPage
 {
     static byte[]? html;
+    static string? version;
+
+    /// Trang gửi cho trình duyệt, đã gắn phiên bản để trang đang mở biết khi app đã có bản mới.
     public static byte[] Html
     {
         get
         {
             if (html != null) return html;
-            using var s = typeof(WebPage).Assembly.GetManifestResourceStream("WebPage.html");
-            if (s == null) return html = Encoding.UTF8.GetBytes("<h1>WebPage.html missing</h1>");
-            using var ms = new MemoryStream();
-            s.CopyTo(ms);
-            return html = ms.ToArray();
+            var text = Source();
+            return html = Encoding.UTF8.GetBytes(text.Replace("__PAGE_VERSION__", Version));
         }
+    }
+
+    /// Phiên bản trang: băm FNV-1a 64 bit của nội dung (cùng cách tính với bản macOS).
+    public static string Version
+    {
+        get
+        {
+            if (version != null) return version;
+            ulong h = 0xcbf29ce484222325;
+            foreach (var b in Encoding.UTF8.GetBytes(Source())) { h ^= b; h *= 0x100000001b3; }
+            return version = h.ToString("x");
+        }
+    }
+
+    static string? source;
+    static string Source()
+    {
+        if (source != null) return source;
+        using var s = typeof(WebPage).Assembly.GetManifestResourceStream("WebPage.html");
+        if (s == null) return source = "<h1>WebPage.html missing</h1>";
+        using var r = new StreamReader(s, Encoding.UTF8);
+        return source = r.ReadToEnd();
     }
 }
