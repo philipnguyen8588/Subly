@@ -717,7 +717,11 @@ function stepViewer(d) {      // d = -1: ảnh chụp trước đó (cũ hơn), 
   const list = shots(), i = list.findIndex(a => a.id === shot.id) - d;
   if (list[i]) openViewer(list[i].id);
 }
-function closeViewer() { $('viewer').classList.remove('show'); shot = null; }
+function closeViewer() {
+  // Báo máy tính: TV đang vẽ bản dịch của ảnh này cũng đóng theo.
+  if (shot) post('/api/shot/close?id=' + shot.id).catch(() => {});
+  $('viewer').classList.remove('show'); shot = null;
+}
 $('vclose').onclick = closeViewer;
 $('vsum').onclick = () => { $('viewer').classList.toggle('sum'); };
 $('vprev').onclick = () => stepViewer(-1);

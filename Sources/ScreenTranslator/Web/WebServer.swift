@@ -152,6 +152,14 @@ final class WebServer: ObservableObject, @unchecked Sendable {
         history.$analyses.dropFirst()
             .sink { [weak self] _ in self?.broadcast("analysis", Data("{}".utf8)) }
             .store(in: &cancellables)
+        // Đóng ảnh dịch màn hình trên app: TV đang vẽ bản dịch của ảnh đó cũng đóng theo.
+        var shownShot: Int64?
+        ShotViewer.shared.$currentID
+            .sink { [weak self] id in
+                if id == nil, let old = shownShot { self?.broadcast("shotclose", Data("{\"id\":\(old)}".utf8)) }
+                shownShot = id
+            }
+            .store(in: &cancellables)
         // Cốt truyện đổi (hoặc bắt đầu / xong một lượt cập nhật): máy đang xem tự tải lại GET /api/story.
         let tracker = StoryTracker.shared
         Publishers.Merge4(history.$story.map { _ in () }, history.$storyParts.map { _ in () },
@@ -347,6 +355,11 @@ final class WebServer: ObservableObject, @unchecked Sendable {
                 let body = Self.json(ResultDTO(ok: error == nil, error: error))
                 self.queue.async { self.respond(c, type: "application/json", body: body) }
             }
+        case ("POST", "/api/shot/close"):
+            // Đóng ảnh dịch trên trang web (điện thoại): TV đang vẽ bản dịch của ảnh đó cũng đóng theo.
+            let id = query.split(separator: "&").first { $0.hasPrefix("id=") }.flatMap { Int64($0.dropFirst(3)) } ?? 0
+            broadcast("shotclose", Data("{\"id\":\(id)}".utf8))
+            respond(c, type: "application/json", body: Data("{\"ok\":true}".utf8))
         case ("POST", "/api/story/update"):
             // Nút "Cập nhật ngay" của tab Cốt truyện trên web: như nút cùng tên trên app.
             Task { @MainActor in

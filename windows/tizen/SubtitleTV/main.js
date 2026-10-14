@@ -4,7 +4,7 @@
 //
 // Phím theo Samsung Smart Remote (chỉ có vòng điều hướng, OK, Back, ⏯, kênh ∧∨; nút 123 mở bàn phím số ảo):
 //   ⏯ = tạm dừng / tiếp tục dịch, OK = dịch toàn màn hình, Back = menu, ◀ ▶ = dải mỏng / dày, ▲ ▼ = cỡ chữ,
-//   Kênh ∧ = lịch sử phụ đề đã dịch, Kênh ∨ = xem lại ảnh đã dịch.
+//   Kênh ∧ = cốt truyện của game, Kênh ∨ = xem lại ảnh đã dịch, Vàng = lịch sử phụ đề đã dịch.
 (function () {
   'use strict';
 
@@ -129,9 +129,10 @@
   var sub = document.getElementById('sub');
   var menu = document.getElementById('menu');
   var toastEl = document.getElementById('toast');
-  var rt = { hdmi: 0, sources: [], sse: 'chưa kết nối', game: '', running: false, analyzing: false, names: true, speakers: [], last: null, menuOpen: false, shotOpen: false, histOpen: false, collapsed: false, lastSpeaker: '' };
+  var rt = { hdmi: 0, sources: [], sse: 'chưa kết nối', game: '', running: false, analyzing: false, names: true, speakers: [], last: null, menuOpen: false, shotOpen: false, histOpen: false, storyOpen: false, noSignal: false, collapsed: false, lastSpeaker: '' };
   var histEl = document.getElementById('hist');
   var shotEl = document.getElementById('shot');
+  var storyEl = document.getElementById('story');
   var stEl = document.getElementById('st');
 
   function esc(s) {
@@ -229,8 +230,73 @@
       var ports = hdmiPorts();
       dbg('startVideo ports=' + ports.join(','));
       var pick = ports.indexOf(cfg.hdmi) >= 0 ? cfg.hdmi : ports[0];
-      if (pick) useHdmi(pick, true); else toast('Không có cổng HDMI nào có tín hiệu. Bật PS5 lên.', true);
+      if (pick) useHdmi(pick, true); else setNoSignal(true);
     });
+  }
+
+  // ---------- Mất tín hiệu HDMI (PS5 tắt / nghỉ) ----------
+  // Đo trên S95B: tắt PS5 → addVideoResolutionChangeListener báo 720x480, getSource('MAIN').signal = false, rồi VIDEOSOURCE
+  // bỏ cổng đó khỏi "connected" (và cửa sổ tự nhảy về HDMI1). Bật lại → VIDEOSOURCE có lại cổng, phải setSource lại.
+  // Không có API tắt TV cho app thường (tizen.power không có) → hết giờ thì thoát app; TV tự tắt theo cài đặt "không tín hiệu".
+  var NOSIG_MS = 10 * 60 * 1000;
+  var nosigEl = document.getElementById('nosig');
+  var nsDeadline = 0, nsTimer = null, nsMiss = 0;
+
+  function setNoSignal(on) {
+    if (on === rt.noSignal) return;
+    rt.noSignal = on;
+    dbg(on ? 'MAT TIN HIEU HDMI' + (rt.hdmi || cfg.hdmi) : 'co tin hieu lai');
+    clearInterval(nsTimer);
+    if (!on) { nosigEl.className = 'hidden'; nosigEl.innerHTML = ''; return; }
+    nsDeadline = Date.now() + NOSIG_MS;
+    var n = rt.hdmi || cfg.hdmi;
+    nosigEl.className = '';
+    nosigEl.innerHTML = '<div class="card"><div class="ico"><span></span></div>' +
+      '<div class="ttl">' + (n ? 'HDMI ' + n + ' không có tín hiệu' : 'Không có tín hiệu HDMI') + '</div>' +
+      '<div class="msg">PS5 đang tắt hoặc đang nghỉ. Bật PS5 lên, hình sẽ tự hiện lại.</div>' +
+      '<div class="cd">Tự đóng app sau <b></b></div><div class="bar"><i></i></div>' +
+      '<div class="hint">Bấm phím bất kỳ để chờ thêm 10 phút</div></div>';
+    tickNoSignal();
+    nsTimer = setInterval(tickNoSignal, 1000);
+  }
+
+  function tickNoSignal() {
+    var left = Math.max(0, nsDeadline - Date.now()), sec = Math.ceil(left / 1000);
+    var b = nosigEl.querySelector('.cd b'), bar = nosigEl.querySelector('.bar i');
+    if (b) b.textContent = Math.floor(sec / 60) + ':' + ('0' + sec % 60).slice(-2);
+    if (bar) bar.style.width = (left / NOSIG_MS * 100) + '%';
+    if (left > 0) return;
+    clearInterval(nsTimer);
+    dbg('nguoi dung thoat app (het gio cho tin hieu HDMI)');
+    try { tizen.application.getCurrentApplication().exit(); } catch (e) {}
+  }
+
+  /// Theo dõi tín hiệu: sự kiện VIDEOSOURCE (cắm / mất cổng) + đổi độ phân giải, và hỏi getSource() mỗi 3 giây
+  /// (của tvwindow, nhẹ; KHÔNG poll systeminfo VIDEOSOURCE vì làm văng app trên S95B). Mất 2 lần liền (~6 s) mới báo,
+  /// để PS5 đổi độ phân giải lúc vào game không làm bảng nháy lên.
+  function checkSignal() {
+    if (!rt.hdmi) return;
+    var ok = false;
+    try { var s = tizen.tvwindow.getSource('MAIN'); ok = s && s.type === 'HDMI' && s.number === rt.hdmi && s.signal !== false; } catch (e) { return; }
+    if (ok) { nsMiss = 0; setNoSignal(false); }
+    else if (++nsMiss >= 2) setNoSignal(true);
+  }
+
+  function watchSignal() {
+    try {
+      tizen.systeminfo.addPropertyValueChangeListener('VIDEOSOURCE', function (vs) {
+        rt.sources = vs.connected || [];
+        var ports = hdmiPorts();
+        dbg('VIDEOSOURCE doi: HDMI ' + ports.join(','));
+        if (rt.hdmi && ports.indexOf(rt.hdmi) < 0) { nsMiss = 2; setNoSignal(true); }
+        // Cổng đang xem (hoặc cổng đã lưu) có lại → chọn lại nguồn; checkSignal tắt bảng khi có hình thật.
+        var want = ports.indexOf(rt.hdmi || cfg.hdmi) >= 0 ? (rt.hdmi || cfg.hdmi) : rt.noSignal ? ports[0] : 0;
+        if (want && (rt.noSignal || !rt.hdmi)) useHdmi(want, true);
+        if (rt.menuOpen) renderMenu();
+      });
+    } catch (e) { dbg('VIDEOSOURCE listener loi ' + e); }
+    try { tizen.tvwindow.addVideoResolutionChangeListener(function () { setTimeout(checkSignal, 500); }, 'MAIN'); } catch (e) {}
+    setInterval(checkSignal, 3000);
   }
 
   // ---------- Phụ đề ----------
@@ -459,6 +525,7 @@
     var first = true;
     es.onopen = function () {
       rt.sse = 'đã kết nối';
+      markShotSeen();
       updateStatus();
       if (first) { toast('Đã kết nối ' + s.name + ' (' + host(s.url) + ')'); first = false; }
       if (rt.menuOpen) renderMenu();
@@ -484,6 +551,17 @@
       dbg('ev entry');
       try { onEntry(JSON.parse(ev.data)); } catch (e) {}
     });
+    // Có ảnh dịch màn hình mới (bấm trên app máy tính hoặc trang web điện thoại): TV cũng vẽ bản dịch lên game.
+    es.addEventListener('analysis', function () { onRemoteAnalysis(); });
+    // Đóng ảnh dịch trên app máy tính / điện thoại: TV đang xem đúng ảnh đó cũng đóng (đang lật xem ảnh khác thì thôi).
+    es.addEventListener('shotclose', function (ev) {
+      var id = 0;
+      try { id = JSON.parse(ev.data).id; } catch (e) {}
+      var a = shots[shotIdx];
+      if (rt.shotOpen && (!id || (a && a.id === id))) { dbg('dong anh dich theo may khac ' + id); closeShot(); }
+    });
+    // Cốt truyện đổi (hoặc bắt đầu / xong một lượt cập nhật): đang xem thì tải lại, giữ chỗ đang cuộn.
+    es.addEventListener('story', function () { if (rt.storyOpen) loadStory(); });
     es.addEventListener('cleared', function () { if (rt.histOpen) { hist = []; renderHistory(true); } });
     es.addEventListener('audio', function (ev) {
       if (AUDIO_OFF) return;
@@ -552,16 +630,41 @@
       rt.analyzeReq = rt.analyzing = false;
       bandNote(null);
       updateStatus();
+      if (j && j.id > lastShotId) lastShotId = j.id;   // sự kiện "analysis" của chính lần này không mở lại lần nữa
       if (err || !j || !j.ok) { toast('Không dịch được màn hình: ' + (err || (j && j.error) || '?'), true); return; }
       if (rt.histOpen) closeHistory();
+      if (rt.storyOpen) closeStory();
       if (rt.menuOpen) { rt.menuOpen = false; menu.className = 'hidden'; }
       openShot(j.id, overlay());
     });
   }
 
+  /// Ảnh dịch mới nhất TV đã biết. Lúc (lại) kết nối: lấy mốc, không mở ảnh cũ. Sự kiện "analysis" cũng đến khi xoá ảnh
+  /// nên chỉ mở khi có id lớn hơn mốc.
+  var lastShotId = -1;
+  function markShotSeen() {
+    api('GET', '/api/analyses', 15000, function (list) {
+      if (list && list.length && list[0].id > lastShotId) lastShotId = list[0].id;
+      else if (lastShotId < 0) lastShotId = 0;
+    });
+  }
+  function onRemoteAnalysis() {
+    if (rt.analyzeReq || lastShotId < 0) return;   // TV tự bấm: openShot ở callback của analyzeScreen
+    api('GET', '/api/analyses', 15000, function (list) {
+      var a = list && list.filter(function (x) { return x.image; })[0];
+      if (!a || a.id <= lastShotId || rt.analyzeReq) return;
+      lastShotId = a.id;
+      dbg('anh dich tu may khac ' + a.id);
+      // Đang mở menu / lịch sử / cốt truyện / mất tín hiệu: không chen ngang, chỉ báo.
+      if (rt.menuOpen || rt.histOpen || rt.storyOpen || rt.noSignal) { toast('Có bản dịch màn hình mới · Kênh ∨ để xem'); return; }
+      openShot(a.id, overlay());
+    });
+  }
+
   // ---------- Xem ảnh "dịch màn hình" ----------
   var shots = [], shotIdx = 0, shotLive = false;   // shotLive: bản dịch vẽ thẳng lên hình game đang chạy, không hiện ảnh chụp
-  // Nút OK xoay vòng: bản dịch → bản gốc → tóm tắt → bản dịch.
+  // Nút ▲▼ xoay vòng: bản dịch → bản gốc → tóm tắt → bản dịch.
+  var SHOT_MIN_FONT = 22;   // cỡ chữ nhỏ nhất của khối dịch (px trên màn 1920×1080); dưới mức này ngồi xa không đọc được
   var SHOT_MODES = ['trans', 'orig', 'sum'], SHOT_LABEL = { trans: 'bản dịch', orig: 'bản gốc', sum: 'tóm tắt' }, shotMode = 'trans';
 
   function loadShots(focusId) {
@@ -602,13 +705,16 @@
     var html = shotLive ? '' : '<img src="' + s.url + '/api/shot/' + a.id + '.jpg" style="left:' + ox + 'px;top:' + oy + 'px;width:' + fw + 'px;height:' + fh + 'px">';
     if (shotMode === 'trans') {
       (a.items || []).forEach(function (it) {
-        var w = it.w * fw, h = it.h * fh;
-        // Tiếng Việt thường dài hơn tiếng Anh: hộp rộng thêm một chút, chữ tự co cho vừa (như app máy tính).
+        var w = it.w * fw, h = it.h * fh, lineH = h / Math.max(1, it.lines);
+        // Khung trùng với khung trên app máy tính: ôm sát khối chữ gốc (lệch 3 px trái, 1 px trên). Khối một dòng rộng thêm
+        // sang phải ~15 % vì tiếng Việt thường dài hơn tiếng Anh; chữ tự co cho vừa.
         // Đoạn nhiều dòng tự xuống dòng nên giữ đúng bề ngang gốc, nới ra sẽ tràn khỏi khung của game.
-        var boxW = it.lines > 1 ? w + 6 : Math.min(Math.max(w * 1.15, w + 12), fw - it.x * fw);
-        var size = Math.max(10, h / Math.max(1, it.lines) * 0.74);
-        html += '<div class="blk" data-size="' + size + '" style="left:' + (ox + it.x * fw - 3) + 'px;top:' + (oy + it.y * fh - 1) +
-                'px;width:' + boxW + 'px;height:' + (h + 2) + 'px;font-size:' + size + 'px">' + esc(it.target) + '</div>';
+        var boxW = it.lines > 1 ? w + 6 : Math.max(10, Math.min(Math.max(w * 1.15, w + 12), fw - it.x * fw)), boxH = h + 2;
+        var left = ox + it.x * fw - 3, top = oy + it.y * fh - 1;
+        var radius = Math.min(8, Math.max(3, lineH * 0.18));
+        var size = Math.max(SHOT_MIN_FONT, lineH * 0.74);
+        html += '<div class="blk" data-size="' + size + '" style="left:' + left + 'px;top:' + top + 'px;width:' + boxW + 'px;height:' + boxH +
+                'px;border-radius:' + radius + 'px;font-size:' + size + 'px"' + (it.lines > 1 ? '' : ' data-one="1"') + '><span>' + esc(it.target) + '</span></div>';
       });
     }
     var when = new Date(a.at * 1000);
@@ -617,19 +723,38 @@
       html += '<div class="sumpanel"><div class="sumtitle">Tóm tắt</div>' +
               (a.summary ? esc(a.summary) : '<span class="dim">Không có tóm tắt cho lần dịch này (cần Gemini trên máy tính).</span>') + '</div>';
     }
-    var nextMode = SHOT_MODES[(SHOT_MODES.indexOf(shotMode) + 1) % SHOT_MODES.length];
-    if (shotLive) html += '<div class="livebar">Dịch màn hình · <b>' + SHOT_LABEL[shotMode] + '</b> · OK: xem ' + SHOT_LABEL[nextMode] + ' · ◀▶ xem ảnh chụp · Back: đóng</div>';
-    else html += '<div class="bar"><span>Dịch màn hình · ' + (shotIdx + 1) + '/' + shots.length + ' · ' + hh + ' · đang xem: <b>' + SHOT_LABEL[shotMode] + '</b></span>' +
-            '<span class="dim">◀▶ ảnh trước/sau · OK: xem ' + SHOT_LABEL[nextMode] + ' · Back: về game</span></div>';
+    // Nhãn nhỏ ở góc trái dưới (cạnh icon trạng thái), không che hình game.
+    html += '<div class="tag">' + (shotLive ? '' : (shotIdx + 1) + '/' + shots.length + ' · ' + hh + ' · ') + '<b>' + SHOT_LABEL[shotMode] + '</b> · ▲▼ đổi</div>';
     shotEl.innerHTML = html;
     shotEl.className = (shotLive ? 'live' : '') + (shotMode === 'sum' ? ' dimimg' : '');
-    // Co chữ từng khối cho vừa hộp (tối thiểu 45 % cỡ ban đầu).
+    // Co chữ từng khối cho vừa phần trong của khung (trừ padding), tối thiểu 45 % cỡ ban đầu và không dưới SHOT_MIN_FONT.
+    // Đo thẻ <span> bên trong: khung căn giữa bằng flex nên scrollHeight của khung không thấy phần tràn phía trên.
     var blks = shotEl.querySelectorAll('.blk');
     for (var b = 0; b < blks.length; b++) {
-      var el = blks[b], size0 = parseFloat(el.getAttribute('data-size')), size = size0;
-      while ((el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1) && size > size0 * 0.45) {
-        size *= 0.9;
+      var el = blks[b], txt = el.firstChild, cs = getComputedStyle(el);
+      var innerW = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+      var innerH = el.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+      var size0 = parseFloat(el.getAttribute('data-size')), size = size0;
+      var floor = Math.max(SHOT_MIN_FONT, size0 * 0.45);
+      while ((txt.offsetHeight > innerH + 1 || txt.scrollWidth > innerW + 1) && size > floor) {
+        size = Math.max(floor, size * 0.92);
         el.style.fontSize = size + 'px';
+      }
+      // Đã chạm cỡ chữ nhỏ nhất mà vẫn tràn: nới khung vừa đủ chữ thay vì cắt chữ — khối một dòng nới sang phải,
+      // khối nhiều dòng nới chiều cao quanh tâm.
+      if (txt.offsetHeight > innerH + 1 || txt.scrollWidth > innerW + 1) {
+        var padW = el.offsetWidth - innerW, padH = el.offsetHeight - innerH;
+        if (el.getAttribute('data-one')) {
+          var nw = Math.min(Math.max(el.offsetWidth, txt.scrollWidth + padW + 2), 1920 - 12);
+          el.style.left = Math.max(6, Math.min(el.offsetLeft, 1920 - 6 - nw)) + 'px';
+          el.style.width = nw + 'px';
+        }
+        if (txt.offsetHeight > innerH + 1) {
+          var cy = el.offsetTop + el.offsetHeight / 2;
+          var nh = Math.min(txt.offsetHeight + padH, 1080 - 12);
+          el.style.height = nh + 'px';
+          el.style.top = Math.max(6, Math.min(cy - nh / 2, 1080 - 6 - nh)) + 'px';
+        }
       }
     }
   }
@@ -640,13 +765,14 @@
     switch (code) {
       case 37: if (shotIdx < shots.length - 1) { shotIdx++; renderShot(); } break;   // ◀ ảnh cũ hơn
       case 39: if (shotIdx > 0) { shotIdx--; renderShot(); } break;                   // ▶ ảnh mới hơn
-      case 13: shotMode = SHOT_MODES[(SHOT_MODES.indexOf(shotMode) + 1) % SHOT_MODES.length]; renderShot(); break;   // OK: bản dịch → bản gốc → tóm tắt
+      case 38: case 40:   // ▼ bản dịch → bản gốc → tóm tắt, ▲ ngược lại
+        shotMode = SHOT_MODES[(SHOT_MODES.indexOf(shotMode) + (code === 40 ? 1 : SHOT_MODES.length - 1)) % SHOT_MODES.length]; renderShot(); break;
       case 10252: case 415: case 19: toggleTranslate(); break;
       case 10009: closeShot(); break;                // Back: về game
     }
   }
 
-  // ---------- Lịch sử phụ đề (Kênh ∧) ----------
+  // ---------- Lịch sử phụ đề (phím Vàng) ----------
   var hist = [], histScroll = 0, histSource = true, histNewFrom = Infinity;
 
   function openHistory() {
@@ -717,7 +843,113 @@
       case 37: scrollHistory(-800); break;
       case 39: scrollHistory(800); break;
       case 13: histSource = !histSource; var keep = histScroll; renderHistory(false); histScroll = keep; scrollHistory(0); break;
-      case 427: case 10009: closeHistory(); break;
+      case 405: case 10009: closeHistory(); break;
+      case 10252: case 415: case 19: toggleTranslate(); break;
+    }
+  }
+
+  // ---------- Cốt truyện (Kênh ∧) ----------
+  // Máy tính tự viết cốt truyện từ các câu phụ đề đã dịch (GET /api/story): bài viết liền mạch, các đoạn diễn biến, nhân vật.
+  var story = null, storyTab = 0, storyScroll = 0;
+  var STORY_TABS = ['Tóm lược', 'Diễn biến', 'Nhân vật', 'Bách khoa'];
+  var LORE_KINDS = { place: 'Địa danh', faction: 'Thế lực', concept: 'Khái niệm', other: 'Khác' };
+  var CHAR_FIELDS = [['status', 'Hiện tại'], ['personality', 'Tính cách'], ['background', 'Lai lịch'], ['relations', 'Quan hệ'], ['journal', 'Từ nhật ký']];
+
+  function openStory() {
+    rt.storyOpen = true;
+    story = null; storyTab = 0; storyScroll = 0;
+    storyEl.className = '';
+    storyEl.innerHTML = '<div class="empty">Đang tải cốt truyện…</div>';
+    loadStory();
+  }
+
+  function loadStory() {
+    api('GET', '/api/story', 15000, function (j, err) {
+      if (!rt.storyOpen) return;
+      if (err || !j) {
+        if (!story) storyEl.innerHTML = '<div class="empty">Không tải được cốt truyện: ' + esc(err || '?') +
+          '<br>(cần app Subly trên máy tính bản có mục Cốt truyện)<br><br>Back để quay lại</div>';
+        return;
+      }
+      story = j;
+      renderStory();
+    });
+  }
+
+  function closeStory() {
+    rt.storyOpen = false;
+    storyEl.className = 'hidden';
+    storyEl.innerHTML = '';
+    if (!rt.menuOpen && !rt.shotOpen && !rt.histOpen) showVideo();
+  }
+
+  function dayTime(at) {
+    var d = new Date(at * 1000), p2 = function (n) { return ('0' + n).slice(-2); };
+    return p2(d.getDate()) + '/' + p2(d.getMonth() + 1) + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes());
+  }
+  function paras(text) {
+    return String(text || '').split(/\n+/).filter(function (t) { return t.trim(); }).map(function (t) { return '<p>' + esc(t) + '</p>'; }).join('');
+  }
+
+  function renderStory() {
+    var s = story;
+    if (!s) return;
+    var parts = s.parts || [], chars = s.characters || [], lore = (s.lore || []).slice().reverse();   // bách khoa: mục mới ghi nhận đứng trước
+    var body = '';
+    if (storyTab === 0) {
+      body = s.narrative ? '<div class="narr">' + paras(s.narrative) + '</div>' : '';
+    } else if (storyTab === 1) {
+      parts.forEach(function (p) {   // mới nhất trước, như máy chủ trả về
+        body += '<div class="part"><div class="when">' + dayTime(p.from) + ' · ' + p.lines + ' câu</div>' +
+                '<div class="ptitle">' + esc(p.title || 'Đoạn chưa đặt tên') + '</div>' + paras(p.summary) + '</div>';
+      });
+    } else if (storyTab === 2) {
+      chars.forEach(function (c) {
+        body += '<div class="char"><div class="cname" style="color:' + colorFor(c.name || "") + '">' + esc(c.name || "") +
+                (c.role ? '<span class="role"> · ' + esc(c.role) + '</span>' : '') + '</div>';
+        CHAR_FIELDS.forEach(function (f) { if (c[f[0]]) body += '<div class="field"><b>' + f[1] + ':</b> ' + esc(c[f[0]]) + '</div>'; });
+        body += '</div>';
+      });
+    } else {
+      lore.forEach(function (l) {
+        body += '<div class="char lore"><div class="cname">' + esc(l.name || '') +
+                '<span class="kind">' + (LORE_KINDS[l.kind] || LORE_KINDS.other) + '</span></div>' + paras(l.description) + '</div>';
+      });
+    }
+    if (!body) {
+      body = '<div class="empty">' + (s.running ? 'Đang viết cốt truyện từ ' + s.runningLines + ' câu phụ đề…'
+        : !(s.narrative || parts.length || chars.length || lore.length) ? 'Game này chưa có cốt truyện.<br>Bật mục Cốt truyện trên app máy tính, app sẽ tự viết từ các câu phụ đề đã dịch.'
+        : 'Mục này chưa có nội dung.') + '</div>';
+    }
+    var info = s.running ? 'Đang cập nhật từ ' + s.runningLines + ' câu mới…'
+      : [s.updated ? 'Cập nhật ' + dayTime(s.updated) : '', s.pending ? s.pending + ' câu mới chưa đưa vào' : '',
+         s.pendingScreens ? s.pendingScreens + ' màn hình mới' : ''].filter(Boolean).join(' · ');
+    if (s.note && !s.running) info += (info ? ' · ' : '') + s.note;
+    var counts = ['', parts.length, chars.length, lore.length];
+    var tabs = STORY_TABS.map(function (t, i) {
+      return '<span class="tab' + (i === storyTab ? ' on' : '') + '">' + t + (counts[i] ? ' ' + counts[i] : '') + '</span>';
+    }).join('');
+    storyEl.innerHTML = '<div class="head"><span class="title">Cốt truyện' + (rt.game ? ' · ' + esc(rt.game) : '') + '</span>' +
+      '<span class="tabs">' + tabs + '</span><span class="dim">◀▶ đổi mục · ▲▼ cuộn · Back: về game</span></div>' +
+      '<div class="view"><div class="list">' + (info ? '<div class="info' + (s.running ? ' busy' : '') + '">' + esc(info) + '</div>' : '') + body + '</div></div>';
+    scrollStory(0);
+  }
+
+  function scrollStory(dy) {
+    var view = storyEl.querySelector('.view'), list = storyEl.querySelector('.list');
+    if (!view || !list) return;
+    storyScroll = Math.max(0, Math.min(Math.max(0, list.scrollHeight - view.clientHeight), storyScroll + dy));
+    list.style.transform = 'translateY(' + (-storyScroll) + 'px)';
+  }
+
+  function storyKey(code) {
+    switch (code) {
+      case 38: scrollStory(-240); break;
+      case 40: scrollStory(240); break;
+      case 37: case 39:
+        if (!story) break;
+        storyTab = (storyTab + (code === 39 ? 1 : STORY_TABS.length - 1)) % STORY_TABS.length; storyScroll = 0; renderStory(); break;
+      case 427: case 10009: closeStory(); break;
       case 10252: case 415: case 19: toggleTranslate(); break;
     }
   }
@@ -757,10 +989,12 @@
         sub: 'Khi đang xem: bấm ⏯ trên remote', ok: function () { toggleTranslate(); } },
       { label: 'Dịch toàn màn hình', val: rt.analyzing ? 'đang dịch…' : '', action: true,
         sub: 'Khi đang xem: bấm OK. Chụp hình game, dịch mọi chữ và hiện bản dịch đè lên đúng chỗ', ok: analyzeScreen },
-      { label: 'Lịch sử phụ đề đã dịch', val: '', action: true, sub: 'Khi đang xem: bấm Kênh ∧',
+      { label: 'Lịch sử phụ đề đã dịch', val: '', action: true, sub: 'Khi đang xem: bấm phím Vàng',
         ok: function () { rt.menuOpen = false; menu.className = 'hidden'; openHistory(); } },
       { label: 'Xem lại ảnh đã dịch', val: '', action: true, sub: 'Khi đang xem: bấm Kênh ∨',
         ok: function () { rt.menuOpen = false; menu.className = 'hidden'; openShot(-1); } },
+      { label: 'Cốt truyện của game', val: '', action: true, sub: 'Khi đang xem: bấm Kênh ∧. Tóm lược, diễn biến, nhân vật, bách khoa do app máy tính tự viết',
+        ok: function () { rt.menuOpen = false; menu.className = 'hidden'; openStory(); } },
       { label: 'Máy tính', val: s ? s.name + ' · ' + host(s.url) : 'chưa chọn', sub: rt.sse + (rt.game ? ' · game: ' + rt.game + (rt.running ? ' (đang dịch)' : ' (đã dừng)') : ''),
         ok: function () { openMenu('connect'); } },
       { label: 'Cổng HDMI', val: rt.hdmi ? 'HDMI ' + rt.hdmi : 'chưa có', sub: 'Có tín hiệu: ' + (ports.length ? ports.map(function (p) { return 'HDMI ' + p; }).join(', ') : 'không'),
@@ -905,10 +1139,11 @@
     ['Đang xem game', [['⏯', 'Tạm dừng / tiếp tục dịch phụ đề'], ['OK', 'Dịch toàn màn hình (xong mới vẽ bản dịch lên game)']].concat(overlay()
       ? [['▲ ▼', 'Dời phụ đề lên / xuống'], ['◀ ▶', 'Cỡ chữ phụ đề']]
       : [['◀ ▶', 'Mỏng / dày dải phụ đề'], ['▲ ▼', 'Cỡ chữ phụ đề']]).concat(
-      [['Kênh ∧', 'Lịch sử phụ đề đã dịch'], ['Kênh ∨', 'Xem lại ảnh đã dịch'], ['123 → 1–4', 'Chọn cổng HDMI'], ['Back', 'Mở menu']])],
-    ['Bản dịch màn hình (vẽ đè lên game)', [['OK', 'Bản dịch → bản gốc → tóm tắt'], ['◀ ▶', 'Xem ảnh chụp'], ['Back', 'Đóng']]],
-    ['Lịch sử phụ đề', [['▲ ▼', 'Cuộn'], ['◀ ▶', 'Lật trang'], ['OK', 'Hiện / ẩn câu gốc'], ['⏯', 'Tạm dừng / tiếp tục dịch'], ['Back, Kênh ∧', 'Về game']]],
-    ['Ảnh dịch màn hình', [['◀ ▶', 'Ảnh trước / sau'], ['OK', 'Bản dịch → bản gốc → tóm tắt'], ['Back', 'Về game']]],
+      [['Kênh ∧', 'Cốt truyện của game'], ['Kênh ∨', 'Xem lại ảnh đã dịch'], ['Vàng', 'Lịch sử phụ đề đã dịch'], ['123 → 1–4', 'Chọn cổng HDMI'], ['Back', 'Mở menu']])],
+    ['Bản dịch màn hình (vẽ đè lên game)', [['▲ ▼', 'Bản dịch → bản gốc → tóm tắt'], ['◀ ▶', 'Xem ảnh chụp'], ['Back', 'Đóng']]],
+    ['Lịch sử phụ đề', [['▲ ▼', 'Cuộn'], ['◀ ▶', 'Lật trang'], ['OK', 'Hiện / ẩn câu gốc'], ['⏯', 'Tạm dừng / tiếp tục dịch'], ['Back, Vàng', 'Về game']]],
+    ['Ảnh dịch màn hình', [['◀ ▶', 'Ảnh trước / sau'], ['▲ ▼', 'Bản dịch → bản gốc → tóm tắt'], ['Back', 'Về game']]],
+    ['Cốt truyện', [['◀ ▶', 'Tóm lược / diễn biến / nhân vật / bách khoa'], ['▲ ▼', 'Cuộn'], ['Back, Kênh ∧', 'Về game']]],
     ['Menu', [['▲ ▼', 'Chọn mục'], ['◀ ▶', 'Đổi giá trị'], ['OK', 'Chọn'], ['⏯', 'Tạm dừng / tiếp tục dịch'], ['Back', 'Quay lại']]],
   ]; }
   function helpItems() {
@@ -932,7 +1167,7 @@
     var s = cfg.servers[cfg.server];
     var side = '<div class="side"><div class="logo"><span>Subtitle</span> TV</div>' +
       '<div class="hint">▲▼ chọn · OK xác nhận<br>◀▶ đổi giá trị<br>Back ' + (screen === 'settings' ? 'quay lại xem' : 'quay lại') +
-      '<br><br>Khi đang xem game:<br>⏯ tạm dừng / tiếp tục dịch<br>OK dịch toàn màn hình<br>' + (overlay() ? '▲▼ vị trí · ◀▶ cỡ chữ' : '◀▶ dải phụ đề · ▲▼ cỡ chữ') + '<br>Kênh ∧ lịch sử phụ đề<br>Kênh ∨ ảnh đã dịch<br>Back mở menu này</div>' +
+      '<br><br>Khi đang xem game:<br>⏯ tạm dừng / tiếp tục dịch<br>OK dịch toàn màn hình<br>' + (overlay() ? '▲▼ vị trí · ◀▶ cỡ chữ' : '◀▶ dải phụ đề · ▲▼ cỡ chữ') + '<br>Kênh ∧ cốt truyện<br>Kênh ∨ ảnh đã dịch<br>Vàng lịch sử phụ đề<br>Back mở menu này</div>' +
       '<div class="status">' +
       'Máy tính: ' + (s ? esc(s.name) : '<span class="dim">chưa chọn</span>') + '<br>' +
       'Kết nối: ' + esc(rt.sse) + '<br>' +
@@ -1042,7 +1277,7 @@
 
   // ---------- Remote ----------
   function registerKeys() {
-    ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'ColorF0Red', 'ColorF1Green', 'MediaPlayPause', 'MediaPlay', 'MediaPause', 'ChannelUp', 'ChannelDown'].forEach(function (k) { try { tizen.tvinputdevice.registerKey(k); } catch (e) {} });
+    ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'ColorF0Red', 'ColorF1Green', 'ColorF2Yellow', 'MediaPlayPause', 'MediaPlay', 'MediaPause', 'ChannelUp', 'ChannelDown'].forEach(function (k) { try { tizen.tvinputdevice.registerKey(k); } catch (e) {} });
   }
   document.addEventListener('keydown', function (e) {
     try { handleKey(e); }
@@ -1055,6 +1290,7 @@
   function recover() {
     try { rt.histOpen = false; histEl.className = 'hidden'; histEl.innerHTML = ''; } catch (x) {}
     try { rt.shotOpen = false; shotEl.className = 'hidden'; shotEl.innerHTML = ''; } catch (x) {}
+    try { rt.storyOpen = false; storyEl.className = 'hidden'; storyEl.innerHTML = ''; } catch (x) {}
     try { rt.menuOpen = false; menu.className = 'hidden'; } catch (x) {}
     try { if (rt.hdmi) showVideo(); else startVideo(); } catch (x) {}
   }
@@ -1064,6 +1300,12 @@
     return true;
   };
   function handleKey(e) {
+    // Đang báo mất tín hiệu: có người bấm remote → chờ thêm 10 phút. OK chỉ để gia hạn, không dịch màn hình đen.
+    if (rt.noSignal) {
+      nsDeadline = Date.now() + NOSIG_MS; tickNoSignal();
+      if (e.keyCode === 13 && !rt.menuOpen && !rt.histOpen && !rt.shotOpen && !rt.storyOpen) { e.preventDefault(); return; }
+    }
+    if (rt.storyOpen) { e.preventDefault(); storyKey(e.keyCode); return; }
     if (rt.histOpen) { e.preventDefault(); histKey(e.keyCode); return; }
     if (rt.shotOpen) { e.preventDefault(); shotKey(e.keyCode); return; }
     if (rt.menuOpen) { e.preventDefault(); menuKey(e.keyCode); return; }
@@ -1079,8 +1321,9 @@
       case 39: setCollapsed(false); cfg.band = Math.min(260, cfg.band + (cfg.band >= 60 ? 10 : 5)); save(); applyBand(); showVideo(); if (rt.last) showSubtitle(rt.last); toast('Dải phụ đề ' + cfg.band + ' px'); break;
       case 38: cfg.fontScale = Math.min(1.6, Math.round((cfg.fontScale + 0.1) * 10) / 10); save(); if (rt.last) showSubtitle(rt.last); break;
       case 40: cfg.fontScale = Math.max(0.5, Math.round((cfg.fontScale - 0.1) * 10) / 10); save(); if (rt.last) showSubtitle(rt.last); break;
-      case 427: openHistory(); break;                                                                                                                         // Kênh ∧: lịch sử phụ đề
+      case 427: openStory(); break;     // Kênh ∧: cốt truyện
       case 403: cfg.showSource = !cfg.showSource; save(); if (rt.last) showSubtitle(rt.last); toast('Câu gốc: ' + (cfg.showSource ? 'hiện' : 'ẩn')); break;
+      case 405: openHistory(); break;   // Vàng: lịch sử phụ đề
       case 428: openShot(-1); break;                                                                                                                            // Kênh ∨
       case 49: case 50: case 51: case 52: var n = e.keyCode - 48; withSources(function () { useHdmi(n); }); break;
       case 10009: e.preventDefault(); openMenu('settings'); break;            // Back: mở menu (không thoát app)
@@ -1110,6 +1353,7 @@
       var pend = pendingVideo();
       if (pend) { clearVideo(); showErr('Lần trước app thoát khi đang: ' + pend + '.'); }
       registerKeys();
+      watchSignal();
       document.body.className = document.documentElement.className = overlay() ? 'ovl' : '';
       applyBand();
       withSources(function () {

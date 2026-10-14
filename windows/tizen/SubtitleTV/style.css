@@ -48,9 +48,21 @@ html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; backgro
 /* Ảnh "dịch màn hình": ảnh chụp game toàn màn hình + bản dịch đặt đè đúng vị trí chữ gốc (hình HDMI tạm ẩn). */
 #shot { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; background: #000; }
 #shot img { position: absolute; }
-#shot .blk { position: absolute; background: rgba(0,0,0,.88); color: #fff; border-radius: 4px; padding: 0 4px; box-sizing: border-box;
-             overflow: hidden; font-weight: 500; line-height: 1.12; }
-#shot .bar { position: absolute; left: 0; right: 0; top: 0; padding: 14px 30px; font-size: 24px; background: rgba(0,0,0,.7); display: flex; justify-content: space-between; }
+/* Khung dịch đè lên khối chữ gốc: kính trắng mờ, viền mảnh, bo tròn nhẹ (vị trí/radius tính trong main.js, ôm sát khối chữ), chữ căn trái. */
+#shot .blk { position: absolute; box-sizing: border-box; overflow: hidden; padding: 0 3px;
+             display: flex; align-items: center; justify-content: flex-start; text-align: left;
+             background: linear-gradient(180deg, rgba(255,255,255,.93) 0%, rgba(240,243,248,.88) 100%);
+             -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+             border: 1px solid rgba(255,255,255,.95);
+             box-shadow: 0 0 0 1px rgba(20,28,45,.10), 0 6px 22px rgba(0,0,0,.30);
+             color: #161a22; font-weight: 600; line-height: 1.22; letter-spacing: .1px;
+             -webkit-font-smoothing: antialiased; }
+#shot .blk span { display: block; max-width: 100%; overflow-wrap: break-word; word-wrap: break-word; }
+#shot .blk[data-one] span { white-space: nowrap; }   /* khối một dòng giữ một dòng, như app máy tính */
+/* Nhãn nhỏ góc trái dưới: đang xem chế độ nào + phím đổi. Lúc vẽ đè lên game thì nằm cạnh icon trạng thái (#st.ov). */
+#shot .tag { position: absolute; left: 22px; bottom: 18px; height: 40px; line-height: 40px; white-space: nowrap; font-size: 20px;
+             padding: 0 16px; border-radius: 20px; background: rgba(0,0,0,.6); }
+#shot.live .tag { left: 80px; }
 #shot .sum { position: absolute; left: 0; right: 0; bottom: 0; padding: 16px 60px 20px; font-size: 28px; line-height: 1.35; text-align: center; background: rgba(0,0,0,.8); }
 #shot .wait { position: absolute; left: 0; right: 0; top: 480px; text-align: center; font-size: 40px; opacity: .8; }
 .item.action { background: rgba(41,194,179,.14); }
@@ -77,10 +89,39 @@ html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; backgro
 #hist .mark { text-align: center; font-size: 22px; opacity: .5; margin: 22px 0 6px; }
 #hist .empty { text-align: center; font-size: 30px; opacity: .6; margin-top: 300px; }
 
+/* Cốt truyện (phím Vàng): toàn màn hình như lịch sử; ◀▶ đổi mục cốt truyện / diễn biến / nhân vật. */
+#story { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; background: linear-gradient(135deg, #10121a 0%, #182030 100%); }
+#story .head { position: absolute; left: 0; right: 0; top: 0; height: 76px; padding: 0 60px; display: flex; align-items: center; justify-content: space-between;
+               font-size: 24px; background: rgba(0,0,0,.45); z-index: 2; }
+#story .head .title { font-size: 32px; font-weight: 700; max-width: 640px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#story .tab { display: inline-block; padding: 6px 20px; margin: 0 5px; border-radius: 18px; font-size: 24px; background: rgba(255,255,255,.07); opacity: .7; }
+#story .tab.on { background: rgba(97,111,250,.4); opacity: 1; font-weight: 700; }
+#story .view { position: absolute; left: 0; right: 0; top: 76px; bottom: 0; overflow: hidden; }
+#story .list { position: absolute; left: 0; right: 0; top: 0; padding: 24px 200px 60px; transition: transform .15s ease-out; font-size: 32px; line-height: 1.5; }
+#story p { margin: 0 0 18px; }
+#story .info { font-size: 22px; opacity: .55; margin-bottom: 18px; }
+#story .info.busy { color: #6aa3ff; opacity: 1; }
+#story .part, #story .char { padding: 18px 0 8px; border-bottom: 1px solid rgba(255,255,255,.08); }
+#story .when { font-size: 22px; opacity: .5; }
+#story .ptitle { font-size: 36px; font-weight: 700; margin: 2px 0 10px; }
+#story .cname { font-size: 36px; font-weight: 800; margin-bottom: 8px; }
+#story .cname .role { color: #fff; font-size: 28px; font-weight: 500; opacity: .7; }
+#story .field { font-size: 30px; margin-bottom: 10px; }
+#story .field b { opacity: .6; font-weight: 600; }
+#story .cname .kind { margin-left: 16px; padding: 2px 14px; border-radius: 14px; font-size: 22px; font-weight: 600; vertical-align: middle;
+                     background: rgba(41,194,179,.18); color: #7fe0d5; }
+#story .empty { text-align: center; font-size: 30px; line-height: 1.6; opacity: .6; margin-top: 300px; }
+#story .list .empty { margin-top: 220px; }
+
 /* Chế độ "tóm tắt" khi xem ảnh dịch màn hình: ảnh mờ đi, đoạn tóm tắt chữ to ở giữa. */
 #shot.dimimg img { opacity: .25; }
 #shot .sumpanel { position: absolute; left: 240px; right: 240px; top: 50%; transform: translateY(-50%); padding: 40px 56px; border-radius: 22px;
-                  background: rgba(10,12,20,.88); font-size: 38px; line-height: 1.5; text-align: center; }
+                  background: linear-gradient(180deg, rgba(255,255,255,.93) 0%, rgba(240,243,248,.88) 100%);
+                  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+                  border: 1px solid rgba(255,255,255,.95);
+                  box-shadow: 0 0 0 1px rgba(20,28,45,.10), 0 6px 22px rgba(0,0,0,.30);
+                  color: #161a22; font-weight: 600;
+                  font-size: 38px; line-height: 1.5; text-align: center; }   /* nền trắng chữ đen như khung dịch (.blk) */
 #shot .sumtitle { font-size: 26px; opacity: .6; margin-bottom: 16px; letter-spacing: 1px; }
 /* Trạng thái đang làm (vd. đang dịch màn hình): chữ xanh cạnh icon, không phải lỗi. */
 #toast.note { color: #6aa3ff; }
@@ -109,11 +150,27 @@ html.ovl, body.ovl { background: transparent; }
 /* Bản dịch màn hình vẽ thẳng lên game (không có ảnh chụp). */
 #shot.live { background: transparent; }
 #shot.live.dimimg { background: rgba(0,0,0,.45); }
-#shot .livebar { position: absolute; left: 50%; top: 18px; transform: translateX(-50%); white-space: nowrap; font-size: 22px;
-                 padding: 8px 22px; border-radius: 20px; background: rgba(0,0,0,.6); }
 
 /* Câu phụ đề trước: nhỏ, mờ, phía trên câu hiện tại. */
 #sub .prev { line-height: 1.2; opacity: .6; margin-bottom: 4px; font-weight: 500; }
 
 /* Khối chữ bị giới hạn bề ngang (balanceLines) vẫn nằm giữa khung. */
 #sub.ov .tr, #sub.ov .src, #sub.ov .prev { margin-left: auto; margin-right: auto; }
+
+/* Mất tín hiệu HDMI (PS5 tắt / nghỉ): thẻ giữa màn hình + đếm ngược tự đóng app. Nằm dưới menu / lịch sử / ảnh / cốt truyện. */
+#nosig { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; display: flex; align-items: center; justify-content: center;
+         background: radial-gradient(ellipse at center, #1b2233 0%, #0c0e14 70%); }
+#nosig .card { width: 860px; padding: 56px 64px 46px; border-radius: 30px; text-align: center; box-sizing: border-box;
+               background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.10); box-shadow: 0 20px 60px rgba(0,0,0,.45); }
+#nosig .ico { width: 120px; height: 120px; margin: 0 auto 30px; border-radius: 60px; display: flex; align-items: center; justify-content: center;
+              background: rgba(230,195,90,.12); border: 3px solid rgba(230,195,90,.55); }
+/* Biểu tượng nguồn ⏻ vẽ bằng CSS (font TV không chắc có ký tự này). */
+#nosig .ico span { position: relative; width: 46px; height: 46px; border-radius: 50%; border: 6px solid #e6c35a; border-top-color: transparent; box-sizing: border-box; }
+#nosig .ico span::after { content: ""; position: absolute; left: 50%; top: -14px; width: 6px; height: 28px; margin-left: -3px; border-radius: 3px; background: #e6c35a; }
+#nosig .ttl { font-size: 46px; font-weight: 800; letter-spacing: .3px; }
+#nosig .msg { margin-top: 14px; font-size: 28px; line-height: 1.5; opacity: .7; }
+#nosig .cd { margin-top: 40px; font-size: 26px; opacity: .85; }
+#nosig .cd b { display: block; margin-top: 6px; font-size: 64px; font-weight: 800; color: #e6c35a; font-variant-numeric: tabular-nums; }
+#nosig .bar { height: 8px; margin: 22px 40px 0; border-radius: 4px; background: rgba(255,255,255,.1); overflow: hidden; }
+#nosig .bar i { display: block; height: 100%; border-radius: 4px; background: linear-gradient(90deg, #616ffa, #29c2b3); transition: width 1s linear; }
+#nosig .hint { margin-top: 28px; font-size: 22px; opacity: .5; }

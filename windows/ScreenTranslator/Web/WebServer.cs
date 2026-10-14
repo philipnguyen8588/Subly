@@ -139,6 +139,14 @@ public sealed class WebServer : INotifyPropertyChanged
         HistoryStore.shared.EntryAdded += e => { if (e.profile == ActiveProfile) Broadcast("entry", J(EntryDTO(e))); };
         HistoryStore.shared.EntriesCleared += () => Broadcast("cleared", Encoding.UTF8.GetBytes("{}"));
         HistoryStore.shared.AnalysisAdded += _ => Broadcast("analysis", Encoding.UTF8.GetBytes("{}"));
+        // Đóng ảnh dịch màn hình trên app: TV đang vẽ bản dịch của ảnh đó cũng đóng theo.
+        long? shownShot = null;
+        ShotViewer.Changed += () =>
+        {
+            var id = ShotViewer.currentID;
+            if (id == null && shownShot != null) Broadcast("shotclose", Encoding.UTF8.GetBytes("{\"id\":" + shownShot + "}"));
+            shownShot = id;
+        };
         // Cốt truyện đổi (hoặc bắt đầu / xong một lượt cập nhật): máy đang xem tự tải lại GET /api/story.
         HistoryStore.shared.StoryChanged += () => Broadcast("story", Encoding.UTF8.GetBytes("{}"));
         StoryTracker.shared.PropertyChanged += (_, e) =>
@@ -372,6 +380,14 @@ public sealed class WebServer : INotifyPropertyChanged
         {
             // Header riêng buộc trình duyệt phải hỏi trước (preflight) nếu trang web khác gọi tới → trang lạ không bấm hộ được.
             await Respond(c, s, "text/plain", Array.Empty<byte>(), "403 Forbidden");
+        }
+        else if (method == "POST" && path == "/api/shot/close")
+        {
+            // Đóng ảnh dịch trên trang web (điện thoại): TV đang vẽ bản dịch của ảnh đó cũng đóng theo.
+            long id = 0;
+            foreach (var q in query.Split('&')) if (q.StartsWith("id=")) long.TryParse(q[3..], out id);
+            Broadcast("shotclose", Encoding.UTF8.GetBytes("{\"id\":" + id + "}"));
+            await Respond(c, s, "application/json", Encoding.UTF8.GetBytes("{\"ok\":true}"));
         }
         else if (method == "POST" && path == "/api/toggle")
         {
