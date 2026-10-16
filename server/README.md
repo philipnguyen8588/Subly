@@ -28,6 +28,20 @@ docker compose up -d --build
 Thêm site nginx `translate.helioapple.com` → `http://translate-screen:8080` (một file trong `sites-enabled/`, theo
 mẫu `signnet.conf`), rồi `docker exec ebay-manager-nginx-1 nginx -t && ... -s reload`.
 
+AI share chuyển request tới OpenAI / Anthropic / Gemini, có lúc lâu hơn 60 s mặc định của nginx, nên site cần thêm một
+`location` riêng (đặt cạnh `location /`, cùng các dòng `proxy_*`):
+
+```nginx
+location /v1/ai/ {
+    client_max_body_size 2m;
+    proxy_read_timeout 150s;
+    proxy_send_timeout 150s;
+    # … proxy_pass và proxy_set_header giống location /
+}
+```
+
+Cloudflare (gói miễn phí) vẫn cắt request quá 100 s, nên thực tế giới hạn là 100 s.
+
 ## Sao lưu
 
 Toàn bộ dữ liệu nằm trong `data/`: `devices.db` là danh sách máy, `server.key` là khoá ký. Chỉ cần sao lưu thư mục
