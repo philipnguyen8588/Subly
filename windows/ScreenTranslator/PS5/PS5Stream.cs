@@ -57,6 +57,10 @@ public sealed class PS5Stream : INotifyPropertyChanged
     Timer? fpsTimer;
     int generation;
     bool needKeyframe;
+    // Số giây liên tiếp không có khung nào trong lúc đang nhận hình.
+    int silentSeconds;
+    // Rớt mạng (socket báo lỗi gửi) thì libchiaki không tự kết thúc phiên: không có hình chừng này giây coi như mất kết nối.
+    const int StallTimeout = 8;
     // Lần kết nối gần nhất (để tự nối lại khi PS5 còn giữ phiên cũ) và số lần đã thử lại.
     int lastResolution = 4, lastFps = 30, busyRetries;
     // Giữ delegate sống trong suốt phiên (tránh GC thu hồi khi code native còn gọi).
@@ -333,6 +337,8 @@ public sealed class PS5Stream : INotifyPropertyChanged
                 int gen = generation;
                 work.Async(() =>
                 {
+                    // Phiên đã bị dọn chủ động (Ngắt, hoặc watchdog mất hình): trạng thái đã được đặt, bỏ qua sự kiện "Stopped".
+                    if (session == IntPtr.Zero) return;
                     Teardown();
                     // Mã 4 ngay sau khi vừa ngắt: PS5 chưa kịp đóng phiên trước của chính app này (mất vài giây).
                     // Tự đợi rồi nối lại thay vì báo lỗi; chỉ báo khi thử lại vẫn bị (có app Remote Play khác đang dùng).
@@ -397,12 +403,27 @@ public sealed class PS5Stream : INotifyPropertyChanged
     void StartFPSTimer()
     {
         fpsTimer?.Dispose();
+        silentSeconds = 0;
         fpsTimer = new Timer(_ =>
         {
             int n;
             lock (lk) { n = framesThisSecond; framesThisSecond = 0; }
             fps = n;
+            if (state.kind != StateKind.streaming || n > 0) { silentSeconds = 0; return; }
+            if (++silentSeconds == StallTimeout) Stalled();
         }, null, 1000, 1000);
+    }
+
+    /// Phiên vẫn "mở" nhưng không còn hình → đóng phiên để PS5Reconnector kết nối lại.
+    void Stalled()
+    {
+        Log.Warn($"PS5: {StallTimeout} giây không nhận được hình → coi như mất kết nối");
+        work.Async(() =>
+        {
+            if (session == IntPtr.Zero) return;
+            Teardown();
+            SetState(new State(StateKind.failed, "Mất kết nối: không nhận được hình từ PS5 (mạng bị rớt)"));
+        });
     }
 
     // MARK: đăng ký máy

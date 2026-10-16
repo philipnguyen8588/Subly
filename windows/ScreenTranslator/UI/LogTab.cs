@@ -12,11 +12,12 @@ using System.Windows.Threading;
 
 namespace ScreenTranslator;
 
-/// Tab Nhật ký: phụ đề đã dịch, lịch sử dịch màn hình và các bản tóm tắt, cùng một thanh công cụ.
+/// Nội dung ba tab nhật ký của màn hình chính (Cốt truyện / Phụ đề / Dịch màn hình). Một thể hiện dùng chung;
+/// tab chính gọi ShowSection để đổi mục. Ô tìm, "Dòng cũ", xuất, xoá nằm ở `Toolbar` (đặt bên phải thanh tab chính).
+/// Các bản tóm tắt thủ công hiện ở mục "Tóm tắt" của Cốt truyện (StoryView gọi SummaryLog qua summariesContent).
 public sealed class LogTab : DockPanel
 {
-    enum Section { story, subtitles, screens, summaries }
-    /// Mở tab Nhật ký là vào thẳng mục Cốt truyện.
+    enum Section { story, subtitles, screens }
     Section section = Section.story;
     string search = "";
     /// Đang xem các dòng cũ không gắn với game nào.
@@ -25,12 +26,13 @@ public sealed class LogTab : DockPanel
     List<ScreenAnalysis> legacyAnalyses = new();
     readonly HistoryStore store = HistoryStore.shared;
     readonly StorySummarizer summarizer = StorySummarizer.shared;
-    readonly RadioButton subBtn, scrBtn, sumBtn, storyBtn;
     /// Mục Cốt truyện: một thể hiện giữ suốt, không dựng lại mỗi khi nhật ký có câu mới.
     readonly StoryView storyView = new();
     readonly Button exportBtn, clearBtn;
     readonly ToggleButton legacyBtn = new() { Content = "Dòng cũ" };
-    readonly TextBox searchBox = new() { Width = 240 };
+    readonly TextBox searchBox = new() { MinWidth = 120, MaxWidth = 220, Width = 200, BorderThickness = new Thickness(0), Background = Brushes.Transparent, VerticalContentAlignment = VerticalAlignment.Center };
+    /// Ô tìm + "Dòng cũ" + xuất + xoá, đặt bên phải thanh tab chính khi đang ở tab nhật ký.
+    public readonly StackPanel Toolbar;
     readonly ContentControl content = new();
     readonly NowTranslatingPanel now = new();
     readonly ScrollViewer subScroll = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
@@ -77,25 +79,19 @@ public sealed class LogTab : DockPanel
     string ScopeName => legacy ? "dòng cũ chưa gắn game" : $"game “{AppSettings.shared.activeProfile.name}”";
     List<TranslationEntry> SelectedRows => rows.Where(r => selected.Contains(r.id)).ToList();
 
-    string ClearTitle => section == Section.story ? "Xoá cốt truyện của game này"
-        : section == Section.summaries ? "Xoá mọi bản tóm tắt của game này"
+    bool ViewingSummaries => section == Section.story && storyView.ShowingSummaries;
+    string ClearTitle => ViewingSummaries ? "Xoá mọi bản tóm tắt của game này"
+        : section == Section.story ? "Xoá cốt truyện của game này"
         : legacy ? "Xoá toàn bộ dòng cũ chưa gắn game"
         : section == Section.subtitles ? "Xoá nhật ký phụ đề của game này" : "Xoá lịch sử dịch màn hình của game này";
-    string ClearQuestion => section == Section.summaries ? $"Xoá mọi bản tóm tắt của game “{AppSettings.shared.activeProfile.name}”?"
+    string ClearQuestion => ViewingSummaries ? $"Xoá mọi bản tóm tắt của game “{AppSettings.shared.activeProfile.name}”?"
         : legacy ? "Xoá toàn bộ dòng cũ chưa gắn game (cả phụ đề và dịch màn hình)?"
         : section == Section.subtitles ? $"Xoá nhật ký phụ đề của {ScopeName}?" : $"Xoá lịch sử dịch màn hình và ảnh chụp của {ScopeName}?";
 
     public LogTab()
     {
-        var tbStyle = (Style)Application.Current.FindResource(typeof(ToggleButton));
-        subBtn = new RadioButton { GroupName = "logsec", Style = tbStyle };
-        scrBtn = new RadioButton { GroupName = "logsec", Style = tbStyle };
-        sumBtn = new RadioButton { GroupName = "logsec", Style = tbStyle };
-        subBtn.Checked += (_, _) => { section = Section.subtitles; Rebuild(); };
-        scrBtn.Checked += (_, _) => { section = Section.screens; Rebuild(); };
-        sumBtn.Checked += (_, _) => { section = Section.summaries; Rebuild(); };
-        storyBtn = new RadioButton { GroupName = "logsec", IsChecked = true, Style = tbStyle, Content = "Cốt truyện" };
-        storyBtn.Checked += (_, _) => { section = Section.story; Rebuild(); };
+        storyView.summariesContent = SummaryLog;
+        storyView.SectionChanged += Rebuild;
         legacyBtn.Checked += (_, _) => { legacy = true; legacyEntries = store.LegacyEntries(); legacyAnalyses = store.LegacyAnalyses(); Rebuild(); };
         legacyBtn.Unchecked += (_, _) => { legacy = false; legacyEntries = new(); legacyAnalyses = new(); Rebuild(); };
         searchBox.TextChanged += (_, _) => { search = searchBox.Text; ClearSelection(); Rebuild(); };
@@ -109,10 +105,13 @@ public sealed class LogTab : DockPanel
         }
         exportBtn.Click += (_, _) => { menu.PlacementTarget = exportBtn; menu.IsOpen = true; };
         clearBtn = Ui.IconBtn("", ConfirmClear, ClearTitle);
-        var searchRow = Ui.H(6, Ui.Icon("", 13, Ui.Tertiary), searchBox);
-        var toolbar = SourceTab.Toolbar(Ui.Row(Ui.H(10, Ui.H(0, storyBtn, subBtn, scrBtn, sumBtn), legacyBtn, searchRow), exportBtn, clearBtn));
-        SetDock(toolbar, Dock.Top);
-        Children.Add(toolbar);
+        var searchRow = new Border
+        {
+            Height = 36, CornerRadius = new CornerRadius(10), Padding = new Thickness(10, 0, 10, 0), Background = Brushes.White,
+            BorderBrush = Ui.Hex("#1F000000"), BorderThickness = new Thickness(1),
+            Child = Ui.H(6, Ui.Icon("\uE721", 13, Ui.Tertiary), searchBox),
+        };
+        Toolbar = Ui.H(8, searchRow, legacyBtn, exportBtn, clearBtn);
         // Câu đang dịch luôn nằm ở đáy tab, xem mục nào cũng thấy.
         SetDock(now, Dock.Bottom);
         Children.Add(now);
@@ -146,13 +145,18 @@ public sealed class LogTab : DockPanel
     {
         RefreshSelBar();
         // Tóm tắt xong khi đang xem mục Phụ đề → chuyển sang mục Tóm tắt để đọc ngay.
-        if (prop == nameof(StorySummarizer.lastSavedID) && summarizer.lastSavedID != null && section == Section.subtitles) { sumBtn.IsChecked = true; return; }
-        if (section == Section.summaries) Rebuild();
+        if (prop == nameof(StorySummarizer.lastSavedID) && summarizer.lastSavedID != null && section == Section.subtitles)
+        {
+            storyView.ShowSummaries();
+            AppNav.shared.tab = AppNav.Tab.story;
+            return;
+        }
+        if (ViewingSummaries) storyView.Refresh();
     }
 
     void ConfirmClear()
     {
-        if (section == Section.story)
+        if (section == Section.story && !ViewingSummaries)
         {
             // Có: viết lại từ đầu nhật ký; Không: chỉ viết tiếp từ bây giờ; Huỷ: giữ nguyên.
             var r = MessageBox.Show(
@@ -164,33 +168,37 @@ public sealed class LogTab : DockPanel
             return;
         }
         if (!Ui.Confirm(ClearQuestion)) return;
-        if (section == Section.summaries) { store.ClearSummaries(); expandedSummaries.Clear(); }
+        if (ViewingSummaries) { store.ClearSummaries(); expandedSummaries.Clear(); }
         else if (legacy) { store.ClearLegacy(); legacyBtn.IsChecked = false; }
         else if (section == Section.subtitles) store.Clear();
         else store.ClearAnalyses();
     }
 
+    /// Tab chính đổi sang Cốt truyện / Phụ đề / Dịch màn hình.
+    public void ShowSection(AppNav.Tab t)
+    {
+        var next = t switch { AppNav.Tab.subtitles => Section.subtitles, AppNav.Tab.screens => Section.screens, _ => Section.story };
+        if (next == section && content.Content != null) return;
+        section = next;
+        Rebuild();
+    }
+
     void Rebuild()
     {
-        subBtn.Content = $"Phụ đề  {Entries.Count}";
-        scrBtn.Content = $"Dịch màn hình  {Analyses.Count}";
-        sumBtn.Content = $"Tóm tắt  {store.summaries.Count}";
-        legacyBtn.Visibility = store.legacyCount > 0 ? Visibility.Visible : Visibility.Collapsed;
+        legacyBtn.Visibility = section != Section.story && store.legacyCount > 0 ? Visibility.Visible : Visibility.Collapsed;
         legacyBtn.ToolTip = $"Nhật ký có từ trước khi tách theo game ({store.legacyCount} dòng, không gắn với game nào)";
-        exportBtn.Visibility = section is Section.summaries or Section.story ? Visibility.Collapsed : Visibility.Visible;
+        exportBtn.Visibility = section == Section.story ? Visibility.Collapsed : Visibility.Visible;
         clearBtn.ToolTip = ClearTitle;
+        // Mục Hỏi đáp có ô hỏi và nút xoá hội thoại riêng ở đáy.
+        Toolbar.Visibility = section == Section.story && storyView.ShowingAsk ? Visibility.Collapsed : Visibility.Visible;
         if (section == Section.story)
         {
             storyView.SetSearch(search);
+            if (ViewingSummaries) storyView.Refresh();
             if (!ReferenceEquals(content.Content, storyView)) content.Content = storyView;
             return;
         }
-        content.Content = section switch
-        {
-            Section.subtitles => SubtitleLog(),
-            Section.screens => ScreenLog(),
-            _ => SummaryLog(),
-        };
+        content.Content = section == Section.subtitles ? SubtitleLog() : ScreenLog();
     }
 
     // MARK: Phụ đề
@@ -271,8 +279,8 @@ public sealed class LogTab : DockPanel
         Grid.SetColumn(src, 2);
         g.Children.Add(tr); g.Children.Add(src);
         var tools = Ui.H(4, Ui.Text($"{e.timestamp:HH:mm:ss} · {BackendLabels.Label(e.backend)} · {e.latencyMs} ms", 10.5, color: Ui.Secondary),
-            Ui.IconBtn("", () => Ui.CopyText(e.translated), "Copy bản dịch").Also(b => b.Padding = new Thickness(4, 1, 4, 1)),
-            Ui.IconBtn("", () => Ui.CopyText(e.source), "Copy câu gốc").Also(b => b.Padding = new Thickness(4, 1, 4, 1)));
+            Ui.InlineIconBtn("", () => Ui.CopyText(e.translated), "Copy bản dịch"),
+            Ui.InlineIconBtn("", () => Ui.CopyText(e.source), "Copy câu gốc"));
         var toolBox = new Border
         {
             Child = tools, Background = Brushes.White, CornerRadius = new CornerRadius(10), BorderBrush = Ui.Res("CardStroke"), BorderThickness = new Thickness(1),
@@ -594,7 +602,7 @@ public sealed class LogTab : DockPanel
         var chevron = Ui.Icon("", 10, Ui.Secondary);
         var summary = Ui.Text(a.summary, 14.5).Also(t => { t.MaxHeight = 42; t.TextTrimming = TextTrimming.WordEllipsis; });
         var meta = Ui.Text($"{a.timestamp:HH:mm:ss} · {a.lines.Count} khối chữ · {BackendLabels.Label(a.backend)} · {a.latencyMs / 1000.0:0.0} s", 10.5, color: Ui.Tertiary);
-        var copy = Ui.IconBtn("", () => Ui.CopyText($"{a.summary}\n\n" + string.Join("\n\n", a.lines.Select(l => $"{l.source}\n→ {l.target}"))), "Copy toàn bộ");
+        var copy = Ui.InlineIconBtn("", () => Ui.CopyText($"{a.summary}\n\n" + string.Join("\n\n", a.lines.Select(l => $"{l.source}\n→ {l.target}"))), "Copy toàn bộ");
         var head = Ui.Row(Ui.H(8, chevron, Ui.V(3, summary, meta)), copy);
         var detail = Ui.V(0);
         detail.Visibility = Visibility.Collapsed;
@@ -640,7 +648,7 @@ public sealed class LogTab : DockPanel
         {
             var empty = Ui.V(8, Ui.Icon("", 30, Ui.Tertiary),
                 Ui.Text(all.Count == 0
-                    ? "Ở mục Phụ đề, chọn nhiều câu (kéo chuột, hoặc bấm một câu rồi Shift-bấm câu khác) và bấm Tóm tắt.\nBản tóm tắt của game này sẽ được lưu ở đây."
+                    ? "Ở tab Phụ đề, chọn nhiều câu (kéo chuột, hoặc bấm một câu rồi Shift-bấm câu khác) và bấm Tóm tắt.\nBản tóm tắt của game này sẽ được lưu ở đây."
                     : "Không có bản tóm tắt nào khớp.", color: Ui.Tertiary).Also(t => t.TextAlignment = TextAlignment.Center));
             empty.HorizontalAlignment = HorizontalAlignment.Center; empty.VerticalAlignment = VerticalAlignment.Center;
             foreach (FrameworkElement c in empty.Children) c.HorizontalAlignment = HorizontalAlignment.Center;
@@ -672,7 +680,7 @@ public sealed class LogTab : DockPanel
             expandedSummaries.Remove(s.id);
             store.DeleteSummary(s.id);
         }
-        var tools = Ui.H(6, Ui.IconBtn("", () => Ui.CopyText(plain), "Copy bản tóm tắt"), Ui.IconBtn("", Delete, "Xoá bản tóm tắt này"));
+        var tools = Ui.H(6, Ui.InlineIconBtn("", () => Ui.CopyText(plain), "Copy bản tóm tắt"), Ui.InlineIconBtn("", Delete, "Xoá bản tóm tắt này"));
         tools.Opacity = 0;
         tools.VerticalAlignment = VerticalAlignment.Top;
         var titleBox = new DockPanel();
@@ -747,7 +755,7 @@ public sealed class NowTranslatingPanel : Border
         var head = Ui.H(6, Ui.Dot(p.isRunning ? Brushes.LimeGreen : Ui.Tertiary, 7), Ui.Text(p.isRunning ? "ĐANG DỊCH" : "ĐÃ DỪNG", 10.5, true, Ui.Secondary));
         if (p.lastBackend is BackendKind b && p.lastTranslated.Length > 0)
             head.Children.Add(Ui.Text($"· {(b == BackendKind.gemini ? router.activeModel ?? "Gemini" : BackendLabels.Label(b))} · {p.lastMs} ms", 10.5, color: Ui.Tertiary).Also(t => t.Margin = new Thickness(6, 0, 0, 0)));
-        UIElement top = p.lastTranslated.Length > 0 ? Ui.Row(head, Ui.IconBtn("", () => Ui.CopyText(p.lastTranslated), "Copy bản dịch")) : head;
+        UIElement top = p.lastTranslated.Length > 0 ? Ui.Row(head, Ui.InlineIconBtn("", () => Ui.CopyText(p.lastTranslated), "Copy bản dịch")) : head;
         var v = Ui.V(6, top);
         if (router.lastError is string e) v.Children.Add(Ui.H(6, Ui.Icon("", 12, Ui.Danger), Ui.Text(e, 11.5, color: Ui.Danger)));
         if (p.lastTranslated.Length == 0)

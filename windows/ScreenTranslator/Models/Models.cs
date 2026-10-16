@@ -22,18 +22,18 @@ public enum QueueMode { latestWins, fifo }
 /// Windows: Gemini → Google Translate (thay Apple Translation); chỉ Google Translate; hoặc một AI trả phí
 /// (OpenAI, Anthropic, API tuỳ chỉnh) → Google Translate.
 [JsonConverter(typeof(JsonStringEnumConverter))]
-public enum TranslationEngine { auto, openAI, anthropic, custom, google }
+public enum TranslationEngine { auto, openAI, anthropic, custom, shared, google }
 
 /// Ba việc dùng AI, mỗi việc chọn được AI và model riêng ở Cài đặt → Dịch.
 public enum AITask { subtitle, screen, summary }
 
 /// Engine cho "Dịch màn hình" (chọn riêng với phụ đề: phụ đề cần nhanh, dịch màn hình cần hiểu kỹ).
 [JsonConverter(typeof(JsonStringEnumConverter))]
-public enum ScreenEngine { sameAsSubtitle, gemini, openAI, anthropic, custom, google }
+public enum ScreenEngine { sameAsSubtitle, gemini, openAI, anthropic, custom, shared, google }
 
 /// Engine viết "Tóm tắt" (thủ công) và "Cốt truyện" (tự động) trong tab Nhật ký.
 [JsonConverter(typeof(JsonStringEnumConverter))]
-public enum SummaryEngine { sameAsSubtitle, gemini, openAI, anthropic, custom }
+public enum SummaryEngine { sameAsSubtitle, gemini, openAI, anthropic, custom, shared }
 
 /// Giọng văn và cách xưng hô khi dịch phụ đề, chọn theo bối cảnh của game.
 [JsonConverter(typeof(JsonStringEnumConverter))]
@@ -71,6 +71,7 @@ public static class Labels
         TranslationEngine.openAI => "OpenAI (cần mạng, trả phí, ~0,9 s/câu) → dự phòng Google Translate",
         TranslationEngine.anthropic => "Anthropic Claude (cần mạng, trả phí, ~1,3 s/câu) → dự phòng Google Translate",
         TranslationEngine.custom => "API tuỳ chỉnh → dự phòng Google Translate",
+        TranslationEngine.shared => "AI share (key người khác chia sẻ, qua server) → dự phòng Google Translate",
         _ => "Google Translate (miễn phí, nhanh, dịch từng câu rời)",
     };
     public static string Of(ScreenEngine e) => e switch
@@ -80,6 +81,7 @@ public static class Labels
         ScreenEngine.openAI => "OpenAI (cần mạng, trả phí, ~3,5 s) → dự phòng Google Translate",
         ScreenEngine.anthropic => "Anthropic Claude (cần mạng, trả phí) → dự phòng Google Translate",
         ScreenEngine.custom => "API tuỳ chỉnh → dự phòng Google Translate",
+        ScreenEngine.shared => "AI share → dự phòng Google Translate",
         _ => "Google Translate (nhanh, không có tóm tắt)",
     };
     public static string Of(SummaryEngine e) => e switch
@@ -88,6 +90,7 @@ public static class Labels
         SummaryEngine.gemini => "Gemini (cần mạng, miễn phí)",
         SummaryEngine.anthropic => "Anthropic Claude (cần mạng, trả phí)",
         SummaryEngine.custom => "API tuỳ chỉnh",
+        SummaryEngine.shared => "AI share",
         _ => "OpenAI (cần mạng, trả phí)",
     };
     public static string Of(TranslationStyle s) => s switch

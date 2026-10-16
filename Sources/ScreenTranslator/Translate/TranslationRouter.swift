@@ -71,6 +71,10 @@ final class TranslationRouter: ObservableObject {
     let anthropic = AnthropicBackend()
     /// API tuỳ chỉnh: cùng giao thức với OpenAI, khác địa chỉ.
     let custom = OpenAIBackend()
+    /// AI share: backend của nhà cung cấp mà share dùng, gọi qua proxy của server bằng token
+    /// (chưa nhập share = backend rỗng, isReady = false).
+    private(set) var shared: CloudChatBackend = OpenAIBackend()
+    private var sharedSignature = ""
     let limiter: RateLimiter
     private let settings = AppSettings.shared
     private var context: [TranslationPair] = []
@@ -134,6 +138,48 @@ final class TranslationRouter: ObservableObject {
         custom.model = settings.customModel
         custom.timeout = settings.customTimeout
         custom.baseURL = OpenAIBackend.normalize(baseURL: settings.customBaseURL)
+        applySharedSettings()
+    }
+
+    private func applySharedSettings() {
+        let token = settings.aiShareToken
+        guard let info = settings.aiShare, !token.isEmpty, !info.revoked, AIShareClient.available else {
+            if !sharedSignature.isEmpty { shared = OpenAIBackend(); sharedSignature = "" }
+            return
+        }
+        let sig = "\(info.provider)|\(info.models.joined(separator: ","))|\(token)"
+        if sig != sharedSignature {
+            shared = AIShareClient.makeBackend(info, token: token)
+            sharedSignature = sig
+        }
+        // Đi qua server nên chậm hơn gọi thẳng một chút: cộng thêm 1 s vào thời gian chờ của nhà cung cấp đó.
+        switch shared {
+        case let o as OpenAIBackend:
+            o.subtitlePrompt = { [gemini] in gemini.subtitleSystemPrompt }
+            o.analysisPrompt = { [gemini] in gemini.analysisSystemPrompt }
+            o.timeout = (info.provider == "custom" ? settings.customTimeout : settings.openAITimeout) + 1
+        case let a as AnthropicBackend:
+            a.subtitlePrompt = { [gemini] in gemini.subtitleSystemPrompt }
+            a.analysisPrompt = { [gemini] in gemini.analysisSystemPrompt }
+            a.timeout = settings.anthropicTimeout + 1
+        case let g as GeminiBackend:
+            g.timeout = settings.geminiTimeout + 1
+            mirrorPrompts(to: g)
+        default: break
+        }
+    }
+
+    /// Gemini của AI share dựng lời dặn từ chính nó → chép các thông tin lời dặn từ Gemini chính (ngữ cảnh truyện,
+    /// thuật ngữ đang dùng… đổi theo từng câu nên chép lại ngay trước mỗi lần gọi).
+    private func mirrorPrompts(to g: GeminiBackend) {
+        g.targetName = gemini.targetName
+        g.glossary = gemini.glossary
+        g.speakers = gemini.speakers
+        g.gameName = gemini.gameName
+        g.translationStyle = gemini.translationStyle
+        g.translationNote = gemini.translationNote
+        g.storyContext = gemini.storyContext
+        g.glossaryFocus = gemini.glossaryFocus
     }
 
     private var useAI: Bool { settings.engine == .appleIntelligence }
@@ -146,6 +192,9 @@ final class TranslationRouter: ObservableObject {
         case "openAI": return (openai, .openAI, "OpenAI", engine)
         case "anthropic": return (anthropic, .anthropic, "Claude", engine)
         case "custom": return (custom, .custom, "API tuỳ chỉnh", engine)
+        case "shared":
+            if let g = shared as? GeminiBackend { mirrorPrompts(to: g) }
+            return (shared, .shared, "AI share", engine)
         default: return nil
         }
     }
@@ -259,6 +308,16 @@ final class TranslationRouter: ObservableObject {
         gemini.storyContext = String(story.prefix(500))
     }
 
+    struct RunawayOutput: LocalizedError {
+        var errorDescription: String? { "model trả lời dài bất thường (lời giải thích thay vì bản dịch)" }
+    }
+
+    /// Model viết cả lời suy luận / giải thích thay vì chỉ trả câu dịch (đã gặp với Claude khi gặp mẩu câu khó hiểu):
+    /// câu dịch dài gấp ba câu gốc và hơn 80 ký tự. Bản dịch tiếng Việt thường chỉ dài 1–1,5 lần câu tiếng Anh.
+    static func isRunaway(source: String, translated: String) -> Bool {
+        translated.count > max(source.count * 3, source.count + 80)
+    }
+
     func translate(_ text: String) async -> Output? {
         guard SessionCheck.shared.valid() else { return nil }
         let t0 = Date()
@@ -269,6 +328,10 @@ final class TranslationRouter: ObservableObject {
             do {
                 let out = try await c.backend.translate(text, context: Array(context.suffix(settings.contextPairs)),
                                                         model: settings.taskModel(.subtitle, c.id))
+                if Self.isRunaway(source: text, translated: out) {
+                    Log.warn("\(c.name) trả lời dài bất thường, không phải bản dịch: \(out.prefix(120))")
+                    throw RunawayOutput()
+                }
                 state = .cloud(c.name)
                 lastError = nil
                 let fixed = Self.fixSpeaker(source: text, translated: out)
@@ -502,6 +565,70 @@ final class TranslationRouter: ObservableObject {
                 if case GeminiBackend.GeminiError.rateLimited(let retry) = error { await limiter.reportRateLimited(retryAfter: retry) }
                 usedToday = await limiter.usedToday
                 throw error
+            }
+        }
+        throw lastErr
+    }
+
+    struct StoryAnswer {
+        let text: String
+        let backend: BackendKind
+        let ms: Int
+        /// Số ký tự đã gửi model (để ước lượng token).
+        let inputChars: Int
+    }
+
+    /// Hỏi đáp cốt truyện. Thứ tự engine như "Tóm tắt": engine của "Tóm tắt & cốt truyện" (trả phí) → Gemini → Apple Intelligence.
+    /// `material` được cắt theo giới hạn ngữ cảnh của từng engine. Lỗi ở đây không làm đổi trạng thái engine phụ đề.
+    func askStory(_ material: StoryQA.Material) async throws -> StoryAnswer {
+        let t0 = Date()
+        let system = gemini.storyQAPrompt(focus: material.focus)
+        var lastErr: Error = online ? StoryError.noEngine : StoryError.offline
+        func output(_ raw: String, _ backend: BackendKind, _ input: String) throws -> StoryAnswer {
+            let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { throw StoryError.empty }
+            return StoryAnswer(text: text, backend: backend, ms: Int(Date().timeIntervalSince(t0) * 1000), inputChars: system.count + input.count)
+        }
+        let engine = settings.effectiveSummaryEngine
+        if online {
+            let input = StoryQA.render(material, budget: StoryQA.cloudBudget)
+            if let c = cloud(engine.rawValue), c.backend.isReady {
+                do {
+                    return try output(try await c.backend.complete(system: system, user: input, json: false, maxTokens: 1500, timeout: 60,
+                                                                   model: settings.taskModel(.summary, c.id)), c.kind, input)
+                } catch {
+                    Log.warn("\(c.name) (hỏi đáp) lỗi → engine khác: \(error.localizedDescription)")
+                    lastErr = error
+                }
+            }
+            if engine != .appleIntelligence, !gemini.apiKey.isEmpty {
+                if let denial = await limiter.acquire() {
+                    switch denial {
+                    case .cooldown(let s): lastErr = StoryError.busy("đang chờ \(Int(s))s sau khi hết quota")
+                    case .minute: lastErr = StoryError.busy("hết quota/phút")
+                    case .day: lastErr = StoryError.busy("hết quota/ngày")
+                    }
+                } else {
+                    do {
+                        let raw = try await gemini.generate(system: system, input: input, timeout: 60, maxOutputTokens: 2048,
+                                                            model: settings.taskModel(.summary, "gemini"))
+                        usedToday = await limiter.usedToday
+                        return try output(raw, .gemini, input)
+                    } catch {
+                        if case GeminiBackend.GeminiError.rateLimited(let retry) = error { await limiter.reportRateLimited(retryAfter: retry) }
+                        usedToday = await limiter.usedToday
+                        Log.warn("Gemini (hỏi đáp) lỗi: \(error.localizedDescription)")
+                        lastErr = error
+                    }
+                }
+            }
+        }
+        if ai.isAvailable {
+            let input = StoryQA.render(material, budget: StoryQA.deviceBudget)
+            do { return try output(try await ai.generate(system: system, prompt: input, timeout: 60), .appleAI, input) }
+            catch {
+                Log.warn("Apple Intelligence (hỏi đáp) lỗi: \(error.localizedDescription)")
+                lastErr = error
             }
         }
         throw lastErr

@@ -300,7 +300,7 @@ struct ScreenActions: View {
 
     var body: some View {
         Toggle(isOn: $editing) { Label(title, systemImage: icon) }
-            .toggleStyle(.button).disabled(!enabled)
+            .toggleStyle(AppToggleButtonStyle()).disabled(!enabled)
             .help(help)
     }
 }
@@ -320,15 +320,18 @@ struct SourceTabView: View {
     }
 }
 
-/// Bộ chọn nguồn hình, đặt ở đầu thanh điều khiển của cả hai chế độ.
-struct SourcePicker: View {
-    @ObservedObject var settings = AppSettings.shared
+/// Thanh công cụ phía trên hình game: cùng chiều cao cho cả PS5 và app ngoài.
+struct SourceToolbar<Leading: View, Trailing: View>: View {
+    @ViewBuilder var leading: Leading
+    @ViewBuilder var trailing: Trailing
     var body: some View {
-        Picker("", selection: Binding(get: { settings.source }, set: { AppNav.shared.setSource($0) })) {
-            ForEach(ProfileSource.allCases) { s in Label(s.label, systemImage: s.icon).tag(s) }
+        HStack(spacing: 8) {
+            leading
+            Spacer(minLength: 8)
+            trailing
         }
-        .pickerStyle(.segmented).labelsHidden().fixedSize()
-        .help("Nguồn hình của game “\(settings.activeProfile.name)”")
+        .padding(.horizontal, 14)
+        .frame(height: 52)
     }
 }
 
@@ -340,17 +343,6 @@ struct PS5SourceView: View {
     @ObservedObject var pipeline = Pipeline.shared
     @State private var editing = false
     @State private var selection: UUID?
-    @State private var pin = ""
-    @State private var showConfig = false
-
-    private var statusColor: Color {
-        switch stream.state {
-        case .streaming: return .green
-        case .failed: return Theme.danger
-        case .idle: return .secondary
-        default: return .orange
-        }
-    }
     private var subtitleRegions: [Region] { settings.regions.filter { $0.embedded && $0.kind == .subtitle } }
     private var frames: [EditableFrame] {
         subtitleRegions.map { EditableFrame(id: $0.id, rect: $0.rect, primary: !$0.extra,
@@ -360,63 +352,25 @@ struct PS5SourceView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                SourcePicker()
-                if stream.host != nil {
-                    Circle().fill(statusColor).frame(width: 8, height: 8)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(stream.host?.nickname ?? "PS5").font(.callout.weight(.semibold))
-                        Text(stream.isStreaming ? "\(Int(stream.videoSize.width))×\(Int(stream.videoSize.height)) · \(stream.fps) fps" : stream.state.label)
-                            .font(.caption).foregroundStyle(.secondary).lineLimit(1).monospacedDigit()
-                    }
-                }
-                Spacer(minLength: 8)
-                if stream.host != nil {
-                    if case .needsPin = stream.state {
-                        SecureField("Mã PIN đăng nhập PS5", text: $pin).frame(width: 150)
-                        Button("Gửi") { stream.sendPin(pin); pin = "" }.disabled(pin.isEmpty)
-                    }
-                    ScreenActions(editing: $editing, enabled: stream.isStreaming,
-                                  title: "Thêm khu vực dịch", icon: "plus.rectangle.on.rectangle",
-                                  help: "Bật rồi kéo chuột trên hình để thêm một khu vực dịch (chỉ dịch chữ trong khung, không lấy tên, bản dịch hiện ngay tại đó)")
-                    if selectedExtra != nil {
-                        Button(role: .destructive) {
-                            if let id = selection { PS5Coordinator.removeSubtitleRegion(id: id); selection = nil }
-                        } label: { Label("Xoá khu vực", systemImage: "trash") }
-                        .help("Xoá khu vực dịch đang chọn")
-                    }
-                    Button { showConfig.toggle() } label: { Image(systemName: "info.circle") }
-                        .help("Xem cấu hình kết nối Remote Play (IP, MAC, account, khoá đăng ký)")
-                        .popover(isPresented: $showConfig, arrowEdge: .bottom) {
-                            if let h = stream.host { PS5ConfigView(host: h) }
-                        }
-                    Menu {
-                        Picker("Độ phân giải", selection: $settings.ps5Resolution) {
-                            Text("1080p (chữ nét nhất)").tag(4)
-                            Text("720p (nhẹ hơn)").tag(3)
-                        }
-                        Picker("Khung hình", selection: $settings.ps5FPS) {
-                            Text("30 fps").tag(30)
-                            Text("60 fps").tag(60)
-                        }
-                        Toggle("Tự bắt đầu dịch khi có hình", isOn: $settings.ps5AutoTranslate)
-                        Divider()
-                        Button("Quên máy này…", role: .destructive) { stream.disconnect(); stream.setHost(nil) }
-                    } label: { Image(systemName: "slider.horizontal.3") }
-                    .menuStyle(.borderedButton).fixedSize()
-                    .help("Chất lượng hình có hiệu lực ở lần kết nối sau")
-                    if stream.state.isBusy {
-                        Button("Ngắt") { stream.disconnect() }
-                    } else {
-                        Button { PS5Coordinator.connect() } label: { Label("Kết nối", systemImage: "play.fill") }
-                            .buttonStyle(GradientButtonStyle(compact: true))
-                    }
+            SourceToolbar {
+                Text("Kéo khung vàng tới chỗ phụ đề hiện; thêm khu vực để dịch chữ ở chỗ khác trên màn hình.")
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+            } trailing: {
+                ScreenActions(editing: $editing, enabled: stream.isStreaming,
+                              title: "Thêm khu vực dịch", icon: "plus.rectangle.on.rectangle",
+                              help: "Bật rồi kéo chuột trên hình để thêm một khu vực dịch (chỉ dịch chữ trong khung, không lấy tên, bản dịch hiện ngay tại đó)")
+                if selectedExtra != nil {
+                    Button(role: .destructive) {
+                        if let id = selection { PS5Coordinator.removeSubtitleRegion(id: id); selection = nil }
+                    } label: { Label("Xoá khu vực", systemImage: "trash") }
+                    .appButton()
+                    .help("Xoá khu vực dịch đang chọn")
                 }
             }
-            .padding(.horizontal, 14).padding(.vertical, 8)
             Divider()
             if stream.host == nil {
-                PS5SetupView()
+                EmptyStateView(icon: "playstation.logo", title: "Chưa có máy PS5", message: "Bấm Đổi game để quay về màn hình bắt đầu và thiết lập PS5.")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 GameScreenView(broadcaster: stream, contentSize: stream.videoSize, live: stream.isStreaming,
                                frames: frames, selection: $selection, captions: pipeline.regionCaptions, editing: $editing,
@@ -424,17 +378,16 @@ struct PS5SourceView: View {
                                onUpdate: { id, r in PS5Coordinator.updateSubtitleRect(id: id, rect: r) }) {
                     VStack(spacing: 8) {
                         Image(systemName: "playstation.logo").font(.system(size: 42)).foregroundStyle(.white.opacity(0.5))
-                        Text(stream.state == .idle ? "Bấm Kết nối để lấy hình từ PS5" : stream.state.label)
+                        Text(stream.state == .idle ? "Chưa kết nối PS5" : stream.state.label)
                             .foregroundStyle(.white.opacity(0.75)).multilineTextAlignment(.center).padding(.horizontal, 40)
                         Text("App chỉ nhận hình để dịch. Bạn điều khiển bằng tay cầm nối thẳng với PS5.")
                             .font(.caption).foregroundStyle(.white.opacity(0.45))
                     }
                 }
                 Divider()
-                SubtitleStrip(idleHint: stream.isStreaming ? "Bấm Bắt đầu để dịch phụ đề." : " ")
+                SubtitleStrip(idleHint: stream.isStreaming ? "Bấm “Bắt đầu dịch” để dịch phụ đề." : " ")
             }
         }
-        .onChange(of: stream.state) { _, s in PS5Coordinator.stateChanged(s) }
     }
 }
 
@@ -483,9 +436,9 @@ struct PS5ConfigView: View {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(summary, forType: .string)
                     copied = true
-                }.controlSize(.small)
+                }.appButton(minWidth: 110)
             }
-            Text("Khoá đăng ký và RP key là bí mật của máy này, chỉ chia sẻ khi thật cần. Đổi máy: menu ⚙ → Quên máy này.")
+            Text("Khoá đăng ký và RP key là bí mật của máy này, chỉ chia sẻ khi thật cần. Đổi máy: màn hình bắt đầu → Quên máy này.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
         .padding(14)
@@ -507,6 +460,7 @@ struct ExternalSourceView: View {
     @ObservedObject var mirror = ExternalMirror.shared
     @ObservedObject var pipeline = Pipeline.shared
     @State private var editing = false
+    @State private var showWindows = false
 
     /// Khung phụ đề theo tỉ lệ bên trong khung màn hình game.
     private var subtitleRect: CGRect? {
@@ -524,43 +478,31 @@ struct ExternalSourceView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                SourcePicker()
-                if let area = settings.externalArea {
-                    Circle().fill(mirror.error == nil ? Color.green : Theme.danger).frame(width: 8, height: 8)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(area.appName ?? "Vùng màn hình").font(.callout.weight(.semibold)).lineLimit(1)
-                        Text(mirror.error ?? "\(Int(area.width))×\(Int(area.height))\(area.followsWindow ? " · bám theo cửa sổ" : "")\(mirror.capturedAt.map { " · ảnh lúc \($0.hms)" } ?? "")")
-                            .font(.caption).foregroundStyle(mirror.error == nil ? Color.secondary : Theme.danger).lineLimit(1).monospacedDigit()
-                    }
-                }
-                Spacer(minLength: 8)
+            SourceToolbar {
+                Text(mirror.error ?? "Kéo khung vàng tới đúng chỗ phụ đề hiện trên hình game.")
+                    .font(.caption).foregroundStyle(mirror.error == nil ? Color.secondary : Theme.danger).lineLimit(2)
+            } trailing: {
                 if let area = settings.externalArea {
                     Button { mirror.capture(area) } label: {
-                        Label(mirror.capturing ? "Đang chụp…" : "Chụp màn hình game", systemImage: "camera")
+                        Label(mirror.capturing ? "Đang chụp…" : "Chụp lại hình", systemImage: "camera")
                     }
+                    .appButton(minWidth: 130)
                     .disabled(mirror.capturing)
-                    .help("Chụp lại hình hiện tại của game để xem và đặt khung phụ đề. App không chụp toàn màn hình liên tục để máy nhẹ.")
+                    .help("Chụp lại hình hiện tại của game để xem và đặt khung phụ đề. App không chụp liên tục để máy nhẹ.\(mirror.capturedAt.map { " Ảnh lúc \($0.hms)." } ?? "")")
                     ScreenActions(editing: $editing, enabled: mirror.image != nil)
-                    Button { RegionActions.pickGameArea() } label: { Image(systemName: "viewfinder") }
-                        .help("Chọn lại vùng game: vẽ lại khung toàn bộ khu vực hiển thị game trên màn hình")
                 }
+                Button { showWindows.toggle() } label: { Label("Đổi cửa sổ", systemImage: "macwindow") }
+                    .appButton()
+                    .help("Chọn cửa sổ khác làm màn hình game, hoặc vẽ vùng thủ công")
+                    .popover(isPresented: $showWindows, arrowEdge: .bottom) {
+                        WindowListView(onPicked: { showWindows = false }).padding(14).frame(width: 380, height: 420)
+                    }
             }
-            .padding(.horizontal, 14).padding(.vertical, 8)
             Divider()
             if settings.externalArea == nil {
                 VStack(spacing: 14) {
-                    Spacer()
-                    EmptyStateView(icon: "viewfinder", title: "Chọn vùng hiển thị game",
-                                   message: "Mở game hoặc phim trên máy này, rồi vẽ một khung quanh toàn bộ khu vực hình của nó. App chụp một tấm ảnh của vùng đó để bạn đặt khung phụ đề.",
-                                   steps: ["Bấm “Chọn vùng game” và kéo chuột quanh màn hình game", "Kéo chuột trên ảnh để đặt khung phụ đề (đã có sẵn ở dải dưới)", "Bấm Bắt đầu"])
-                    Button { RegionActions.pickGameArea() } label: { Label("Chọn vùng game", systemImage: "viewfinder") }
-                        .buttonStyle(GradientButtonStyle())
-                    if settings.externalSubtitle != nil {
-                        Text("Game này đã có khung phụ đề từ trước nên vẫn dịch được; chọn vùng game để xem hình trong app và dùng Dịch màn hình.")
-                            .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 460)
-                    }
-                    Spacer()
+                    EmptyStateView(icon: "macwindow", title: "Chưa chọn cửa sổ game",
+                                   message: "Bấm “Đổi cửa sổ” ở trên để chọn cửa sổ đang chạy game hoặc phim trên máy này.")
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -579,7 +521,7 @@ struct ExternalSourceView: View {
                     }
                 }
                 Divider()
-                SubtitleStrip(idleHint: "Bấm Bắt đầu để dịch phụ đề.")
+                SubtitleStrip(idleHint: "Bấm “Bắt đầu dịch” để dịch phụ đề.")
             }
         }
         .onAppear { mirror.ensure(settings.externalArea) }

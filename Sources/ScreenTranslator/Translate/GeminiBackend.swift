@@ -13,6 +13,8 @@ final class GeminiBackend: TranslationBackend {
     ]
     /// Thứ tự thử khi model đã chọn bị 503/404/timeout.
     static let fallbackModels = ["gemini-3.5-flash-lite", "gemini-flash-lite-latest", "gemini-3.1-flash-lite", "gemini-3.5-flash"]
+    /// Model dự phòng của bản này (AI share chỉ được thử các model đã share).
+    var fallbackModels = GeminiBackend.fallbackModels
 
     enum GeminiError: LocalizedError {
         case noKey
@@ -70,7 +72,7 @@ final class GeminiBackend: TranslationBackend {
         var list: [String] = []
         if let a = activeModel, Date() < activeUntil { list.append(a) }
         list.append(model)
-        list += Self.fallbackModels
+        list += fallbackModels
         var seen = Set<String>(); list = list.filter { seen.insert($0).inserted }
         return Array(list.prefix(maxAttempts))
     }
@@ -247,6 +249,34 @@ final class GeminiBackend: TranslationBackend {
         """
     }
 
+    /// Trả lời câu hỏi của người chơi về cốt truyện, chỉ dựa trên dữ liệu `StoryQA` gửi kèm (dùng chung cho mọi engine).
+    func storyQAPrompt(focus: String) -> String {
+        let source = gameName.isEmpty ? "a video game" : "the video game \"\(gameName)\""
+        let trimmedNote = translationNote.trimmingCharacters(in: .whitespacesAndNewlines)
+        let note = trimmedNote.isEmpty ? "" : "Notes from the player about this game (relationships, names): \(trimmedNote)\n"
+        return """
+        You answer a player's questions about the story of \(source), using ONLY the story record in the user message. \
+        The app built that record from the subtitles and journal screens the player has seen so far. The user message may contain: \
+        STORY SO FAR, STORY PARTS, CHARACTERS (full details of the characters related to the question), ALL OTHER CHARACTERS \
+        (name and role), LORE (places, factions, concepts), OTHER LORE ENTRIES (names only), SUBTITLE EXCERPTS (original lines \
+        that mention the question's keywords, oldest first; a line may start with the speaker's name and a colon), PREVIOUS Q&A \
+        (earlier turns of this conversation, for follow-up questions) and finally QUESTION.
+        Rules:
+        - Answer in \(targetName), directly. For "who / what / which" questions, put each item on its own line starting with "- ", \
+        the name first, then a short note on how the record links it to the question (role, relation, what they did).
+        - Be complete: look through every block, including ALL OTHER CHARACTERS, LORE and SUBTITLE EXCERPTS. When asked who is in, \
+        belongs to or is connected with a place or faction, list everyone and every group the record ties to it: rulers, \
+        members, people who live there, come from there, serve or served it, fight for or against it, and its people or army.
+        - Use only the record. Never add facts, plot, backstory or future events from your own knowledge of the game (no spoilers). \
+        When the record only hints at something, say that it is not certain.
+        - If the record has nothing relevant, say in one sentence that the record has no information about it yet, and mention the \
+        closest related thing it does contain, if any.
+        - Keep character names and game terms as written in the record unless the glossary says otherwise.
+        - Plain text only: no headings, bold, tables or code fences.
+        \(note)\(glossaryBlock(focus: focus))
+        """
+    }
+
     /// Cập nhật cốt truyện game: một lần gọi trả về đoạn diễn biến mới, bài viết liền mạch, các nhân vật có thay đổi
     /// và các mục bách khoa (địa danh, thế lực, khái niệm) lấy từ màn hình nhật ký.
     func storyUpdatePrompt(focus: String) -> String {
@@ -376,7 +406,7 @@ final class GeminiBackend: TranslationBackend {
         var lastErr: Error = GeminiError.empty
         if let p = preferred, !p.isEmpty, p != model {
             var seen = Set<String>()
-            for m in ([p] + Self.fallbackModels).filter({ seen.insert($0).inserted }).prefix(maxAttempts) {
+            for m in ([p] + fallbackModels).filter({ seen.insert($0).inserted }).prefix(maxAttempts) {
                 do {
                     let out = try await send(model: m, system: system, input: input, generation: generation, timeout: timeout)
                     if m != p { Log.warn("Gemini chuyển sang model dự phòng \(m) (model đã chọn: \(p))") }
@@ -531,5 +561,14 @@ final class GeminiBackend: TranslationBackend {
         } catch {
             return .failure(error)
         }
+    }
+}
+
+/// AI share dùng Gemini qua proxy của server: router gọi nó như các nhà cung cấp kiểu chat khác.
+extension GeminiBackend: CloudChatBackend {
+    var isReady: Bool { !apiKey.isEmpty && !model.isEmpty }
+
+    func complete(system: String, user: String, json: Bool, maxTokens: Int, timeout: TimeInterval, model: String?) async throws -> String {
+        try await generate(system: system, input: user, timeout: timeout, maxOutputTokens: maxTokens, model: model)
     }
 }

@@ -227,17 +227,19 @@ public sealed class PS5FrameCapture : IFrameCapture
 {
     public readonly Region region;
     readonly int fps;
+    /// So với ảnh gốc của luồng: &lt; 1 thu nhỏ (OCR nhanh hơn), &gt; 1 phóng to (đọc chữ nhỏ).
+    readonly double scale;
     public Action<Frame>? onFrame { get; set; }
     public Action<Exception>? onStopped { get; set; }
     Timer? timer;
     long lastIndex = -1;
 
-    public PS5FrameCapture(Region region, int fps) { this.region = region; this.fps = Math.Max(1, fps); }
+    public PS5FrameCapture(Region region, int fps, double scale = 1) { this.region = region; this.fps = Math.Max(1, fps); this.scale = scale; }
 
     public void Start()
     {
         timer = new Timer(_ => Tick(), null, 0, 1000 / fps);
-        Log.Info($"Capture started '{region.name}' PS5 nhúng {region.rect} @{fps}fps");
+        Log.Info($"Capture started '{region.name}' PS5 nhúng {region.rect} @{fps}fps ×{scale}");
     }
 
     public void Stop() { timer?.Dispose(); timer = null; }
@@ -248,6 +250,8 @@ public sealed class PS5FrameCapture : IFrameCapture
         if (latest == null || latest.Value.index == lastIndex) return;
         lastIndex = latest.Value.index;
         var c = latest.Value.frame.CropNormalized(region.rect);
-        if (c != null) onFrame?.Invoke(c);
+        if (c == null) return;
+        if (Math.Abs(scale - 1) > 0.01) c = scale < 1 ? c.Downscale(Math.Max(16, (int)(c.Width * scale))) : c.Scale(scale);
+        onFrame?.Invoke(c);
     }
 }

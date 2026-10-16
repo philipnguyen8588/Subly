@@ -76,84 +76,122 @@ public sealed class SettingsWindow : Window
 
     // MARK: Dịch
 
+    /// Kết quả nút "Kiểm tra" gần nhất của từng việc (giữ khi trang vẽ lại).
+    readonly Dictionary<AITask, (bool ok, string text)> taskTest = new();
+
+    static string PickerLabel(TranslationEngine e) => e switch
+    {
+        TranslationEngine.auto => "Gemini · miễn phí", TranslationEngine.openAI => "OpenAI · trả phí",
+        TranslationEngine.anthropic => "Anthropic Claude · trả phí", TranslationEngine.custom => "API tuỳ chỉnh",
+        TranslationEngine.shared => "AI share",
+        _ => "Google Translate · miễn phí, không cần key",
+    };
+    static string PickerLabel(ScreenEngine e) => e switch
+    {
+        ScreenEngine.gemini => "Gemini · miễn phí", ScreenEngine.openAI => "OpenAI · trả phí", ScreenEngine.anthropic => "Anthropic Claude · trả phí",
+        ScreenEngine.custom => "API tuỳ chỉnh", ScreenEngine.shared => "AI share",
+        ScreenEngine.google => "Google Translate · không cần key", _ => "Giống dịch phụ đề",
+    };
+    static string PickerLabel(SummaryEngine e) => e switch
+    {
+        SummaryEngine.gemini => "Gemini · miễn phí", SummaryEngine.openAI => "OpenAI · trả phí", SummaryEngine.anthropic => "Anthropic Claude · trả phí",
+        SummaryEngine.custom => "API tuỳ chỉnh", SummaryEngine.shared => "AI share", _ => "Giống dịch phụ đề",
+    };
+
+    /// Cài đặt → Dịch: ngôn ngữ đích, rồi ba khối nổi bật cho ba việc dùng AI (giống bản macOS).
     UIElement Translate()
     {
-        // Dưới mỗi ô chọn AI: chọn model riêng cho việc đó (mặc định = model ở mục AI), hoặc cảnh báo chưa cài đặt.
-        (UIElement row, Action update) ModelRow(AITask task, Func<string> engine, Func<string> fallback)
-        {
-            var box = new ComboBox { MinWidth = 280 };
-            var text = Ui.Caption("");
-            var panel = Ui.V(6, Ui.H(8, Ui.Text("Model"), box), Ui.Row(text, Ui.Btn("Cài đặt AI…", () => Select("ai"))));
-            bool filling = false;
-            void Update()
-            {
-                var id = engine();
-                var info = CloudInfo(id);
-                panel.Visibility = info == null ? Visibility.Collapsed : Visibility.Visible;
-                if (info == null) return;
-                var current = S.TaskModel(task, id) ?? "";
-                var models = (S.aiModelLists.TryGetValue(id, out var saved) && saved.Count > 0 ? (IEnumerable<string>)saved : SuggestedModels(id)).ToList();
-                if (current.Length > 0 && !models.Contains(current)) models.Add(current);
-                var def = S.DefaultModel(id);
-                filling = true;
-                box.Items.Clear();
-                box.Items.Add(new ComboBoxItem { Content = $"Mặc định ({(def.Length == 0 ? "chưa chọn" : def)})", Tag = "" });
-                foreach (var name in models) box.Items.Add(new ComboBoxItem { Content = name, Tag = name });
-                box.SelectedIndex = current.Length == 0 ? 0 : models.IndexOf(current) + 1;
-                filling = false;
-                text.Text = info.ready ? "Thiếu model cần dùng? Bấm Tải model ở mục AI." : $"Chưa cài đặt {info.name} {fallback()}";
-                text.Foreground = info.ready ? Ui.Secondary : Ui.Orange;
-            }
-            box.SelectionChanged += (_, _) =>
-            {
-                if (filling || box.SelectedItem is not ComboBoxItem item || item.Tag is not string chosen) return;
-                var all = S.taskModels;
-                var key = $"{task}.{engine()}";
-                if (chosen.Length == 0) all.Remove(key); else all[key] = chosen;
-                S.taskModels = all;
-            };
-            Update();
-            return (panel, Update);
-        }
-        var (subNote, updateSub) = ModelRow(AITask.subtitle, () => S.translationEngine == TranslationEngine.auto ? "gemini" : S.translationEngine.ToString(),
-            () => "nên sẽ dùng Google Translate.");
-        var (screenNote, updateScreen) = ModelRow(AITask.screen, () => S.effectiveScreenEngine.ToString(), () => "nên sẽ dùng Google Translate.");
-        var (summaryNote, updateSummary) = ModelRow(AITask.summary, () => S.effectiveSummaryEngine.ToString(),
-            () => S.effectiveSummaryEngine == SummaryEngine.gemini
-                ? "nên Tóm tắt sẽ thử AI khác đã có key, Cốt truyện không chạy được."
-                : "nên sẽ dùng Gemini.");
-        void UpdateNotes() { updateSub(); updateScreen(); updateSummary(); }
-
-        // Mục Tài khoản: email gửi lên server để chủ app nhận diện/duyệt máy (chỉ bản phát hành có kiểm tra máy).
-        UIElement? account = null;
+        var lang = Ui.Picker("", TargetLanguage.all.Select(l => (l.code, l.name)), () => S.targetLanguage, v => S.targetLanguage = v, 200);
+        var top = Ui.H(12, Ui.Icon("", 14, Ui.Secondary), Ui.Text("Dịch sang", color: Ui.Secondary, wrap: false), lang);
         if (RuntimeConfig.Enabled)
         {
-            var emailBox = new TextBox { Text = S.userEmail, MinWidth = 320 };
+            var emailBox = new TextBox { Text = S.userEmail, Width = 240, ToolTip = "Email" };
             emailBox.LostFocus += (_, _) => { var t = emailBox.Text.Trim(); if (t != S.userEmail) S.userEmail = t; };
-            account = Ui.Section("Tài khoản", Ui.V(3, Ui.Caption("Email"), emailBox));
+            top.Children.Add(new Border { Width = 24 });
+            top.Children.Add(Ui.Text("Email", color: Ui.Secondary, wrap: false));
+            top.Children.Add(emailBox);
         }
+        top.Margin = new Thickness(4, 0, 0, 16);
 
-        return Ui.V(14,
-            account,
-            Ui.Section("Ngôn ngữ",
-                Ui.Picker("Dịch sang", TargetLanguage.all.Select(l => (l.code, l.name)), () => S.targetLanguage, v => S.targetLanguage = v)),
-            Ui.Section("Dịch phụ đề",
-                Ui.Picker("AI", Enum.GetValues<TranslationEngine>().Select(e => (e, Labels.Of(e))), () => S.translationEngine, v => { S.translationEngine = v; UpdateNotes(); }, 420),
-                subNote,
-                Ui.Stepper(() => $"Ngữ cảnh: {S.contextPairs} câu trước", 0, 10, 1, () => S.contextPairs, v => S.contextPairs = v)),
-            Ui.Section("Dịch màn hình (thủ công)",
-                Ui.Picker("AI", Enum.GetValues<ScreenEngine>().Select(e => (e, Labels.Of(e))), () => S.screenEngine, v => { S.screenEngine = v; UpdateNotes(); }, 420),
-                screenNote,
-                Ui.Toggle("Đọc tóm tắt bằng giọng nói", () => S.analyzeSpeakSummary, v => S.analyzeSpeakSummary = v),
-                Ui.Slider("Timeout", 5, 60, 5, () => S.analyzeTimeout, v => S.analyzeTimeout = v, v => $"{(int)v}s")),
-            Ui.Section("Tóm tắt & cốt truyện (tab Nhật ký)",
-                Ui.Picker("AI", Enum.GetValues<SummaryEngine>().Select(e => (e, Labels.Of(e))), () => S.summaryEngine, v => { S.summaryEngine = v; UpdateNotes(); }, 420),
-                summaryNote,
-                Ui.Toggle("Tự động viết cốt truyện game khi đang dịch", () => S.storyEnabled, v => S.storyEnabled = v),
-                Ui.Stepper(() => $"Cập nhật mỗi {S.storyIntervalMin} phút (khi có đủ câu mới)", 5, 60, 5, () => S.storyIntervalMin, v => S.storyIntervalMin = v),
-                Ui.Caption("Mỗi lần cập nhật tốn 1 request, dùng chung quota với dịch phụ đề. Xem ở Nhật ký → Cốt truyện.")),
-            Ui.Section("Hàng đợi phụ đề",
-                Ui.Picker("Chế độ", Enum.GetValues<QueueMode>().Select(q => (q, Labels.Of(q))), () => S.queueMode, v => S.queueMode = v)));
+        // "AI share" chỉ hiện trong ô chọn AI khi đã nhập token.
+        bool hasShare = S.aiShare != null;
+        var subEngine = Ui.Picker("", Enum.GetValues<TranslationEngine>().Where(e => e != TranslationEngine.shared || hasShare || S.translationEngine == e)
+            .Select(e => (e, PickerLabel(e))), () => S.translationEngine, v => { S.translationEngine = v; Reload(); }, 300);
+        var scrEngine = Ui.Picker("", Enum.GetValues<ScreenEngine>().Where(e => e != ScreenEngine.shared || hasShare || S.screenEngine == e)
+            .Select(e => (e, e == ScreenEngine.sameAsSubtitle ? $"Giống dịch phụ đề ({Readiness.ShortEngine(S.engine)})" : PickerLabel(e))),
+            () => S.screenEngine, v => { S.screenEngine = v; Reload(); }, 300);
+        var sumEngine = Ui.Picker("", Enum.GetValues<SummaryEngine>().Where(e => e != SummaryEngine.shared || hasShare || S.summaryEngine == e)
+            .Select(e => (e, PickerLabel(e))), () => S.summaryEngine, v => { S.summaryEngine = v; Reload(); }, 300);
+
+        var storyRows = new List<UIElement?> { Ui.Toggle("Tự viết cốt truyện khi đang dịch", () => S.storyEnabled, v => { S.storyEnabled = v; Reload(); }) };
+        if (S.storyEnabled) storyRows.Add(Ui.Stepper(() => $"Cập nhật mỗi {S.storyIntervalMin} phút", 5, 60, 5, () => S.storyIntervalMin, v => S.storyIntervalMin = v));
+
+        return Ui.V(0, top,
+            TaskBlock(AITask.subtitle, subEngine,
+                Ui.Stepper(() => $"Ngữ cảnh: {S.contextPairs} câu trước", 0, 10, 1, () => S.contextPairs, v => S.contextPairs = v),
+                Ui.BlockRow("Hàng đợi", Ui.Picker("", Enum.GetValues<QueueMode>().Select(q => (q, Labels.Of(q))), () => S.queueMode, v => S.queueMode = v, 260))),
+            TaskBlock(AITask.screen, scrEngine,
+                Ui.Slider("Thời gian chờ", 5, 60, 5, () => S.analyzeTimeout, v => S.analyzeTimeout = v, v => $"{(int)v} s"),
+                Ui.Toggle("Đọc tóm tắt bằng giọng nói", () => S.analyzeSpeakSummary, v => S.analyzeSpeakSummary = v)),
+            TaskBlock(AITask.summary, sumEngine, storyRows.ToArray()));
+    }
+
+    /// Khối của một việc dùng AI: chọn AI, chọn model, trạng thái và nút Kiểm tra.
+    UIElement TaskBlock(AITask task, UIElement enginePicker, params UIElement?[] extra)
+    {
+        var e = Readiness.Engine(task);
+        var issue = Readiness.IssueOf(task);
+        bool required = Readiness.IsRequired(task);
+        var trailing = new List<UIElement?>
+        {
+            issue == null ? Ui.Chip(e.keyless ? "Sẵn sàng · không cần key" : "Đã kiểm tra", Ui.Tone.ok)
+                : Ui.Chip(required ? issue.title : $"{issue.title} · không bắt buộc", required ? Ui.Tone.warn : Ui.Tone.idle),
+        };
+        if (issue?.tab == "ai") trailing.Add(Ui.Btn("Nhập key", () => Select("ai"), kind: Ui.Kind.tinted));
+        else if (e.provider != null)
+        {
+            Button? btn = null;
+            btn = Ui.Btn("Kiểm tra", async () =>
+            {
+                btn!.IsEnabled = false; btn.Content = "Đang kiểm tra…";
+                var (ok, msg) = await Readiness.Test(task);
+                taskTest[task] = (ok, ok ? $"OK: {msg}" : $"Lỗi: {msg}");
+                Reload();
+            }, kind: issue == null ? Ui.Kind.secondary : Ui.Kind.tinted, minWidth: 110);
+            trailing.Add(btn);
+        }
+        var rows = new List<UIElement?> { Ui.BlockRow("AI", enginePicker) };
+        if (e.provider is string p) rows.Add(Ui.BlockRow("Model", TaskModelBox(task, p)));
+        if (taskTest.TryGetValue(task, out var r)) rows.Add(Ui.Caption(r.text, r.ok ? Brushes.Green : Ui.Danger));
+        rows.Add(Ui.Divider());
+        rows.AddRange(extra);
+        return Ui.Block(Readiness.TaskTitle(task), Readiness.TaskGlyph(task), null, trailing.ToArray(), rows.ToArray());
+    }
+
+    /// Model riêng cho một việc (mặc định = model ở mục AI).
+    UIElement TaskModelBox(AITask task, string provider)
+    {
+        var box = new ComboBox { Width = 300 };
+        var key = $"{task}.{provider}";
+        var current = S.TaskModel(task, provider) ?? "";
+        // AI share: chỉ các model đã share.
+        var models = provider == "shared" ? S.aiShare?.models ?? new List<string>()
+            : (S.aiModelLists.TryGetValue(provider, out var saved) && saved.Count > 0 ? (IEnumerable<string>)saved : SuggestedModels(provider)).ToList();
+        if (current.Length > 0 && !models.Contains(current)) models.Add(current);
+        var def = S.DefaultModel(provider);
+        box.Items.Add(new ComboBoxItem { Content = $"Mặc định ({(def.Length == 0 ? "chưa chọn" : def)})", Tag = "" });
+        foreach (var m in models) box.Items.Add(new ComboBoxItem { Content = m, Tag = m });
+        box.SelectedIndex = current.Length == 0 ? 0 : models.IndexOf(current) + 1;
+        box.SelectionChanged += (_, _) =>
+        {
+            if (box.SelectedItem is not ComboBoxItem item || item.Tag is not string chosen) return;
+            var all = S.taskModels;
+            if (chosen.Length == 0) all.Remove(key); else all[key] = chosen;
+            S.taskModels = all;
+            taskTest.Remove(task);
+            Reload();
+        };
+        return box;
     }
 
     record CloudInfoRow(string name, string model, bool ready);
@@ -164,6 +202,7 @@ public sealed class SettingsWindow : Window
         "openAI" => new CloudInfoRow("OpenAI", S.openAIModel, S.openAIKey.Length > 0),
         "anthropic" => new CloudInfoRow("Anthropic", S.anthropicModel, S.anthropicKey.Length > 0),
         "custom" => new CloudInfoRow("API tuỳ chỉnh", S.customModel, S.customReady),
+        "shared" => new CloudInfoRow("AI share", S.DefaultModel("shared"), S.aiShare != null && S.aiShareToken.Length > 0),
         _ => null,
     };
 
@@ -232,10 +271,106 @@ public sealed class SettingsWindow : Window
                 k => OpenAIBackend.ListModels(k, OpenAIBackend.NormalizeBaseURL(S.customBaseURL)),
                 k => OpenAIBackend.Test(k, S.customModel, OpenAIBackend.NormalizeBaseURL(S.customBaseURL), requiresKey: false)),
         };
-        var stack = Ui.V(14, GeminiSection());
+        var stack = Ui.V(0);
+        if (AIShareClient.Available) stack.Children.Add(AIShareSection());
+        stack.Children.Add(GeminiSection());
         foreach (var p in providers) stack.Children.Add(ProviderSection(p));
         return stack;
     }
+
+    /// Kết quả nút Nhập / Kiểm tra của mục AI share (giữ khi trang vẽ lại).
+    string? shareResult;
+
+    /// AI share: dán token do chủ server cấp. Key thật nằm trên server, app chỉ gửi token qua proxy và chỉ dùng được
+    /// các model đã share; chủ server sửa model hay thu hồi thì app nhận ở lần kiểm tra kế tiếp.
+    UIElement AIShareSection()
+    {
+        var info = S.aiShare;
+        var rows = new List<UIElement?>();
+        if (info != null)
+        {
+            var name = Ui.Text(info.label.Length == 0 ? "(không tên)" : info.label, wrap: false);
+            name.FontWeight = FontWeights.SemiBold;
+            rows.Add(Ui.Row(Ui.H(8, Ui.Icon("\uE8D7", 13, Ui.Secondary), name,
+                    Ui.Text("· " + AIShareClient.ProviderName(info.provider), color: Ui.Secondary, wrap: false)),
+                Ui.IconBtn("\uE74D", () => { AIShareClient.Remove(); shareResult = null; Reload(); }, "Bỏ AI share này")));
+            var models = Ui.Text(string.Join(", ", info.models));
+            models.FontFamily = new FontFamily("Consolas");
+            rows.Add(Ui.BlockRow("Model", models));
+        }
+        var tokenBox = new TextBox { Width = 300, ToolTip = "Dán token sts_…" };
+        Button? importBtn = null;
+        importBtn = Ui.Btn("Nhập", async () =>
+        {
+            var t = tokenBox.Text.Trim();
+            if (t.Length == 0) return;
+            importBtn!.IsEnabled = false; importBtn.Content = "Đang nhập…";
+            try
+            {
+                var i = await AIShareClient.ImportToken(t);
+                shareResult = $"OK: đã nhập “{i.label}” · {AIShareClient.ProviderName(i.provider)} · {i.models.Count} model";
+            }
+            catch (Exception e) { shareResult = $"Lỗi: {e.Message}"; }
+            Reload();
+        }, primary: true);
+        rows.Add(Ui.BlockRow(info == null ? "Token" : "Token mới", tokenBox, importBtn));
+        if (shareResult != null) rows.Add(ResultText(shareResult));
+        rows.Add(Ui.Caption("Chọn “AI share” ở Cài đặt → Dịch để dùng cho từng việc. Key thật nằm trên server của người share; app chỉ giữ token."));
+
+        (string text, Ui.Tone tone, string? uses) st = info == null ? ("Chưa nhập", Ui.Tone.idle, null) : AiStatus("shared", true);
+        if (info?.revoked == true) st = ("Bị thu hồi", Ui.Tone.warn, st.uses);
+        var trailing = new List<UIElement?> { Ui.Chip(st.text, st.tone) };
+        if (info != null)
+        {
+            Button? check = null;
+            check = Ui.Btn("Kiểm tra", async () =>
+            {
+                check!.IsEnabled = false; check.Content = "Đang kiểm tra…";
+                var err = await AIShareClient.Refresh();
+                shareResult = err != null ? $"Lỗi: {err.Message}" : await TestKeyAll("shared", S.aiShareToken);
+                Reload();
+            }, minWidth: 110);
+            trailing.Add(check);
+        }
+        return Ui.Block("AI share", "\uE716", st.uses ?? "Dùng key người khác chia sẻ (qua server, không thấy key)", trailing.ToArray(), rows.ToArray());
+    }
+
+    /// Các model cần thử khi bấm Test: model mặc định + model riêng của các việc đang dùng nhà cung cấp này.
+    static List<string> ModelsToTest(string p)
+    {
+        var out_ = new List<string>();
+        foreach (var m in new[] { AppSettings.shared.DefaultModel(p) }.Concat(Readiness.TasksUsing(p).Select(t => Readiness.Model(t, p))))
+            if (m.Length > 0 && !out_.Contains(m)) out_.Add(m);
+        return out_;
+    }
+
+    /// Test một key với mọi model cần thử, ghi nhận từng kết quả; trả về dòng kết quả để hiện.
+    static async Task<string> TestKeyAll(string p, string key)
+    {
+        var models = ModelsToTest(p);
+        if (models.Count == 0) return "Lỗi: chưa chọn model";
+        var fails = new List<string>();
+        string okText = "";
+        foreach (var m in models)
+        {
+            var (ok, msg) = await Readiness.Call(p, key, m);
+            Readiness.Record(p, m, key, ok);
+            if (ok) okText = msg; else fails.Add(models.Count > 1 ? $"{m}: {msg}" : msg);
+        }
+        return fails.Count == 0 ? $"OK: {okText}" : "Lỗi: " + string.Join("; ", fails);
+    }
+
+    /// Trạng thái của một nhà cung cấp và tên các việc đang dùng nó.
+    static (string text, Ui.Tone tone, string? uses) AiStatus(string p, bool hasKey)
+    {
+        var uses = Readiness.TasksUsing(p);
+        var usesText = uses.Count == 0 ? null : "Đang dùng cho: " + string.Join(", ", uses.Select(Readiness.TaskTitle));
+        if (!hasKey) return ("Chưa có key", uses.Count == 0 ? Ui.Tone.idle : Ui.Tone.warn, usesText);
+        if (uses.Count == 0) return ("Chưa dùng", Ui.Tone.idle, usesText);
+        return uses.All(t => Readiness.IsVerified(p, Readiness.Model(t, p))) ? ("Đã kiểm tra", Ui.Tone.ok, usesText) : ("Chưa kiểm tra", Ui.Tone.warn, usesText);
+    }
+
+    static TextBlock ResultText(string text) => Ui.Caption(text, text.StartsWith("OK") ? Brushes.Green : Ui.Danger);
 
     /// Gemini miễn phí: lưu nhiều key, app dùng xoay vòng để chia đều quota.
     UIElement GeminiSection()
@@ -245,37 +380,38 @@ public sealed class SettingsWindow : Window
         async Task TestKey(string k, Button btn, TextBlock target)
         {
             btn.IsEnabled = false; btn.Content = "Đang test…"; target.Text = "";
-            var (ok, msg) = await GeminiBackend.Test(k, S.geminiModel);
-            target.Text = ok ? $"OK: {msg}" : $"Lỗi: {msg}";
-            if (S.geminiAPIKeys.Contains(k)) geminiKeyResults[k] = target.Text;
-            btn.IsEnabled = true; btn.Content = "Test key";
+            var text = await TestKeyAll("gemini", k);
+            target.Text = text; target.Foreground = text.StartsWith("OK") ? Brushes.Green : Ui.Danger;
+            if (S.geminiAPIKeys.Contains(k)) { geminiKeyResults[k] = text; Reload(); }
+            btn.IsEnabled = true; btn.Content = "Test";
         }
         var savedTests = new List<Action>();
         foreach (var k in keys)
         {
             var key = k;
-            var status = Ui.Caption(geminiKeyResults.TryGetValue(key, out var r) ? r : "");
+            var status = geminiKeyResults.TryGetValue(key, out var r) ? ResultText(r)
+                : ModelsToTest("gemini").All(m => Readiness.IsVerified("gemini", m, key)) ? Ui.Caption("Đã kiểm tra", Brushes.Green) : Ui.Caption("");
             status.MaxWidth = 300; status.TextTrimming = TextTrimming.CharacterEllipsis; status.TextWrapping = TextWrapping.NoWrap;
             Button? testBtn = null;
-            testBtn = Ui.Btn("Test key", async () => await TestKey(key, testBtn!, status));
+            testBtn = Ui.Btn("Test", async () => await TestKey(key, testBtn!, status), minWidth: 90);
             savedTests.Add(async () => await TestKey(key, testBtn!, status));
             var mask = Ui.Text(Mask(key), wrap: false);
             mask.FontFamily = new FontFamily("Consolas");
-            rows.Add(Ui.Row(Ui.H(8, Ui.Icon("\uE8D7", 13, Ui.Secondary), mask, status),
+            rows.Add(Ui.Row(Ui.H(8, Ui.Icon("", 13, Ui.Secondary), mask, status),
                 testBtn,
-                Ui.Btn("Xoá key", () => { S.geminiAPIKeys = S.geminiAPIKeys.Where(x => x != key).ToList(); geminiKeyResults.Remove(key); Reload(); })));
+                Ui.IconBtn("", () => { S.geminiAPIKeys = S.geminiAPIKeys.Where(x => x != key).ToList(); geminiKeyResults.Remove(key); Reload(); }, "Xoá key này")));
         }
 
-        var newKey = new PasswordBox { MinWidth = 320 };
+        var newKey = new PasswordBox { Width = 300 };
         var result = Ui.Caption("");
         Button? testNew = null;
-        testNew = Ui.Btn("Test key", async () =>
+        testNew = Ui.Btn("Test", async () =>
         {
             var k = newKey.Password.Trim();
             if (k.Length > 0) await TestKey(k, testNew!, result);
-        });
-        var buttons = Ui.H(8,
-            Ui.Btn("Lưu key", () =>
+        }, minWidth: 90);
+        rows.Add(Ui.BlockRow(keys.Count == 0 ? "API key" : "Thêm key", newKey,
+            Ui.Btn("Lưu", () =>
             {
                 var k = newKey.Password.Trim();
                 if (k.Length == 0) return;
@@ -283,18 +419,7 @@ public sealed class SettingsWindow : Window
                 S.geminiAPIKeys = S.geminiAPIKeys.Append(k).ToList();
                 Reload();
             }, primary: true),
-            testNew);
-        if (keys.Count > 1)
-        {
-            buttons.Children.Add(Ui.Btn("Test tất cả", () => { foreach (var t in savedTests) t(); }));
-            buttons.Children.Add(Ui.Btn("Xoá tất cả", () =>
-            {
-                if (!Ui.Confirm($"Xoá cả {keys.Count} key Gemini đã lưu?")) return;
-                S.geminiAPIKeys = new List<string>(); geminiKeyResults.Clear(); Reload();
-            }));
-        }
-        rows.Add(Ui.V(3, Ui.Caption("Thêm API key (aistudio.google.com/apikey)"), newKey));
-        rows.Add(buttons);
+            testNew));
         rows.Add(result);
 
         var (modelBox, fill) = ModelBox("gemini", GeminiBackend.models, () => S.geminiModel, m => S.geminiModel = m);
@@ -313,51 +438,55 @@ public sealed class SettingsWindow : Window
                     if (!list.Contains(S.geminiModel)) S.geminiModel = list[0];
                     fill(list);
                 }
-                result.Text = $"Có {list.Count} model dùng được";
+                result.Text = $"OK: có {list.Count} model dùng được"; result.Foreground = Brushes.Green;
             }
-            catch (Exception e) { result.Text = $"Không tải được danh sách: {e.Message}"; }
+            catch (Exception e) { result.Text = $"Lỗi: không tải được danh sách: {e.Message}"; result.Foreground = Ui.Danger; }
             loadBtn.IsEnabled = true; loadBtn.Content = "Tải model";
         }, tip: "Lấy danh sách model thật mà key này dùng được");
-        rows.Add(Ui.Row(Ui.H(8, Ui.Text("Model"), modelBox), loadBtn));
-        rows.Add(Ui.Slider("Timeout phụ đề", 2, 10, 0.5, () => S.geminiTimeout, x => S.geminiTimeout = x, x => $"{x:0.0}s"));
-        rows.Add(Ui.Caption(keys.Count > 1
-            ? $"Đang có {keys.Count} key: mỗi request dùng key kế tiếp, key nào hết quota (429) thì nghỉ và các key còn lại chạy tiếp. Quota gộp khoảng {S.geminiRPM} request/phút, {S.geminiRPD} request/ngày."
-            : "Thêm nhiều key (mỗi key từ một tài khoản Google) để app dùng xoay vòng: quota miễn phí được cộng lại và ít bị gián đoạn khi một key hết lượt."));
-        return Ui.Section("Gemini (miễn phí, nhiều key dùng xoay vòng)", rows.ToArray());
+        rows.Add(Ui.BlockRow("Model", modelBox, loadBtn));
+        rows.Add(Ui.Slider("Thời gian chờ", 2, 10, 0.5, () => S.geminiTimeout, x => S.geminiTimeout = x, x => $"{x:0.0} s"));
+        var st = AiStatus("gemini", keys.Count > 0);
+        var trailing = new List<UIElement?> { Ui.Chip(st.text, st.tone) };
+        if (keys.Count > 1) trailing.Add(Ui.Btn("Test tất cả", () => { foreach (var t in savedTests) t(); }));
+        return Ui.Block("Gemini", "", st.uses ?? "Miễn phí · lưu được nhiều key, dùng xoay vòng", trailing.ToArray(), rows.ToArray());
     }
 
-    /// Một nhà cung cấp trả phí: key (lưu / test / xoá), model (chọn hoặc tải danh sách), thời gian chờ.
+    /// Một nhà cung cấp trả phí / tuỳ chỉnh: key (lưu / test / xoá), model (chọn hoặc tải danh sách), thời gian chờ.
     UIElement ProviderSection(AiProvider p)
     {
         bool isCustom = p.id == "custom";
         var rows = new List<UIElement?>();
         if (isCustom)
         {
-            var url = new TextBox { Text = S.customBaseURL, MinWidth = 320 };
-            url.LostFocus += (_, _) => { var t = url.Text.Trim(); if (t != S.customBaseURL) S.customBaseURL = t; };
-            rows.Add(Ui.V(3, Ui.Caption("Địa chỉ API (ví dụ https://openrouter.ai/api/v1)"), url));
+            var url = new TextBox { Text = S.customBaseURL, Width = 300, ToolTip = "Ví dụ https://openrouter.ai/api/v1" };
+            url.LostFocus += (_, _) => { var t = url.Text.Trim(); if (t != S.customBaseURL) { S.customBaseURL = t; Reload(); } };
+            rows.Add(Ui.BlockRow("Địa chỉ API", url));
         }
-        var key = new PasswordBox { Password = p.getKey(), MinWidth = 320 };
+        var key = new PasswordBox { Password = p.getKey(), Width = 300 };
         var result = Ui.Caption("");
         // API tuỳ chỉnh có thể không cần key; hai hãng còn lại bắt buộc.
         bool CanCall(string k) => isCustom ? S.customBaseURL.Trim().Length > 0 : k.Length > 0;
         Button? testBtn = null, loadBtn = null;
-        testBtn = Ui.Btn("Test key", async () =>
+        testBtn = Ui.Btn("Test", async () =>
         {
             var k = key.Password.Trim();
             if (!CanCall(k)) { result.Text = isCustom ? "Chưa nhập địa chỉ API" : "Chưa nhập key"; return; }
             testBtn!.IsEnabled = false; testBtn.Content = "Đang test…"; result.Text = "";
-            var (ok, msg) = await p.test(k);
-            result.Text = ok ? $"OK: {msg}" : $"Lỗi: {msg}";
-            testBtn.IsEnabled = true; testBtn.Content = "Test key";
-        });
-        rows.Add(Ui.V(3, Ui.Caption(p.keyHint), key));
-        rows.Add(Ui.H(8,
-            Ui.Btn("Lưu key", () => { p.setKey(key.Password.Trim()); result.Text = "Đã lưu"; }, primary: true),
+            var text = await TestKeyAll(p.id, k);
+            result.Text = text; result.Foreground = text.StartsWith("OK") ? Brushes.Green : Ui.Danger;
+            testBtn.IsEnabled = true; testBtn.Content = "Test";
+        }, minWidth: 90);
+        rows.Add(Ui.BlockRow("API key", key,
+            Ui.Btn("Lưu", () => { p.setKey(key.Password.Trim()); Reload(); }, primary: true),
             testBtn,
-            Ui.Btn("Xoá key", () => { p.setKey(""); key.Password = ""; result.Text = "Đã xoá key"; })));
+            Ui.IconBtn("", () => { p.setKey(""); key.Password = ""; Reload(); }, "Xoá key")));
         rows.Add(result);
-
+        if (isCustom)
+        {
+            var model = new TextBox { Text = S.customModel, Width = 300, ToolTip = "Gõ tên model hoặc bấm Tải model" };
+            model.LostFocus += (_, _) => { var t = model.Text.Trim(); if (t != S.customModel) S.customModel = t; };
+            rows.Add(Ui.BlockRow("Tên model", model));
+        }
         var (modelBox, fill) = ModelBox(p.id, p.suggested, p.getModel, p.setModel);
         loadBtn = Ui.Btn("Tải model", async () =>
         {
@@ -373,16 +502,19 @@ public sealed class SettingsWindow : Window
                     if (isCustom && p.getModel().Length == 0) p.setModel(list[0]);
                     fill(list);
                 }
-                result.Text = $"Có {list.Count} model dùng được";
+                result.Text = $"OK: có {list.Count} model dùng được"; result.Foreground = Brushes.Green;
             }
-            catch (Exception e) { result.Text = $"Không tải được danh sách: {e.Message}"; }
+            catch (Exception e) { result.Text = $"Lỗi: không tải được danh sách: {e.Message}"; result.Foreground = Ui.Danger; }
             loadBtn.IsEnabled = true; loadBtn.Content = "Tải model";
         }, tip: "Lấy danh sách model thật mà key này dùng được");
-        rows.Add(Ui.Row(Ui.H(8, Ui.Text("Model"), modelBox), loadBtn));
-        rows.Add(Ui.Slider("Timeout phụ đề", 2, 15, 0.5, p.getTimeout, p.setTimeout, x => $"{x:0.0}s"));
-        if (isCustom)
-            rows.Add(Ui.Caption("Dùng cho máy chủ nói giao thức Chat Completions của OpenAI: OpenRouter, Groq, DeepSeek, hoặc model chạy trên máy như Ollama (http://localhost:11434/v1), LM Studio. Model: gõ tên vào ô hoặc bấm Tải model."));
-        return Ui.Section(p.title, rows.ToArray());
+        rows.Add(Ui.BlockRow("Model", modelBox, loadBtn));
+        rows.Add(Ui.Slider("Thời gian chờ", 2, 15, 0.5, p.getTimeout, p.setTimeout, x => $"{x:0.0} s"));
+        bool hasKey = isCustom ? S.customBaseURL.Trim().Length > 0 : p.getKey().Length > 0;
+        var st = AiStatus(p.id, hasKey);
+        var title = p.id switch { "openAI" => "OpenAI", "anthropic" => "Anthropic Claude", _ => "API tuỳ chỉnh" };
+        var glyph = p.id switch { "openAI" => "", "anthropic" => "", _ => "" };
+        return Ui.Block(title, glyph, st.uses ?? (isCustom ? "OpenRouter, Groq, Ollama, LM Studio…" : "Trả phí"),
+            new UIElement?[] { Ui.Chip(isCustom && !hasKey ? "Chưa có địa chỉ" : st.text, st.tone) }, rows.ToArray());
     }
 
     // MARK: Capture & OCR
@@ -393,9 +525,15 @@ public sealed class SettingsWindow : Window
         return Ui.V(14,
             Ui.Section("Capture",
                 Ui.Picker("Tần suất quét", new[] { (2, "2 fps"), (4, "4 fps"), (8, "8 fps") }, () => S.fps, v => S.fps = v),
-                Ui.Picker("Phóng to ảnh cho OCR", new[] { (1.0, "1× (giữ nguyên)"), (1.5, "1.5×"), (2.0, "2× (chữ nhỏ)") }, () => S.captureScale, v => S.captureScale = v),
+                Ui.Picker("Độ phân giải quét phụ đề", new[] { (0.5, "0.5×"), (0.75, "0.75×"), (1.0, "1× (giữ nguyên)"), (1.5, "1.5×"), (2.0, "2× (chữ nhỏ)") }, () => S.captureScale, v => S.captureScale = v),
+                Ui.Picker("Độ phân giải Dịch màn hình", new[] { (1.0, "1× (giữ nguyên)"), (1.5, "1.5×"), (2.0, "2× (chữ nhỏ)") }, () => S.screenCaptureScale, v => S.screenCaptureScale = v),
+                Ui.Caption("Phụ đề chữ to nên 0.5–0.75× vẫn đọc được và OCR nhanh hơn. Dịch màn hình đọc chữ menu, nhật ký nhỏ hơn nên để 1.5–2×. Đổi độ phân giải phụ đề có hiệu lực từ lần Bắt đầu sau."),
                 Ui.Slider("Chờ ổn định sau khi đổi", 0, 1000, 50, () => S.stableDelayMs, v => S.stableDelayMs = v, v => $"{(int)v} ms"),
                 Ui.Slider("Ngưỡng phát hiện thay đổi", 1, 20, 1, () => S.diffThreshold, v => S.diffThreshold = v, v => $"{(int)v}")),
+            Ui.Section("PS5 Remote Play",
+                Ui.Toggle("Tự kết nối lại khi mất kết nối PS5", () => S.ps5AutoReconnect, v => S.ps5AutoReconnect = v),
+                Ui.Stepper(() => $"Số lần thử tối đa: {S.ps5ReconnectAttempts}", 1, 30, 1, () => S.ps5ReconnectAttempts, v => S.ps5ReconnectAttempts = v),
+                Ui.Caption("Tắt thì khi mất kết nối app dừng dịch và quay về màn hình bắt đầu để bạn kết nối lại.")),
             Ui.Section("OCR",
                 ocrState,
                 Ui.Slider("Bỏ qua chữ nhỏ hơn (tỉ lệ chiều cao vùng)", 0, 0.3, 0.01, () => S.minTextHeight, v => S.minTextHeight = v, v => $"{v:0.00}"),
@@ -534,7 +672,10 @@ public sealed class SettingsWindow : Window
 
     UIElement Profiles()
     {
-        var list = new ListBox { MinHeight = 260, Background = Brushes.White };
+        var nav = AppNav.shared;
+        // Đang ở màn hình chơi thì không đổi game ở đây (bấm Đổi game ở cửa sổ chính).
+        bool locked = nav.screen == AppNav.Screen.main;
+        var list = new ListBox { MinHeight = 260, Background = Brushes.White, IsEnabled = !locked };
         foreach (var p in S.profiles)
         {
             var item = new ListBoxItem
@@ -545,42 +686,21 @@ public sealed class SettingsWindow : Window
                 HorizontalContentAlignment = HorizontalAlignment.Stretch,
             };
             list.Items.Add(item);
-            if (p.id == S.activeProfileID) list.SelectedItem = item;
+            if (p.id == S.activeProfile.id) list.SelectedItem = item;
         }
         list.SelectionChanged += (_, _) =>
         {
             if (list.SelectedItem is ListBoxItem it && it.Tag is Guid id && id != S.activeProfileID && S.profiles.FirstOrDefault(p => p.id == id) is Profile p)
-                AppNav.shared.SwitchProfile(p);
+                nav.SwitchProfile(p);
         };
         var buttons = Ui.H(8,
-            Ui.Btn("Game mới…", () => { App.ShowMain(); AppNav.shared.ShowNewProfile(); }),
-            Ui.Btn("Đổi tên", () =>
-            {
-                var p = S.activeProfile;
-                if (Ui.Ask("Tên game", "Ví dụ: God of War Ragnarök", p.name, this) is string n) { p.name = n; S.activeProfile = p; Reload(); }
-            }),
-            Ui.Btn("Nhân bản", () =>
-            {
-                var p = S.activeProfile.Clone();
-                p.id = Guid.NewGuid(); p.name += " (bản sao)";
-                foreach (var r in p.regions) r.id = Guid.NewGuid();
-                var ps = S.profiles; ps.Add(p); S.profiles = ps; S.activeProfileID = p.id;
-                S.NotifyAll();
-                Reload();
-            }),
-            Ui.Btn("Xoá", () =>
-            {
-                if (S.profiles.Count <= 1) return;
-                var cur = S.activeProfile;
-                if (!Ui.Confirm($"Xoá game “{cur.name}” (vùng, thuật ngữ, tên nhân vật)? Nhật ký vẫn giữ trong file.")) return;
-                Pipeline.shared.Stop();
-                var ps = S.profiles.Where(x => x.id != cur.id).ToList();
-                S.profiles = ps;
-                S.activeProfileID = ps.FirstOrDefault()?.id;
-                S.NotifyAll();
-                Reload();
-            }).Also(b => b.IsEnabled = S.profiles.Count > 1));
-        return Ui.V(8, Ui.Caption("Mỗi game có nguồn hình, vùng phụ đề, thuật ngữ và tên nhân vật riêng. Chọn một game để chuyển sang."), list, buttons);
+            Ui.Btn("Game mới…", () => { App.ShowMain(); nav.ShowNewProfile(); }).Also(b => b.IsEnabled = !locked),
+            Ui.Btn("Đổi tên", () => { nav.RenameProfile(S.activeProfile, this); Reload(); }),
+            Ui.Btn("Nhân bản", () => { nav.DuplicateProfile(S.activeProfile); Reload(); }).Also(b => b.IsEnabled = !locked),
+            Ui.Btn("Xoá", () => { nav.DeleteProfile(S.activeProfile); Reload(); }).Also(b => b.IsEnabled = !locked && S.profiles.Count > 1));
+        var note = locked ? $"Đang chơi “{S.activeProfile.name}”. Muốn chọn game khác: bấm Đổi game ở cửa sổ chính."
+                          : "Mỗi game có nguồn hình, vùng phụ đề, thuật ngữ và tên nhân vật riêng. Chọn game để chơi ở màn hình Bắt đầu.";
+        return Ui.V(8, Ui.Caption(note), list, buttons);
     }
 
     // MARK: Phím tắt

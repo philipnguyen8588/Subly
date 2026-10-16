@@ -40,6 +40,22 @@
   .login input { width:100%; margin:10px 0; }
   .err { color:var(--bad); }
   .empty { color:var(--muted); text-align:center; padding:40px 0; }
+  .top { display:flex; gap:4px; margin-bottom:14px; border-bottom:1px solid var(--line); }
+  .top a { color:var(--muted); text-decoration:none; padding:8px 12px; font-weight:600; border-bottom:2px solid transparent; margin-bottom:-1px; }
+  .top a.on { color:var(--text); border-color:var(--accent); }
+  h2 { font-size:16px; margin:0 0 10px; }
+  .form { display:grid; grid-template-columns: 160px 1fr; gap:8px 12px; align-items:center; max-width:760px; }
+  .form > label, #base-url-row > label { color:var(--muted); }
+  .form input[type=text], .form input[type=password], .form select { width:100%; padding:7px 9px; border:1px solid var(--line); border-radius:7px; background:var(--card); color:var(--text); font:inherit; }
+  .form [hidden] { display:none; }
+  @media (max-width: 760px) { .form { grid-template-columns: 1fr; } }
+  .models { display:flex; flex-wrap:wrap; gap:4px 14px; max-height:260px; overflow:auto; padding:8px; border:1px solid var(--line); border-radius:7px; }
+  .models label { white-space:nowrap; font-family: ui-monospace, Menlo, Consolas, monospace; font-size:12.5px; }
+  .info { color:var(--ok); }
+  .row.share { grid-template-columns: 1.6fr 1fr 1.6fr auto; }
+  @media (max-width: 760px) { .row.share { grid-template-columns: 1fr; } }
+  .token { display:flex; gap:6px; } .token input { flex:1; min-width:0; padding:5px 7px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size:12px; }
+  a.btn { font:inherit; padding:5px 10px; border-radius:7px; border:1px solid var(--line); color:var(--text); text-decoration:none; }
 </style>
 </head>
 <body>
@@ -53,6 +69,79 @@
       <button class="ok" type="submit">Đăng nhập</button>
     </form>
   </div>
+{{else}}
+  <nav class="top">
+    <a href="/admin" class="{{if ne .Tab "ai"}}on{{end}}">Máy</a>
+    <a href="/admin?tab=ai" class="{{if eq .Tab "ai"}}on{{end}}">AI share</a>
+  </nav>
+{{if eq .Tab "ai"}}
+  <header>
+    <h1>AI share</h1>
+    <span class="sp"></span>
+    <form method="post" action="/admin/logout" class="inline"><button type="submit">Đăng xuất</button></form>
+  </header>
+  <p class="muted">Key chỉ nằm trên server (đã mã hoá), người được share không lấy được. Gửi token cho họ; họ dán vào app ở Cài đặt → AI → AI share và chỉ dùng được những model đã tick. Thu hồi hoặc tạo token mới thì token cũ hết hiệu lực ngay; sửa model thì app tự cập nhật.</p>
+  {{with .Draft}}
+  <div class="card" id="form">
+    <h2>{{if .ID}}Sửa “{{.Label}}”{{else}}Thêm AI share{{end}}</h2>
+    {{if .Error}}<p class="err">{{.Error}}</p>{{end}}
+    {{if .Info}}<p class="info">{{.Info}}</p>{{end}}
+    <form method="post" action="/admin/share" class="form">
+      {{if .ID}}<input type="hidden" name="id" value="{{.ID}}">{{end}}
+      <label for="label">Tên gợi nhớ</label>
+      <input type="text" id="label" name="label" value="{{.Label}}" placeholder="ví dụ: cho Minh">
+      <label for="provider">Nhà cung cấp</label>
+      <select id="provider" name="provider">
+        <option value="openai" {{if eq .Provider "openai"}}selected{{end}}>OpenAI</option>
+        <option value="anthropic" {{if eq .Provider "anthropic"}}selected{{end}}>Anthropic</option>
+        <option value="gemini" {{if eq .Provider "gemini"}}selected{{end}}>Gemini</option>
+        <option value="custom" {{if eq .Provider "custom"}}selected{{end}}>Custom (tương thích OpenAI: OpenRouter, Groq…)</option>
+      </select>
+      <div id="base-url-row" style="display:contents">
+        <label for="base_url">Base URL</label>
+        <input type="text" id="base_url" name="base_url" value="{{.BaseURL}}" placeholder="https://openrouter.ai/api/v1 (chỉ cho Custom)">
+      </div>
+      <label for="key">API key</label>
+      <input type="password" id="key" name="key" value="{{.Key}}" autocomplete="off" placeholder="{{if .HasKey}}Để trống = giữ key cũ{{else}}Dán API key{{end}}">
+      <span></span>
+      <div><button type="submit" name="action" value="load">Tải model</button> <span class="muted">dùng key để lấy danh sách model</span></div>
+      {{if .Options}}
+      <label>Model được dùng</label>
+      <div class="models">{{range .Options}}<label><input type="hidden" name="option" value="{{.Name}}"><input type="checkbox" name="model" value="{{.Name}}" {{if .Checked}}checked{{end}}> {{.Name}}</label>{{end}}</div>
+      {{end}}
+      <label for="extra">Model khác</label>
+      <input type="text" id="extra" name="extra" value="{{.Extra}}" placeholder="gõ thêm tên model, cách nhau dấu phẩy">
+      <span></span>
+      <div><button class="ok" type="submit" name="action" value="save">{{if .ID}}Lưu{{else}}Tạo token{{end}}</button>{{if .ID}} <a class="btn" href="/admin?tab=ai">Huỷ</a>{{end}}</div>
+    </form>
+  </div>
+  {{end}}
+  {{range .Shares}}
+  <div class="card" id="s-{{.ID}}">
+    <div class="row share">
+      <div>
+        <div class="name">{{.Label}}<span class="badge {{if eq .Status "active"}}b-approved{{else}}b-revoked{{end}}">{{if eq .Status "active"}}Đang dùng{{else}}Thu hồi{{end}}</span></div>
+        <div class="muted">{{.ProviderName}}{{if .BaseURL}} · {{.BaseURL}}{{end}} · key {{.MaskedKey}}</div>
+        <div class="muted">Model: {{join .Models ", "}}</div>
+      </div>
+      <div class="muted">
+        Tạo: {{date .Created}}<br>
+        Dùng lần cuối: {{if .LastUsed.IsZero}}chưa dùng{{else}}{{ago .LastUsed}}{{end}}<br>
+        Số request: {{.Uses}}
+      </div>
+      <div class="token"><input id="t-{{.ID}}" type="text" readonly value="{{.Token}}"><button type="button" data-copy="t-{{.ID}}">Copy</button></div>
+      <div class="actions">
+        <a class="btn" href="/admin?tab=ai&amp;edit={{.ID}}#form">Sửa</a>
+        <form method="post" action="/admin/share" class="inline"><input type="hidden" name="id" value="{{.ID}}"><button name="action" value="rotate" title="Token cũ hết hiệu lực ngay">Token mới</button></form>
+        {{if eq .Status "active"}}<form method="post" action="/admin/share" class="inline"><input type="hidden" name="id" value="{{.ID}}"><button class="bad" name="action" value="revoke">Thu hồi</button></form>
+        {{else}}<form method="post" action="/admin/share" class="inline"><input type="hidden" name="id" value="{{.ID}}"><button class="ok" name="action" value="enable">Bật lại</button></form>{{end}}
+        <form method="post" action="/admin/share" class="inline"><input type="hidden" name="id" value="{{.ID}}"><button class="bad" name="action" value="delete">Xoá</button></form>
+      </div>
+    </div>
+  </div>
+  {{else}}
+  <div class="empty">Chưa có AI share nào.</div>
+  {{end}}
 {{else}}
   <header>
     <h1>Quản lý máy</h1>
@@ -104,6 +193,8 @@
   <div class="empty">Chưa có máy nào{{if .Q}} khớp “{{.Q}}”{{end}}.</div>
   {{end}}
 {{end}}
+{{end}}
 </main>
+{{if .LoggedIn}}<script src="/admin/app.js"></script>{{end}}
 </body>
 </html>

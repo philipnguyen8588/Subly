@@ -172,7 +172,7 @@ final class HistoryStore: ObservableObject {
     private let maxInMemory = 2000
     private let maxAnalyses = 300
     /// Số ảnh chụp "dịch màn hình" được giữ trên đĩa cho mỗi game.
-    static let maxShots = 50
+    static let maxShots = 200
     nonisolated static let shotsDir: URL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("ScreenTranslator/shots", isDirectory: true)
     nonisolated static func shotURL(_ id: Int64) -> URL { shotsDir.appendingPathComponent("\(id).jpg") }
@@ -537,6 +537,30 @@ final class HistoryStore: ObservableObject {
             out.append((sqlite3_column_int64(stmt, 0), Date(timeIntervalSince1970: sqlite3_column_double(stmt, 1)), text(stmt, 2)))
         }
         sqlite3_finalize(stmt)
+        return out
+    }
+
+    /// Câu phụ đề của game có chứa một trong các cụm từ (không phân biệt hoa thường với chữ ASCII), mới nhất trước.
+    /// Đọc thẳng từ DB nên tìm được cả những câu cũ không còn trong `entries`.
+    func searchEntries(profile: String, terms: [String], limit: Int) -> [TranslationEntry] {
+        let terms = Array(terms.filter { !$0.isEmpty }.prefix(12))
+        guard !terms.isEmpty else { return [] }
+        let cond = Array(repeating: "source LIKE ? ESCAPE '\\' OR translated LIKE ? ESCAPE '\\'", count: terms.count).joined(separator: " OR ")
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT id, ts, region, source, translated, backend, latency, kind, target, profile FROM history WHERE profile = ? AND kind = 'subtitle' AND (\(cond)) ORDER BY id DESC LIMIT ?", -1, &stmt, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_text(stmt, 1, profile, -1, transient)
+        var i: Int32 = 2
+        for t in terms {
+            let pattern = "%" + t.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "%", with: "\\%")
+                .replacingOccurrences(of: "_", with: "\\_") + "%"
+            sqlite3_bind_text(stmt, i, pattern, -1, transient)
+            sqlite3_bind_text(stmt, i + 1, pattern, -1, transient)
+            i += 2
+        }
+        sqlite3_bind_int(stmt, i, Int32(limit))
+        var out: [TranslationEntry] = []
+        while sqlite3_step(stmt) == SQLITE_ROW { out.append(row(stmt)) }
         return out
     }
 

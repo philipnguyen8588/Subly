@@ -8,7 +8,9 @@ public static class RuntimeConfig
 {
     public static bool Enabled => RuntimeConfigValues.a.Length > 0 && RuntimeConfigValues.b.Length == 32;
 
-    public static string Endpoint => System.Text.Encoding.UTF8.GetString(Decode(RuntimeConfigValues.a)) + "/v1/session";
+    /// Địa chỉ gốc của server (không có "/" cuối).
+    public static string BaseURL => System.Text.Encoding.UTF8.GetString(Decode(RuntimeConfigValues.a));
+    public static string Endpoint => BaseURL + "/v1/session";
     public static byte[] Verifier => Decode(RuntimeConfigValues.b);
 
     static byte[] Decode(byte[] v)

@@ -26,7 +26,7 @@ struct EmailPromptView: View {
                 .textFieldStyle(.roundedBorder).frame(width: 300).focused($focused)
                 .onSubmit { if valid { save() } }
             Button("Tiếp tục", action: save)
-                .buttonStyle(.borderedProminent).disabled(!valid).keyboardShortcut(.defaultAction)
+                .appButton(.primary, size: .large).disabled(!valid).keyboardShortcut(.defaultAction)
 
             // Thông báo hỗ trợ nổi bật.
             Text(.init(AppInfo.supportMarkdown))

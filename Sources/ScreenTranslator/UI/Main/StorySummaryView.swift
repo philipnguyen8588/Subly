@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Mục "Tóm tắt" của tab Nhật ký: các bản tóm tắt cốt truyện người dùng đã tạo từ phụ đề, mới nhất trước.
+/// Mục "Tóm tắt" của tab Cốt truyện: các bản tóm tắt cốt truyện người dùng đã tạo từ phụ đề, mới nhất trước.
 struct StorySummaryView: View {
     let search: String
     let summaries: [StorySummary]
@@ -26,7 +26,7 @@ struct StorySummaryView: View {
                     Spacer()
                     Image(systemName: "text.badge.star").font(.system(size: 30)).foregroundStyle(.quaternary)
                     Text(summaries.isEmpty
-                         ? "Ở mục Phụ đề, chọn nhiều câu (kéo chuột, hoặc bấm một câu rồi Shift-bấm câu khác) và bấm Tóm tắt.\nBản tóm tắt của game này sẽ được lưu ở đây."
+                         ? "Ở tab Phụ đề, chọn nhiều câu (kéo chuột, hoặc bấm một câu rồi Shift-bấm câu khác) và bấm Tóm tắt.\nBản tóm tắt của game này sẽ được lưu ở đây."
                          : "Không có bản tóm tắt nào khớp.")
                         .font(.callout).foregroundStyle(.tertiary).multilineTextAlignment(.center)
                     Spacer()

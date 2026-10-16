@@ -37,7 +37,9 @@ public sealed class OpenAIBackend : ICloudChatBackend
     public bool requiresKey = true;
     public bool isReady => model.Length > 0 && baseURL.Length > 0 && (!requiresKey || apiKey.Length > 0);
     public string modelName => model;
-    bool isOfficial => baseURL.Contains("api.openai.com");
+    /// null = suy từ địa chỉ; AI share gọi OpenAI qua proxy nên địa chỉ khác nhưng vẫn là API chính hãng.
+    public bool? official;
+    bool isOfficial => official ?? baseURL.Contains("api.openai.com");
     /// Lời dặn dịch phụ đề / dịch màn hình (router gán, dùng chung với Gemini).
     public Func<string> subtitlePrompt = () => "";
     public Func<string> analysisPrompt = () => "";

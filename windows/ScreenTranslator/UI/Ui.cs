@@ -169,22 +169,46 @@ public static class Ui
         return V(6, Text(title.ToUpperInvariant(), 11, bold: true, color: Secondary), Card(v, 14));
     }
 
-    public static Button Btn(object content, Action onClick, bool primary = false, string? tip = null)
+    /// Kiểu nút chung (giống AppButtonStyle bản macOS).
+    public enum Kind { secondary, primary, tinted, danger, ghost }
+
+    /// Nút chuẩn của app: cao 36 (44 nếu `large`), bo góc 10, chữ SemiBold. Nút chỉ có biểu tượng thì vuông 36×36.
+    public static Button Btn(object content, Action onClick, bool primary = false, string? tip = null, Kind? kind = null, bool large = false, double minWidth = 0)
     {
-        var b = new Button { Content = content is string s ? s : content };
-        if (primary) b.Style = (Style)Application.Current.FindResource("GradientButton");
+        var k = kind ?? (primary ? Kind.primary : Kind.secondary);
+        var b = new Button
+        {
+            Content = content is string s ? s : content,
+            Style = (Style)Application.Current.FindResource(k switch
+            {
+                Kind.primary => "AppButtonPrimary", Kind.tinted => "AppButtonTinted", Kind.danger => "AppButtonDanger",
+                Kind.ghost => "AppButtonGhost", _ => "AppButtonSecondary",
+            }),
+            Height = large ? 44 : 36,
+            FontSize = large ? 15 : 13,
+        };
+        if (minWidth > 0) b.MinWidth = minWidth;
         b.Click += (_, _) => onClick();
         if (tip != null) b.ToolTip = tip;
         return b;
     }
 
-    public static Button IconBtn(string glyph, Action onClick, string? tip = null) =>
-        Btn(Icon(glyph, 14), onClick, tip: tip);
+    /// Nút chỉ có biểu tượng: vuông 36×36, cùng kiểu với nút chữ.
+    public static Button IconBtn(string glyph, Action onClick, string? tip = null, Kind kind = Kind.secondary) =>
+        Btn(Icon(glyph, 15), onClick, tip: tip, kind: kind).Also(b => { b.Width = 36; b.Padding = new Thickness(0); });
+
+    /// Nút biểu tượng nhỏ trong một dòng danh sách (copy, xoá…): không viền, không chiếm chiều cao của dòng.
+    public static Button InlineIconBtn(string glyph, Action onClick, string? tip = null) =>
+        Btn(Icon(glyph, 13), onClick, tip: tip, kind: Kind.ghost).Also(b => { b.Height = 26; b.Width = 26; b.Padding = new Thickness(0); });
+
+    /// Toggle biểu tượng 36×36 (bật = nền gradient).
+    public static ToggleButton IconToggle(string glyph, string? tip = null) =>
+        new() { Content = Icon(glyph, 15), Style = (Style)Application.Current.FindResource("AppIconToggle"), ToolTip = tip };
 
     public static Button LinkBtn(string text, Action onClick) =>
         new Func<Button>(() => { var b = new Button { Content = Text(text, color: AccentStart), Style = (Style)Application.Current.FindResource("LinkButton") }; b.Click += (_, _) => onClick(); return b; })();
 
-    public static object IconLabel(string glyph, string text) => H(6, Icon(glyph, 13), Text(text, wrap: false));
+    public static object IconLabel(string glyph, string text) => H(7, Icon(glyph, 14), Text(text, wrap: false).Also(t => t.FontWeight = FontWeights.SemiBold));
 
     /// Công tắc gắn với cài đặt.
     public static CheckBox Toggle(string label, Func<bool> get, Action<bool> set, string? tip = null)
@@ -231,8 +255,52 @@ public static class Ui
         var t = Text(label());
         var minus = Btn("−", () => { set(Math.Max(min, get() - step)); t.Text = label(); });
         var plus = Btn("+", () => { set(Math.Min(max, get() + step)); t.Text = label(); });
-        minus.Padding = plus.Padding = new Thickness(9, 1, 9, 1);
+        minus.Width = plus.Width = 36; minus.Padding = plus.Padding = new Thickness(0);
         return Row(t, minus, plus);
+    }
+
+    /// Khối cài đặt nổi bật (giống SettingsBlock bản macOS): biểu tượng nền gradient, tiêu đề lớn, phụ đề nhỏ,
+    /// phía phải tiêu đề là trạng thái / nút, bên dưới là nội dung.
+    public static Border Block(string title, string glyph, string? subtitle, UIElement?[] trailing, params UIElement?[] content)
+    {
+        var tile = new Border
+        {
+            Width = 34, Height = 34, CornerRadius = new CornerRadius(9), Background = AccentGradient,
+            Child = Icon(glyph, 16, Brushes.White).Also(i => i.HorizontalAlignment = HorizontalAlignment.Center),
+        };
+        var titles = V(1, Text(title, 15, weight: FontWeights.Bold, wrap: false), subtitle == null ? null : Caption(subtitle));
+        var head = Row(H(12, tile, titles), trailing.OfType<UIElement>().ToArray());
+        var body = V(10, content);
+        return new Border
+        {
+            Child = V(14, head, body), Padding = new Thickness(16), CornerRadius = new CornerRadius(14), Margin = new Thickness(0, 0, 0, 16),
+            Background = Brushes.White, BorderBrush = Hex("#1F000000"), BorderThickness = new Thickness(1),
+            Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 10, ShadowDepth = 2, Opacity = 0.08, Direction = 270 },
+        };
+    }
+
+    /// Hàng "nhãn — điều khiển" trong khối cài đặt; nhãn rộng cố định để các hàng thẳng cột.
+    public static UIElement BlockRow(string label, params UIElement?[] controls)
+    {
+        var l = Text(label, color: Secondary, wrap: false);
+        l.Width = 100;
+        return H(10, new UIElement?[] { l }.Concat(controls).ToArray());
+    }
+
+    public enum Tone { ok, warn, idle }
+
+    /// Nhãn trạng thái nhỏ: xanh = sẵn sàng, cam = còn thiếu, xám = không bắt buộc / chưa dùng.
+    public static Border Chip(string text, Tone tone)
+    {
+        var color = tone switch { Tone.ok => Hex("#FF2E9E4F"), Tone.warn => Orange, _ => Secondary };
+        var c = ((SolidColorBrush)color).Color;
+        var glyph = tone switch { Tone.ok => "\uE73E", Tone.warn => "\uE7BA", _ => "\uE738" };
+        return new Border
+        {
+            CornerRadius = new CornerRadius(12), Height = 24, Padding = new Thickness(9, 0, 9, 0), VerticalAlignment = VerticalAlignment.Center,
+            Background = new SolidColorBrush(Color.FromArgb(30, c.R, c.G, c.B)),
+            Child = H(5, Icon(glyph, 11, color), Text(text, 11.5, true, color, wrap: false)),
+        };
     }
 
     public static Border Divider() => new() { Height = 1, Background = Res("CardStroke"), Margin = new Thickness(0, 4, 0, 4) };

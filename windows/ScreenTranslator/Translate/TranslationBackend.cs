@@ -8,7 +8,7 @@ namespace ScreenTranslator;
 
 public record TranslationPair(string source, string target);
 
-public enum BackendKind { gemini, google, skipped, openAI, anthropic, custom }
+public enum BackendKind { gemini, google, skipped, openAI, anthropic, custom, shared }
 
 public static class BackendLabels
 {
@@ -19,6 +19,7 @@ public static class BackendLabels
         BackendKind.openAI => "OpenAI",
         BackendKind.anthropic => "Claude",
         BackendKind.custom => "API tuỳ chỉnh",
+        BackendKind.shared => "AI share",
         _ => "Google",
     };
     public static string Label(string raw) => Enum.TryParse<BackendKind>(raw, out var k) ? Label(k) : raw switch
@@ -33,7 +34,7 @@ public interface ITranslationBackend
     Task<string> Translate(string text, IList<TranslationPair> context, CancellationToken ct = default);
 }
 
-/// Nhà cung cấp AI qua mạng dùng API kiểu chat (OpenAI, Anthropic, API tuỳ chỉnh): chung một giao diện để router
+/// Nhà cung cấp AI qua mạng dùng API kiểu chat (OpenAI, Anthropic, API tuỳ chỉnh, Gemini khi đi qua AI share): chung một giao diện để router
 /// không phải viết riêng cho từng hãng.
 public interface ICloudChatBackend
 {

@@ -37,6 +37,10 @@ type App struct {
 	apiLimit     *RateLimiter
 	loginLimit   *RateLimiter
 	sessions     *SessionStore
+	shares       *ShareStore
+	shareLimit   *RateLimiter
+	aiClient     *http.Client
+	aiBase       map[string]string // chỉ dùng trong test: thay địa chỉ gốc của nhà cung cấp
 	now          func() time.Time
 }
 
@@ -117,6 +121,9 @@ func main() {
 		apiLimit:   NewRateLimiter(30, time.Minute),
 		loginLimit: NewRateLimiter(10, 15*time.Minute),
 		sessions:   store.Sessions(sessionTTL),
+		shares:     store.Shares(shareCipher(key)),
+		shareLimit: NewRateLimiter(120, time.Minute),
+		aiClient:   newAIClient(),
 		now:        time.Now,
 	}
 	addr := env("LISTEN", ":8080")
@@ -136,6 +143,10 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("/admin/login", a.handleLogin)
 	mux.HandleFunc("/admin/logout", a.handleLogout)
 	mux.HandleFunc("/admin/device", a.handleDeviceAction)
+	mux.HandleFunc("/admin/share", a.handleShareAction)
+	mux.HandleFunc("/admin/app.js", serveAdminJS)
+	mux.HandleFunc("/v1/share/info", a.handleShareInfo)
+	mux.HandleFunc("/v1/ai/", a.handleAIProxy)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 	return securityHeaders(mux)
 }

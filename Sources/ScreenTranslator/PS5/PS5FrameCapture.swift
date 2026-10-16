@@ -18,15 +18,18 @@ extension RegionCapture: FrameCapture {}
 final class PS5FrameCapture: FrameCapture {
     let region: Region
     let fps: Int
+    /// So với ảnh gốc của luồng: < 1 thu nhỏ (OCR nhanh hơn), > 1 phóng to (đọc chữ nhỏ).
+    let scale: Double
     var onFrame: ((CVPixelBuffer) -> Void)?
     var onStopped: ((Error) -> Void)?
     private let queue: DispatchQueue
     private var timer: DispatchSourceTimer?
     private var lastIndex = -1
 
-    init(region: Region, fps: Int) {
+    init(region: Region, fps: Int, scale: Double = 1) {
         self.region = region
         self.fps = max(1, fps)
+        self.scale = scale
         queue = DispatchQueue(label: "ps5.capture.\(region.id.uuidString)", qos: .userInitiated, autoreleaseFrequency: .workItem)
     }
 
@@ -36,7 +39,7 @@ final class PS5FrameCapture: FrameCapture {
         t.setEventHandler { [weak self] in self?.tick() }
         t.resume()
         timer = t
-        Log.info("Capture started '\(region.name)' PS5 nhúng \(region.rect) @\(fps)fps")
+        Log.info("Capture started '\(region.name)' PS5 nhúng \(region.rect) @\(fps)fps ×\(scale)")
     }
 
     func stop() async {
@@ -46,7 +49,8 @@ final class PS5FrameCapture: FrameCapture {
     private func tick() {
         guard let (pb, idx) = PS5Stream.shared.latestFrame(), idx != lastIndex else { return }
         lastIndex = idx
-        if let c = Self.crop(pb, normalized: region.rect) { onFrame?(c) }
+        guard let c = Self.crop(pb, normalized: region.rect) else { return }
+        onFrame?(abs(scale - 1) < 0.01 ? c : Self.resize(c, scale: scale) ?? c)
     }
 
     /// Cắt vùng chuẩn hoá khỏi khung BGRA thành một CVPixelBuffer BGRA mới.
@@ -71,14 +75,34 @@ final class PS5FrameCapture: FrameCapture {
         return out
     }
 
+    /// Đổi cỡ khung BGRA (Lanczos) thành một CVPixelBuffer BGRA mới.
+    static func resize(_ src: CVPixelBuffer, scale: Double) -> CVPixelBuffer? {
+        let w = max(2, Int((Double(CVPixelBufferGetWidth(src)) * scale).rounded()))
+        let h = max(2, Int((Double(CVPixelBufferGetHeight(src)) * scale).rounded()))
+        var out: CVPixelBuffer?
+        let attrs: [CFString: Any] = [kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary]
+        guard CVPixelBufferCreate(kCFAllocatorDefault, w, h, kCVPixelFormatType_32BGRA, attrs as CFDictionary, &out) == kCVReturnSuccess,
+              let out else { return nil }
+        let img = lanczos(CIImage(cvPixelBuffer: src), scale)
+        ci.render(img, to: out, bounds: CGRect(x: 0, y: 0, width: w, height: h), colorSpace: nil)
+        return out
+    }
+
+    private static func lanczos(_ img: CIImage, _ s: Double) -> CIImage {
+        img.applyingFilter("CILanczosScaleTransform", parameters: [kCIInputScaleKey: s, kCIInputAspectRatioKey: 1.0])
+    }
+
     private static let ci = CIContext()
     /// Ảnh tĩnh của vùng (thumbnail, phân tích màn hình). nil nếu chưa có khung hình.
-    static func image(for region: Region, maxWidth: CGFloat? = nil) -> CGImage? {
+    /// `scale`: phóng to / thu nhỏ so với ảnh gốc (bỏ qua khi có `maxWidth`).
+    static func image(for region: Region, maxWidth: CGFloat? = nil, scale: Double = 1) -> CGImage? {
         guard let (pb, _) = PS5Stream.shared.latestFrame(), let c = crop(pb, normalized: region.rect) else { return nil }
         var img = CIImage(cvPixelBuffer: c)
         if let maxWidth, img.extent.width > maxWidth {
             let s = maxWidth / img.extent.width
             img = img.transformed(by: CGAffineTransform(scaleX: s, y: s))
+        } else if maxWidth == nil, abs(scale - 1) >= 0.01 {
+            img = lanczos(img, scale)
         }
         return ci.createCGImage(img, from: img.extent)
     }

@@ -103,6 +103,51 @@ public static class WindowFinder
         return list;
     }
 
+    /// Cửa sổ app thường (có tiêu đề, đủ lớn) để chọn làm màn hình game ở màn Bắt đầu, theo thứ tự trên → dưới.
+    public static List<WindowInfo> GameCandidates()
+    {
+        var list = new List<WindowInfo>();
+        foreach (var w in VisibleWindows())
+        {
+            if (w.bounds.Width < 320 || w.bounds.Height < 200 || w.title.Trim().Length == 0) continue;
+            long ex = Win32.GetWindowLongPtr(w.hwnd, Win32.GWL_EXSTYLE).ToInt64();
+            if ((ex & Win32.WS_EX_TOOLWINDOW) != 0) continue;
+            var cls = new StringBuilder(64);
+            Win32.GetClassName(w.hwnd, cls, 64);
+            if (cls.ToString() is "Progman" or "WorkerW" or "Shell_TrayWnd" or "Shell_SecondaryTrayWnd" or "Windows.UI.Core.CoreWindow") continue;
+            list.Add(w);
+        }
+        return list;
+    }
+
+    static readonly Dictionary<string, System.Windows.Media.ImageSource?> iconCache = new();
+
+    /// Biểu tượng của app sở hữu cửa sổ (lấy từ file .exe), để hiện trong danh sách cửa sổ.
+    public static System.Windows.Media.ImageSource? AppIcon(IntPtr hwnd)
+    {
+        Win32.GetWindowThreadProcessId(hwnd, out var pid);
+        var path = pid == 0 ? null : ProcessPath(pid);
+        if (path == null) return null;
+        lock (iconCache)
+        {
+            if (iconCache.TryGetValue(path, out var cached)) return cached;
+            System.Windows.Media.ImageSource? img = null;
+            try
+            {
+                using var ico = System.Drawing.Icon.ExtractAssociatedIcon(path);
+                if (ico != null)
+                {
+                    img = System.Windows.Interop.Imaging.CreateBitmapSourceFromHIcon(ico.Handle, System.Windows.Int32Rect.Empty,
+                        System.Windows.Media.Imaging.BitmapSizeOptions.FromEmptyOptions());
+                    img.Freeze();
+                }
+            }
+            catch { }
+            iconCache[path] = img;
+            return img;
+        }
+    }
+
     /// Cửa sổ trên cùng chứa điểm (pixel vật lý toàn cục), bỏ qua chính app này.
     public static WindowInfo? WindowUnder(double x, double y)
     {

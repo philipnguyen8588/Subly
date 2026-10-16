@@ -51,8 +51,9 @@ final class ScreenAnalyzer: ObservableObject {
         for r in regions {
             progress = "Đang chụp \(r.name)…"
             do {
-                let scale = min(2.0, 3000.0 / max(1, r.width))
-                let img = try await ScreenshotService.capture(region: r, scale: scale)
+                // Ảnh không rộng quá 3000 px (vùng PS5 có toạ độ chuẩn hoá nên chỉ theo cài đặt).
+                let scale = r.embedded ? settings.screenCaptureScale : min(settings.screenCaptureScale, 3000.0 / max(1, r.width))
+                let img = try await ScreenshotService.capture(region: r, scale: scale, embeddedScale: scale)
                 progress = "Đang nhận dạng chữ…"
                 // Vision có lúc treo hẳn bên trong (không bao giờ trả về): chờ tối đa `analyzeTimeout` giây rồi báo lỗi,
                 // để nút Dịch màn hình không kẹt ở "Đang nhận dạng chữ…" mãi.

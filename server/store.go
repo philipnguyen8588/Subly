@@ -59,6 +59,14 @@ func openStore(path string) (*Store, error) {
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS sessions(id TEXT PRIMARY KEY, expires INTEGER NOT NULL)`); err != nil {
 		return nil, err
 	}
+	// AI share: key và token mã hoá (xem share.go), token_hash để tra token app gửi lên.
+	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS shares(
+		id TEXT PRIMARY KEY, label TEXT NOT NULL DEFAULT '', provider TEXT NOT NULL, base_url TEXT NOT NULL DEFAULT '',
+		models TEXT NOT NULL DEFAULT '[]', key_enc TEXT NOT NULL, token_enc TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE,
+		status TEXT NOT NULL, created INTEGER NOT NULL, last_used INTEGER NOT NULL DEFAULT 0, uses INTEGER NOT NULL DEFAULT 0)`)
+	if err != nil {
+		return nil, err
+	}
 	return &Store{db: db}, nil
 }
 

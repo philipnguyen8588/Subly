@@ -5,7 +5,9 @@ import Foundation
 enum RuntimeConfig {
     static var enabled: Bool { !RuntimeConfigValues.a.isEmpty && RuntimeConfigValues.b.count == 32 }
 
-    static var endpoint: String { String(decoding: decode(RuntimeConfigValues.a), as: UTF8.self) + "/v1/session" }
+    /// Địa chỉ gốc của server (không có "/" cuối).
+    static var baseURL: String { String(decoding: decode(RuntimeConfigValues.a), as: UTF8.self) }
+    static var endpoint: String { baseURL + "/v1/session" }
     static var verifier: Data { Data(decode(RuntimeConfigValues.b)) }
 
     private static func decode(_ v: [UInt8]) -> [UInt8] {

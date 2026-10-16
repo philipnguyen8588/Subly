@@ -64,7 +64,7 @@ public sealed class RegionWorker
         this.region = region;
         ocrQueue = new SerialQueue($"ocr.{region.name}", ThreadPriority.AboveNormal);
         gateQueue = new SerialQueue($"gate.{region.name}", ThreadPriority.AboveNormal);
-        capture = region.embedded ? new PS5FrameCapture(region, settings.fps)
+        capture = region.embedded ? new PS5FrameCapture(region, settings.fps, settings.captureScale)
                                   : new RegionCapture(region, settings.fps, settings.captureScale);
         gate = new FrameGate(settings.diffThreshold);
         ocr.minTextHeight = settings.minTextHeight;
@@ -431,8 +431,10 @@ public sealed class Pipeline : INotifyPropertyChanged
         if (isRunning) return;
         if (!await SessionCheck.shared.AuthorizeAction()) return;
         var regions = settings.subtitleRegions.Where(r => r.enabled).ToList();
-        if (regions.Count == 0) { ShowAlert("Chưa có vùng phụ đề", "Mở tab Màn hình: chọn vùng game (hoặc kết nối PS5) rồi vẽ khung phụ đề."); return; }
+        if (regions.Count == 0) { ShowAlert("Chưa có vùng phụ đề", "Mở tab Màn hình và kéo khung vàng tới chỗ phụ đề hiện trên hình game."); return; }
         if (!WinOcr.Available) { ShowAlert("Chưa có OCR tiếng Anh", WinOcr.LastError ?? "Windows OCR không dùng được."); return; }
+        // Chưa cài đủ AI cho các việc dịch (key chưa test, thiếu model…) → báo và không bắt đầu.
+        if (!Readiness.Ensure()) return;
         ResetQueue();
         ApplyVoiceSettings();
         router.SeedContextFromHistory();

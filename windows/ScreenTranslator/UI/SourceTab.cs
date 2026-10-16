@@ -76,22 +76,9 @@ public sealed class SourceTab : Border
         Child = s.source == ProfileSource.ps5 ? new PS5SourceView() : new ExternalSourceView();
     }
 
-    /// Bộ chọn nguồn hình, đặt ở đầu thanh điều khiển của cả hai chế độ.
-    public static UIElement SourcePicker()
-    {
-        var s = AppSettings.shared;
-        var ext = new RadioButton { Content = Ui.IconLabel("", Labels.Of(ProfileSource.external)), IsChecked = s.source == ProfileSource.external, GroupName = "src", Style = (Style)Application.Current.FindResource(typeof(ToggleButton)) };
-        var ps5 = new RadioButton { Content = Ui.IconLabel("", Labels.Of(ProfileSource.ps5)), IsChecked = s.source == ProfileSource.ps5, GroupName = "src", Style = (Style)Application.Current.FindResource(typeof(ToggleButton)) };
-        ext.Checked += (_, _) => AppNav.shared.SetSource(ProfileSource.external);
-        ps5.Checked += (_, _) => AppNav.shared.SetSource(ProfileSource.ps5);
-        var h = Ui.H(0, ext, ps5);
-        h.ToolTip = $"Nguồn hình của game “{s.activeProfile.name}”";
-        return h;
-    }
-
     public static Border Toolbar(UIElement content) => new()
     {
-        Child = content, Padding = new Thickness(14, 8, 14, 8), Background = Brushes.White,
+        Child = content, Height = 52, Padding = new Thickness(14, 0, 14, 0), Background = Brushes.White,
         BorderBrush = Ui.Res("CardStroke"), BorderThickness = new Thickness(0, 0, 0, 1),
     };
 }
@@ -104,7 +91,9 @@ public sealed class ExternalSourceView : DockPanel
     readonly ToggleButton drawToggle = new() { Content = Ui.IconLabel("", "Vẽ khung phụ đề"), ToolTip = "Bật rồi kéo chuột trên hình để chọn chỗ phụ đề xuất hiện" };
     readonly ContentControl toolbarSlot = new();
     readonly ContentControl body = new();
-    readonly SubtitleStrip strip = new(() => "Bấm Bắt đầu để dịch phụ đề.");
+    readonly SubtitleStrip strip = new(() => "Bấm “Bắt đầu dịch” để dịch phụ đề.");
+    readonly Popup windowsPopup = new() { StaysOpen = false, Placement = PlacementMode.Bottom, AllowsTransparency = true };
+    readonly WindowListView windowList = new();
     readonly ExternalMirror mirror = ExternalMirror.shared;
 
     public ExternalSourceView()
@@ -121,6 +110,12 @@ public sealed class ExternalSourceView : DockPanel
         drawToggle.Checked += (_, _) => screen.Editing = true;
         drawToggle.Unchecked += (_, _) => screen.Editing = false;
         mirror.PropertyChanged += (_, _) => Dispatcher.BeginInvoke(Refresh);
+        windowList.onPicked = () => windowsPopup.IsOpen = false;
+        windowsPopup.Child = new Border
+        {
+            Width = 400, Height = 440, Padding = new Thickness(14), CornerRadius = new CornerRadius(12), Background = Brushes.White,
+            BorderBrush = Ui.Res("CardStroke"), BorderThickness = new Thickness(1), Child = windowList,
+        };
         Loaded += (_, _) => { mirror.Ensure(AppSettings.shared.externalArea); Refresh(); };
         Refresh();
     }
@@ -139,38 +134,26 @@ public sealed class ExternalSourceView : DockPanel
     {
         var s = AppSettings.shared;
         var area = s.externalArea;
-        // Thanh công cụ
-        var left = Ui.H(10, SourceTab.SourcePicker());
+        // Thanh công cụ: chỉ còn công cụ khung (chọn nguồn / cửa sổ nằm ở màn hình Bắt đầu).
+        var hint = Ui.Caption(mirror.error ?? "Kéo khung vàng tới đúng chỗ phụ đề hiện trên hình game.", mirror.error == null ? null : Ui.Danger);
+        hint.TextWrapping = TextWrapping.NoWrap; hint.TextTrimming = TextTrimming.CharacterEllipsis;
+        var change = Ui.Btn(Ui.IconLabel("\uE7F4", "Đổi cửa sổ"), () => { windowList.Reload(); windowsPopup.IsOpen = true; }, tip: "Chọn cửa sổ khác làm màn hình game, hoặc vẽ vùng thủ công");
+        windowsPopup.PlacementTarget = change;
         if (area != null)
         {
-            var info = mirror.error ?? $"{(int)area.width}×{(int)area.height}{(area.followsWindow ? " · bám theo cửa sổ" : "")}{(mirror.capturedAt is DateTime t ? $" · ảnh lúc {t:HH:mm:ss}" : "")}";
-            left.Children.Add(Ui.H(8, Ui.Dot(mirror.error == null ? Brushes.LimeGreen : Ui.Danger),
-                Ui.V(1, Ui.Text(area.appName ?? "Vùng màn hình", bold: true, wrap: false), Ui.Caption(info, mirror.error == null ? null : Ui.Danger))).Also(x => x.Margin = new Thickness(10, 0, 0, 0)));
-        }
-        if (area != null)
-        {
-            var cap = Ui.Btn(Ui.IconLabel("", mirror.capturing ? "Đang chụp…" : "Chụp màn hình game"), () => mirror.Capture(AppSettings.shared.externalArea!),
-                tip: "Chụp lại hình hiện tại của game để xem và đặt khung phụ đề. App không chụp toàn màn hình liên tục để máy nhẹ.");
+            var cap = Ui.Btn(Ui.IconLabel("\uE722", mirror.capturing ? "Đang chụp…" : "Chụp lại hình"), () => mirror.Capture(AppSettings.shared.externalArea!),
+                tip: "Chụp lại hình hiện tại của game để xem và đặt khung phụ đề. App không chụp liên tục để máy nhẹ." + (mirror.capturedAt is DateTime t ? $" Ảnh lúc {t:HH:mm:ss}." : ""), minWidth: 130);
             cap.IsEnabled = !mirror.capturing;
             drawToggle.IsEnabled = mirror.image != null;
-            var repick = Ui.IconBtn("", RegionActions.PickGameArea, "Chọn lại vùng game: vẽ lại khung toàn bộ khu vực hiển thị game trên màn hình");
-            toolbarSlot.Content = Ui.Row(left, cap, drawToggle, repick);
+            toolbarSlot.Content = Ui.Row(hint, cap, drawToggle, change);
         }
-        else toolbarSlot.Content = left;
+        else toolbarSlot.Content = Ui.Row(hint, change);
 
         // Nội dung
         if (area == null)
         {
-            var pick = Ui.Btn(Ui.IconLabel("", "Chọn vùng game"), RegionActions.PickGameArea, primary: true);
-            var v = Ui.V(14,
-                Ui.EmptyState("", "Chọn vùng hiển thị game",
-                    "Mở game hoặc phim trên máy này, rồi vẽ một khung quanh toàn bộ khu vực hình của nó. App chụp một tấm ảnh của vùng đó để bạn đặt khung phụ đề.",
-                    "Bấm “Chọn vùng game” và kéo chuột quanh màn hình game", "Kéo chuột trên ảnh để đặt khung phụ đề (đã có sẵn ở dải dưới)", "Bấm Bắt đầu"),
-                pick);
-            pick.HorizontalAlignment = HorizontalAlignment.Center;
-            if (s.externalSubtitle != null)
-                v.Children.Add(Ui.Caption("Game này đã có khung phụ đề từ trước nên vẫn dịch được; chọn vùng game để xem hình trong app và dùng Dịch màn hình.").Also(t => { t.TextAlignment = TextAlignment.Center; t.MaxWidth = 460; }));
-            v.VerticalAlignment = VerticalAlignment.Center;
+            var v = Ui.EmptyState("\uE7F4", "Chưa chọn cửa sổ game", "Bấm “Đổi cửa sổ” ở trên để chọn cửa sổ đang chạy game hoặc phim trên máy này.");
+            ((FrameworkElement)v).VerticalAlignment = VerticalAlignment.Center;
             body.Content = v;
             return;
         }
@@ -205,11 +188,10 @@ public sealed class PS5SourceView : DockPanel
     readonly ContentControl body = new();
     readonly SubtitleStrip strip;
     readonly PS5Stream stream = PS5Stream.shared;
-    PS5Stream.StateKind lastKind = PS5Stream.StateKind.idle;
 
     public PS5SourceView()
     {
-        strip = new SubtitleStrip(() => PS5Stream.shared.isStreaming ? "Bấm Bắt đầu để dịch phụ đề." : " ");
+        strip = new SubtitleStrip(() => PS5Stream.shared.isStreaming ? "Bấm “Bắt đầu dịch” để dịch phụ đề." : " ");
         LastChildFill = true;
         var tb = SourceTab.Toolbar(toolbarSlot);
         SetDock(tb, Dock.Top);
@@ -223,70 +205,31 @@ public sealed class PS5SourceView : DockPanel
         drawToggle.Checked += (_, _) => screen.Editing = true;
         drawToggle.Unchecked += (_, _) => screen.Editing = false;
         Pipeline.shared.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(Pipeline.regionCaptions)) Dispatcher.BeginInvoke(PushCaptions); };
-        lastKind = stream.state.kind;
-        stream.PropertyChanged += (_, e) => Dispatcher.BeginInvoke(() =>
+        // Trạng thái phiên (vào màn chính, tự kết nối lại…) do PS5Coordinator.Install theo dõi; view này chỉ vẽ lại.
+        System.ComponentModel.PropertyChangedEventHandler onStream = (_, e) => Dispatcher.BeginInvoke(() =>
         {
-            if (e.PropertyName == nameof(PS5Stream.state) && stream.state.kind != lastKind)
-            {
-                lastKind = stream.state.kind;
-                PS5Coordinator.StateChanged(stream.state);
-            }
-            if (e.PropertyName is nameof(PS5Stream.fps) or nameof(PS5Stream.videoSize)) RefreshToolbar();
-            else Refresh();
+            if (e.PropertyName is nameof(PS5Stream.fps) or nameof(PS5Stream.videoSize)) return;
+            Refresh();
         });
+        Loaded += (_, _) => { stream.PropertyChanged -= onStream; stream.PropertyChanged += onStream; };
+        Unloaded += (_, _) => stream.PropertyChanged -= onStream;
         Refresh();
     }
 
-    Brush StatusColor => stream.state.kind switch
-    {
-        PS5Stream.StateKind.streaming => Brushes.LimeGreen,
-        PS5Stream.StateKind.failed => Ui.Danger,
-        PS5Stream.StateKind.idle => Ui.Secondary,
-        _ => Ui.Orange,
-    };
-
     void RefreshToolbar()
     {
-        var s = AppSettings.shared;
-        var left = Ui.H(10, SourceTab.SourcePicker());
-        if (stream.host is not PS5Host host) { toolbarSlot.Content = left; return; }
-        left.Children.Add(Ui.H(8, Ui.Dot(StatusColor),
-            Ui.V(1, Ui.Text(host.nickname, bold: true, wrap: false),
-                Ui.Caption(stream.isStreaming ? $"{stream.videoSize.w}×{stream.videoSize.h} · {stream.fps} fps" : stream.state.label))).Also(x => x.Margin = new Thickness(10, 0, 0, 0)));
+        var hint = Ui.Caption("Kéo khung vàng tới chỗ phụ đề hiện; thêm khu vực để dịch chữ ở chỗ khác trên màn hình.");
+        hint.TextWrapping = TextWrapping.NoWrap; hint.TextTrimming = TextTrimming.CharacterEllipsis;
+        if (stream.host is not PS5Host host) { toolbarSlot.Content = hint; return; }
         var right = new System.Collections.Generic.List<UIElement>();
-        if (stream.state.kind == PS5Stream.StateKind.needsPin)
-        {
-            var pin = new PasswordBox { Width = 150, ToolTip = "Mã PIN đăng nhập PS5" };
-            right.Add(pin);
-            right.Add(Ui.Btn("Gửi", () => { stream.SendPin(pin.Password); pin.Password = ""; }));
-        }
         drawToggle.IsEnabled = stream.isStreaming;
         right.Add(drawToggle);
         // Khu vực dịch thêm đang chọn → cho xoá (không xoá được khung phụ đề chính).
         if (SubtitleRegions().FirstOrDefault(r => r.id == screen.Selection && r.extra) is Region selExtra)
-            right.Add(Ui.Btn(Ui.IconLabel("", "Xoá khu vực"), () => PS5Coordinator.RemoveSubtitleRegion(selExtra.id), tip: $"Xoá khu vực dịch “{selExtra.name}”"));
-        // Xem lại cấu hình kết nối đã lưu (IP, MAC, account, khoá đăng ký).
-        right.Add(Ui.Btn(Ui.IconLabel("", "Cấu hình"), () => new PS5ConfigWindow(host, Window.GetWindow(this)).ShowDialog(),
-            tip: "Xem cấu hình kết nối Remote Play (IP, MAC, account, khoá đăng ký)"));
-        // Menu chất lượng
-        var menuBtn = Ui.IconBtn("", () => { }, "Chất lượng hình có hiệu lực ở lần kết nối sau");
-        var menu = new ContextMenu();
-        MenuItem Check(string text, bool on, Action a) { var m = new MenuItem { Header = text, IsCheckable = true, IsChecked = on }; m.Click += (_, _) => a(); return m; }
-        menu.Items.Add(Check("1080p (chữ nét nhất)", s.ps5Resolution == 4, () => s.ps5Resolution = 4));
-        menu.Items.Add(Check("720p (nhẹ hơn)", s.ps5Resolution == 3, () => s.ps5Resolution = 3));
-        menu.Items.Add(new Separator());
-        menu.Items.Add(Check("30 fps", s.ps5FPS == 30, () => s.ps5FPS = 30));
-        menu.Items.Add(Check("60 fps", s.ps5FPS == 60, () => s.ps5FPS = 60));
-        menu.Items.Add(new Separator());
-        menu.Items.Add(Check("Tự bắt đầu dịch khi có hình", s.ps5AutoTranslate, () => s.ps5AutoTranslate = !s.ps5AutoTranslate));
-        menu.Items.Add(new Separator());
-        var forget = new MenuItem { Header = "Quên máy này…" };
-        forget.Click += (_, _) => { if (Ui.Confirm($"Quên máy {host.nickname}? Phải đăng ký lại để dùng.")) { stream.Disconnect(); stream.SetHost(null); } };
-        menu.Items.Add(forget);
-        menuBtn.Click += (_, _) => { menu.PlacementTarget = menuBtn; menu.IsOpen = true; };
-        right.Add(menuBtn);
-        right.Add(stream.state.isBusy ? Ui.Btn("Ngắt", stream.Disconnect) : Ui.Btn(Ui.IconLabel("", "Kết nối"), PS5Coordinator.Connect, primary: true));
-        toolbarSlot.Content = Ui.Row(left, right.ToArray());
+            right.Add(Ui.Btn(Ui.IconLabel("\uE74D", "Xoá khu vực"), () => PS5Coordinator.RemoveSubtitleRegion(selExtra.id), tip: $"Xoá khu vực dịch “{selExtra.name}”"));
+        right.Add(Ui.IconBtn("\uE946", () => new PS5ConfigWindow(host, Window.GetWindow(this)).ShowDialog(),
+            "Xem cấu hình kết nối Remote Play (IP, MAC, account, khoá đăng ký)"));
+        toolbarSlot.Content = Ui.Row(hint, right.ToArray());
     }
 
     public void Refresh()
@@ -294,7 +237,7 @@ public sealed class PS5SourceView : DockPanel
         RefreshToolbar();
         if (stream.host == null)
         {
-            if (body.Content is not PS5SetupView) body.Content = new PS5SetupView();
+            body.Content = Ui.EmptyState("\uE7FC", "Chưa có máy PS5", "Bấm Đổi game để quay về màn hình bắt đầu và thiết lập PS5.").Also(v => ((FrameworkElement)v).VerticalAlignment = VerticalAlignment.Center);
             return;
         }
         screen.SetLive(stream.isStreaming);
@@ -302,7 +245,7 @@ public sealed class PS5SourceView : DockPanel
         PushCaptions();
         var dim = new SolidColorBrush(Color.FromArgb(190, 255, 255, 255));
         screen.Placeholder = Ui.V(8, Ui.Icon("", 42, new SolidColorBrush(Color.FromArgb(128, 255, 255, 255))),
-            Ui.Text(stream.state.kind == PS5Stream.StateKind.idle ? "Bấm Kết nối để lấy hình từ PS5" : stream.state.label, color: dim).Also(t => { t.TextAlignment = TextAlignment.Center; t.MaxWidth = 520; }),
+            Ui.Text(stream.state.kind == PS5Stream.StateKind.idle ? "Chưa kết nối PS5" : stream.state.label, color: dim).Also(t => { t.TextAlignment = TextAlignment.Center; t.MaxWidth = 520; }),
             Ui.Caption("App chỉ nhận hình để dịch. Bạn điều khiển bằng tay cầm nối thẳng với PS5.", new SolidColorBrush(Color.FromArgb(115, 255, 255, 255))))
             .Also(x => { foreach (FrameworkElement c in x.Children) c.HorizontalAlignment = HorizontalAlignment.Center; });
         if (body.Content is not DockPanel)

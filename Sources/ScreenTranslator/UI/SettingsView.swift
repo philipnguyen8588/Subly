@@ -6,7 +6,8 @@ import CoreImage
 struct SettingsView: View {
     @ObservedObject var settings = AppSettings.shared
     @ObservedObject var pipeline = Pipeline.shared
-    @State private var tab: Tab = .translate
+    @ObservedObject var nav = AppNav.shared
+    private var tab: Tab { nav.settingsTab }
 
     enum Tab: String, CaseIterable, Identifiable {
         case translate, ai, apple, capture, voice, overlay, glossary, profile, hotkeys, web
@@ -29,7 +30,7 @@ struct SettingsView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            List(Tab.allCases, selection: $tab) { t in
+            List(Tab.allCases, selection: Binding(get: { nav.settingsTab }, set: { if let t = $0 { nav.settingsTab = t } })) { t in
                 Label(t.title, systemImage: t.icon).tag(t)
             }
             .listStyle(.sidebar)
@@ -37,7 +38,7 @@ struct SettingsView: View {
             Divider()
             Group {
                 switch tab {
-                case .translate: TranslateSettings(settings: settings, pipeline: pipeline, openAI: { tab = .ai })
+                case .translate: TranslateSettings(settings: settings, pipeline: pipeline, openAI: { nav.settingsTab = .ai })
                 case .ai: AISettings(settings: settings)
                 case .apple: AppleSettings(settings: settings, pipeline: pipeline)
                 case .capture: CaptureSettings(settings: settings)
@@ -52,117 +53,6 @@ struct SettingsView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(minWidth: 760, minHeight: 560)
-    }
-}
-
-struct TranslateSettings: View {
-    @ObservedObject var settings: AppSettings
-    @ObservedObject var pipeline: Pipeline
-    /// Chuyển sang tab AI (nơi nhập key và chọn model).
-    var openAI: () -> Void = {}
-
-    var body: some View {
-        Form {
-            if RuntimeConfig.enabled {
-                Section("Tài khoản") {
-                    TextField("Email", text: $settings.userEmail, prompt: Text("ban@example.com"))
-                }
-            }
-            Section("Ngôn ngữ") {
-                Picker("Dịch sang", selection: $settings.targetLanguage) {
-                    ForEach(TargetLanguage.all) { l in Text(l.name).tag(l.code) }
-                }
-            }
-            Section("Dịch phụ đề") {
-                Picker("AI", selection: $settings.translationEngine) {
-                    ForEach(TranslationEngine.allCases) { Text($0.label).tag($0) }
-                }
-                modelRow(.subtitle, settings.translationEngine == .auto ? "gemini" : settings.translationEngine.rawValue,
-                         fallback: "nên sẽ dùng engine trên máy.")
-                Stepper("Ngữ cảnh: \(settings.contextPairs) câu trước", value: $settings.contextPairs, in: 0...10)
-            }
-            Section("Dịch màn hình (thủ công)") {
-                Picker("AI", selection: $settings.screenEngine) {
-                    ForEach(ScreenEngine.allCases) { Text($0.label).tag($0) }
-                }
-                modelRow(.screen, settings.effectiveScreenEngine.rawValue, fallback: "nên sẽ dùng engine trên máy.")
-                Toggle("Đọc tóm tắt bằng giọng nói", isOn: $settings.analyzeSpeakSummary)
-                HStack {
-                    Text("Timeout")
-                    Slider(value: $settings.analyzeTimeout, in: 5...60, step: 5)
-                    Text("\(Int(settings.analyzeTimeout))s").monospacedDigit()
-                }
-            }
-            Section("Tóm tắt & cốt truyện (tab Nhật ký)") {
-                Picker("AI", selection: $settings.summaryEngine) {
-                    ForEach(SummaryEngine.allCases) { Text($0.label).tag($0) }
-                }
-                modelRow(.summary, settings.effectiveSummaryEngine.rawValue,
-                         fallback: settings.effectiveSummaryEngine == .gemini
-                             ? "nên Tóm tắt sẽ dùng engine trên máy, Cốt truyện không chạy được."
-                             : "nên sẽ dùng Gemini hoặc engine trên máy.")
-                if settings.effectiveSummaryEngine == .appleIntelligence {
-                    Text("Apple Intelligence chỉ viết được Tóm tắt thủ công. Cốt truyện sẽ dùng Gemini nếu có key.")
-                        .font(.caption).foregroundStyle(.orange)
-                }
-                Toggle("Tự động viết cốt truyện game khi đang dịch", isOn: $settings.storyEnabled)
-                Stepper("Cập nhật mỗi \(settings.storyIntervalMin) phút (khi có đủ câu mới)", value: $settings.storyIntervalMin, in: 5...60, step: 5)
-                Text("Mỗi lần cập nhật tốn 1 request, dùng chung quota với dịch phụ đề. Xem ở Nhật ký → Cốt truyện.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Section("Hàng đợi phụ đề") {
-                Picker("Chế độ", selection: $settings.queueMode) {
-                    ForEach(QueueMode.allCases) { Text($0.label).tag($0) }
-                }
-            }
-        }
-        .formStyle(.grouped)
-    }
-
-    /// Tên và đã có key chưa của một AI qua mạng (theo rawValue của engine); nil = engine trên máy.
-    private func cloudInfo(_ engine: String) -> (name: String, ready: Bool)? {
-        switch engine {
-        case "gemini": return ("Gemini", !settings.geminiAPIKeys.isEmpty)
-        case "openAI": return ("OpenAI", !settings.openAIKey.isEmpty)
-        case "anthropic": return ("Anthropic", !settings.anthropicKey.isEmpty)
-        case "custom": return ("API tuỳ chỉnh", settings.customReady)
-        default: return nil
-        }
-    }
-
-    /// Model gợi ý sẵn của từng nhà cung cấp khi chưa bấm "Tải model" ở tab AI.
-    private func suggestedModels(_ provider: String) -> [String] {
-        switch provider {
-        case "gemini": return GeminiBackend.models
-        case "openAI": return OpenAIBackend.models
-        case "anthropic": return AnthropicBackend.models
-        default: return []
-        }
-    }
-
-    /// Dòng dưới ô chọn AI: chọn model riêng cho việc này (mặc định = model ở tab AI), hoặc cảnh báo chưa cài đặt.
-    @ViewBuilder
-    private func modelRow(_ task: AITask, _ engine: String, fallback: String) -> some View {
-        if let info = cloudInfo(engine) {
-            let key = "\(task.rawValue).\(engine)"
-            let current = settings.taskModels[key] ?? ""
-            let base = settings.aiModelLists[engine] ?? suggestedModels(engine)
-            let models = current.isEmpty || base.contains(current) ? base : base + [current]
-            Picker("Model", selection: Binding(get: { settings.taskModels[key] ?? "" },
-                                               set: { settings.taskModels[key] = $0.isEmpty ? nil : $0 })) {
-                Text("Mặc định (\(settings.defaultModel(engine).isEmpty ? "chưa chọn" : settings.defaultModel(engine)))").tag("")
-                ForEach(models, id: \.self) { Text($0).tag($0) }
-            }
-            HStack {
-                if info.ready {
-                    Text("Thiếu model cần dùng? Bấm Tải model ở tab AI.").font(.caption).foregroundStyle(.secondary)
-                } else {
-                    Text("Chưa cài đặt \(info.name) \(fallback)").font(.caption).foregroundStyle(.orange)
-                }
-                Spacer()
-                Button("Cài đặt AI…") { openAI() }.controlSize(.small)
-            }
-        }
     }
 }
 
@@ -219,9 +109,15 @@ struct CaptureSettings: View {
                 Picker("Tần suất quét", selection: $settings.fps) {
                     Text("2 fps").tag(2); Text("4 fps").tag(4); Text("8 fps").tag(8)
                 }
-                Picker("Độ phân giải capture", selection: $settings.captureScale) {
+                Picker("Độ phân giải quét phụ đề", selection: $settings.captureScale) {
+                    Text("0.5×").tag(0.5); Text("0.75×").tag(0.75); Text("1×").tag(1.0)
+                    Text("1.5×").tag(1.5); Text("2× (Retina)").tag(2.0)
+                }
+                Picker("Độ phân giải Dịch màn hình", selection: $settings.screenCaptureScale) {
                     Text("1×").tag(1.0); Text("1.5×").tag(1.5); Text("2× (Retina)").tag(2.0)
                 }
+                Text("Phụ đề chữ to nên 0.5–0.75× vẫn đọc được và OCR nhanh hơn. Dịch màn hình đọc chữ menu, nhật ký nhỏ hơn nên để 1.5–2×. Vùng PS5: 1× = ảnh gốc của luồng. Đổi độ phân giải phụ đề có hiệu lực từ lần Bắt đầu sau.")
+                    .font(.caption).foregroundStyle(.secondary)
                 HStack {
                     Text("Chờ ổn định sau khi đổi")
                     Slider(value: $settings.stableDelayMs, in: 0...1000, step: 50)
@@ -232,6 +128,13 @@ struct CaptureSettings: View {
                     Slider(value: $settings.diffThreshold, in: 1...20, step: 1)
                     Text("\(Int(settings.diffThreshold))").monospacedDigit()
                 }
+            }
+            Section("PS5 Remote Play") {
+                Toggle("Tự kết nối lại khi mất kết nối PS5", isOn: $settings.ps5AutoReconnect)
+                Stepper("Số lần thử tối đa: \(settings.ps5ReconnectAttempts)", value: $settings.ps5ReconnectAttempts, in: 1...30)
+                    .disabled(!settings.ps5AutoReconnect)
+                Text("Tắt thì khi mất kết nối app dừng dịch và quay về màn hình bắt đầu để bạn kết nối lại.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Section("OCR") {
                 Toggle("OCR chính xác (khuyên dùng, ~60 ms; tắt = chế độ nhanh ~20 ms nhưng hay đọc sai)", isOn: $settings.ocrAccurate)
@@ -492,13 +395,18 @@ struct GlossaryEditor: View {
 
 struct ProfileSettings: View {
     @ObservedObject var settings: AppSettings
-    @State private var renameText = ""
+    @ObservedObject var nav = AppNav.shared
+
+    /// Đang ở màn hình chơi thì không đổi game ở đây (bấm Đổi game ở cửa sổ chính).
+    private var locked: Bool { nav.screen == .main }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Mỗi game có nguồn hình, vùng phụ đề, thuật ngữ và tên nhân vật riêng.").font(.caption).foregroundStyle(.secondary)
+            Text(locked ? "Đang chơi “\(settings.activeProfile.name)”. Muốn chọn game khác: bấm Đổi game ở cửa sổ chính."
+                        : "Mỗi game có nguồn hình, vùng phụ đề, thuật ngữ và tên nhân vật riêng. Chọn game để chơi ở màn hình Bắt đầu.")
+                .font(.caption).foregroundStyle(.secondary)
             List(selection: Binding(get: { settings.activeProfileID }, set: { id in
-                if let id, let p = settings.profiles.first(where: { $0.id == id }) { AppNav.shared.switchProfile(p) }
+                if !locked, let id, let p = settings.profiles.first(where: { $0.id == id }) { nav.switchProfile(p) }
             })) {
                 ForEach(settings.profiles) { p in
                     HStack {
@@ -511,26 +419,11 @@ struct ProfileSettings: View {
                 }
             }
             HStack {
-                Button("Game mới…") { WindowManager.shared.showMain(); AppNav.shared.showNewProfile = true }
-                Button("Đổi tên") {
-                    var p = settings.activeProfile
-                    p.name = RegionActions.askName(default: p.name)
-                    settings.activeProfile = p
-                }
-                Button("Nhân bản") {
-                    var p = settings.activeProfile
-                    p.id = UUID(); p.name += " (bản sao)"
-                    p.regions = p.regions.map { var r = $0; r.id = UUID(); return r }
-                    settings.profiles.append(p); settings.activeProfileID = p.id
-                }
-                Button("Xoá", role: .destructive) {
-                    guard settings.profiles.count > 1 else { return }
-                    let id = settings.activeProfile.id
-                    Pipeline.shared.stop()
-                    settings.profiles.removeAll { $0.id == id }
-                    settings.activeProfileID = settings.profiles.first?.id
-                }
-                .disabled(settings.profiles.count <= 1)
+                Button("Game mới…") { WindowManager.shared.showMain(); nav.showNewProfile = true }.appButton().disabled(locked)
+                Button("Đổi tên") { nav.renameProfile(settings.activeProfile) }.appButton()
+                Button("Nhân bản") { nav.duplicateProfile(settings.activeProfile) }.appButton().disabled(locked)
+                Button("Xoá", role: .destructive) { nav.deleteProfile(settings.activeProfile) }
+                    .appButton().disabled(locked || settings.profiles.count <= 1)
             }
         }
         .padding(.top, 8)

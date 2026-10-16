@@ -29,7 +29,7 @@ struct StartupErrorView: View {
                 } label: {
                     if retrying { ProgressView().controlSize(.small) } else { Text("Thử lại") }
                 }
-                .buttonStyle(.borderedProminent).disabled(retrying)
+                .appButton(.primary, size: .large).disabled(retrying)
             }
             .padding(.top, 4)
         }

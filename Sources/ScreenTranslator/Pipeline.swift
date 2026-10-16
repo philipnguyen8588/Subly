@@ -57,7 +57,7 @@ final class RegionWorker {
 
     init(region: Region, settings: AppSettings) {
         self.region = region
-        capture = region.embedded ? PS5FrameCapture(region: region, fps: settings.fps)
+        capture = region.embedded ? PS5FrameCapture(region: region, fps: settings.fps, scale: settings.captureScale)
                                   : RegionCapture(region: region, fps: settings.fps, scale: settings.captureScale)
         gate = FrameGate(threshold: settings.diffThreshold)
         helper = OCRClient(name: region.name)
@@ -398,12 +398,9 @@ final class Pipeline: ObservableObject {
             if !granted { showPermissionAlert(); return }
         }
         let regions = settings.subtitleRegions.filter(\.enabled)
-        guard !regions.isEmpty else { showAlert("Chưa có vùng phụ đề", "Mở tab Màn hình: chọn vùng game (hoặc kết nối PS5) rồi vẽ khung phụ đề."); return }
-        let noCloud = settings.geminiAPIKey.isEmpty && settings.openAIKey.isEmpty && settings.anthropicKey.isEmpty && !settings.customReady
-        if noCloud && apple.installed != true && !router.ai.isAvailable {
-            Log.warn("No translation backend available")
-            showNoBackendAlert()
-        }
+        guard !regions.isEmpty else { showAlert("Chưa có vùng phụ đề", "Mở tab Màn hình và kéo khung vàng tới chỗ phụ đề hiện trên hình game."); return }
+        // Chưa cài đủ engine dịch (key chưa test, thiếu model, gói Apple chưa cài…) → báo và không bắt đầu.
+        guard Readiness.ensure() else { return }
         resetQueue()
         applyVoiceSettings()
         router.seedContextFromHistory()
@@ -748,17 +745,6 @@ final class Pipeline: ObservableObject {
         if a.runModal() == .alertFirstButtonReturn {
             NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
         }
-    }
-
-    private func showNoBackendAlert() {
-        if settings.suppressAlerts { Log.warn("ALERT suppressed: chưa có engine dịch"); return }
-        let a = NSAlert()
-        a.messageText = "Chưa có engine dịch"
-        a.informativeText = "Nhập Gemini API key (miễn phí tại aistudio.google.com/apikey) hoặc tải gói ngôn ngữ Apple trong Cài đặt → tab Dịch."
-        a.addButton(withTitle: "Mở Cài đặt")
-        a.addButton(withTitle: "Để sau")
-        NSApp.activate(ignoringOtherApps: true)
-        if a.runModal() == .alertFirstButtonReturn { WindowManager.shared.showSettings() }
     }
 
     func showAlert(_ title: String, _ msg: String) {

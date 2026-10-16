@@ -6,7 +6,7 @@ struct TranslationPair: Equatable {
 }
 
 enum BackendKind: String, Codable {
-    case gemini, apple, appleAI, openAI, anthropic, custom
+    case gemini, apple, appleAI, openAI, anthropic, custom, shared
     /// Câu quá đơn giản: chỉ ghi vào nhật ký, không dịch, không đọc.
     case skipped
     var label: String {
@@ -16,6 +16,7 @@ enum BackendKind: String, Codable {
         case .openAI: return "OpenAI"
         case .anthropic: return "Claude"
         case .custom: return "API tuỳ chỉnh"
+        case .shared: return "AI share"
         case .apple: return "Apple"
         case .appleAI: return "Apple Intelligence"
         }
@@ -28,7 +29,7 @@ protocol TranslationBackend: AnyObject {
     func translate(_ text: String, context: [TranslationPair]) async throws -> String
 }
 
-/// Nhà cung cấp AI qua mạng dùng API kiểu chat (OpenAI, Anthropic, API tuỳ chỉnh): chung một giao diện để router
+/// Nhà cung cấp AI qua mạng dùng API kiểu chat (OpenAI, Anthropic, API tuỳ chỉnh, Gemini khi đi qua AI share): chung một giao diện để router
 /// không phải viết riêng cho từng hãng.
 protocol CloudChatBackend: AnyObject {
     /// Đã đủ key / địa chỉ / model để gọi.

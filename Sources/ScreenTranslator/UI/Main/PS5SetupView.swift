@@ -1,6 +1,7 @@
 import SwiftUI
 import AVFoundation
 import CoreMedia
+import Combine
 
 /// Điều phối giữa phiên PS5 nhúng và pipeline dịch: profile riêng, vùng mặc định, tự bắt đầu/dừng dịch.
 @MainActor
@@ -28,14 +29,41 @@ enum PS5Coordinator {
         PS5Stream.shared.connect(resolution: settings.ps5Resolution, fps: settings.ps5FPS)
     }
 
+    private static var stateSub: AnyCancellable?
+    private static var lastState: PS5Stream.State = .idle
+
+    /// Theo dõi trạng thái PS5 suốt đời app (không phụ thuộc view nào đang hiện).
+    static func install() {
+        guard stateSub == nil else { return }
+        stateSub = PS5Stream.shared.$state
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { s in MainActor.assumeIsolated { stateChanged(s) } }
+    }
+
+    /// Nối trạng thái phiên PS5 với màn hình: vào màn chính khi có hình, tự kết nối lại / về màn Bắt đầu khi rớt.
     static func stateChanged(_ s: PS5Stream.State) {
+        let prev = lastState
+        lastState = s
         let settings = AppSettings.shared
+        let nav = AppNav.shared
+        let reconnector = PS5Reconnector.shared
         guard settings.source == .ps5 else { return }
         switch s {
         case .streaming:
-            if settings.ps5AutoTranslate, !Pipeline.shared.isRunning { Task { await Pipeline.shared.start() } }
-        case .idle, .failed:
+            if nav.entering { nav.enteredPS5() }
+            else if reconnector.active { reconnector.streamingResumed() }
+        case .failed(let reason):
+            let wasTranslating = Pipeline.shared.isRunning
+            if wasTranslating { Pipeline.shared.stop() }
+            if nav.entering { nav.enterFailed(reason) }
+            else if nav.screen == .main { reconnector.connectionLost(reason, wasTranslating: wasTranslating) }
+        case .idle:
             if Pipeline.shared.isRunning { Pipeline.shared.stop() }
+            // Phiên kết thúc "bình thường" mà người dùng không bấm Ngắt / Đổi game (ví dụ tắt Remote Play trên PS5).
+            if nav.screen == .main, !reconnector.active, prev == .streaming {
+                reconnector.connectionLost("PS5 đã đóng phiên Remote Play", wasTranslating: true)
+            }
         default: break
         }
     }
@@ -81,6 +109,8 @@ enum PS5Coordinator {
 /// Chưa có máy: nhập từ chiaki-ng hoặc đăng ký mới bằng mã PIN.
 struct PS5SetupView: View {
     @ObservedObject var stream = PS5Stream.shared
+    /// Hiện dạng hộp thoại từ màn Bắt đầu: có nút Đóng, tự đóng khi đã có máy.
+    var onClose: (() -> Void)? = nil
     @State private var ip = ""
     @State private var account = ""
     @State private var pin = ""
@@ -101,6 +131,10 @@ struct PS5SetupView: View {
                         Text("App kết nối Remote Play để nhận hình và dịch phụ đề. Không gửi điều khiển, không phát tiếng: bạn vẫn chơi bằng tay cầm nối thẳng với PS5.")
                             .font(.callout).foregroundStyle(.secondary)
                     }
+                    if let onClose {
+                        Spacer()
+                        Button("Đóng", action: onClose).appButton().keyboardShortcut(.cancelAction)
+                    }
                 }
                 GroupBox("Cách 1 – Dùng lại máy đã đăng ký trong chiaki-ng") {
                     HStack {
@@ -110,7 +144,7 @@ struct PS5SetupView: View {
                         Button("Nhập từ chiaki-ng") {
                             message = stream.importFromChiaki() ? "" : "Không thấy máy nào đã đăng ký trong chiaki-ng."
                         }
-                        .buttonStyle(GradientButtonStyle(compact: true))
+                        .appButton(.primary)
                     }
                     .padding(6)
                 }
@@ -118,7 +152,7 @@ struct PS5SetupView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
                             TextField("Địa chỉ IP của PS5 (ví dụ 192.168.1.20)", text: $ip)
-                            Button(searching ? "Đang tìm…" : "Tìm trong mạng") { search() }.disabled(searching)
+                            Button(searching ? "Đang tìm…" : "Tìm trong mạng") { search() }.disabled(searching).appButton(minWidth: 130)
                         }
                         ForEach(found) { f in
                             Button { ip = f.addr } label: {
@@ -131,7 +165,7 @@ struct PS5SetupView: View {
                                 Text("Chưa có PSN Account ID? Lấy bằng cách đăng nhập PSN:").font(.callout.weight(.medium))
                                 HStack(alignment: .firstTextBaseline) {
                                     Text("1.")
-                                    Button("Mở trang đăng nhập PSN") { NSWorkspace.shared.open(PSNAccount.loginURL) }
+                                    Button("Mở trang đăng nhập PSN") { NSWorkspace.shared.open(PSNAccount.loginURL) }.appButton()
                                     Text("rồi đăng nhập tài khoản của bạn trên trang của Sony.").foregroundStyle(.secondary)
                                 }
                                 HStack(alignment: .firstTextBaseline) {
@@ -141,9 +175,9 @@ struct PS5SetupView: View {
                                 }
                                 HStack {
                                     TextField("https://remoteplay.dl.playstation.net/remoteplay/redirect?code=…", text: $pastedURL)
-                                    Button("Dán") { pastedURL = NSPasteboard.general.string(forType: .string) ?? pastedURL }
+                                    Button("Dán") { pastedURL = NSPasteboard.general.string(forType: .string) ?? pastedURL }.appButton()
                                     Button(fetchingID ? "Đang lấy…" : "Lấy Account ID") { fetchAccountID() }
-                                        .disabled(fetchingID || pastedURL.isEmpty)
+                                        .disabled(fetchingID || pastedURL.isEmpty).appButton(minWidth: 130)
                                 }
                                 if !psnMessage.isEmpty {
                                     Text(psnMessage).font(.caption).foregroundStyle(psnMessage.hasPrefix("Đã") ? Color.green : Theme.danger)
@@ -161,6 +195,7 @@ struct PS5SetupView: View {
                         HStack {
                             Button(stream.registering ? "Đang đăng ký…" : "Đăng ký") { register() }
                                 .disabled(stream.registering || ip.isEmpty || pin.isEmpty || account.isEmpty)
+                                .appButton(.primary, minWidth: 130)
                             if !stream.registMessage.isEmpty { Text(stream.registMessage).font(.caption).foregroundStyle(.secondary) }
                         }
                     }
@@ -173,6 +208,7 @@ struct PS5SetupView: View {
             .frame(maxWidth: 720, alignment: .leading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onChange(of: stream.host != nil) { _, has in if has { onClose?() } }
     }
 
     private func search() {

@@ -117,6 +117,7 @@ enum ProfileSource: String, Codable, CaseIterable, Identifiable {
     case external, ps5
     var id: String { rawValue }
     var label: String { self == .external ? "App trên máy này" : "PS5 Remote (Chiaki)" }
+    var shortLabel: String { self == .external ? "App trên máy" : "PS5 qua Chiaki" }
     var icon: String { self == .external ? "macwindow" : "playstation.logo" }
 }
 
@@ -165,10 +166,11 @@ enum QueueMode: String, Codable, CaseIterable, Identifiable {
 enum AITask: String { case subtitle, screen, summary }
 
 enum TranslationEngine: String, Codable, CaseIterable, Identifiable {
-    case auto, openAI, anthropic, custom, appleIntelligence, appleTranslation
+    case auto, openAI, anthropic, custom, shared, appleIntelligence, appleTranslation
     var id: String { rawValue }
     var label: String {
         switch self {
+        case .shared: return "AI share (key người khác chia sẻ, qua server) → dự phòng Apple Intelligence"
         case .openAI: return "OpenAI (cần mạng, trả phí, ~0,9 s/câu) → dự phòng Apple Intelligence"
         case .anthropic: return "Anthropic Claude (cần mạng, trả phí, ~1,3 s/câu) → dự phòng Apple Intelligence"
         case .custom: return "API tuỳ chỉnh → dự phòng Apple Intelligence"
@@ -177,12 +179,37 @@ enum TranslationEngine: String, Codable, CaseIterable, Identifiable {
         case .appleTranslation: return "Apple Translation (offline, nhanh nhất ~30 ms)"
         }
     }
+    /// Tên trong ô chọn AI của Cài đặt → Dịch.
+    var pickerLabel: String {
+        switch self {
+        case .auto: return "Gemini · miễn phí"
+        case .openAI: return "OpenAI · trả phí"
+        case .anthropic: return "Anthropic Claude · trả phí"
+        case .custom: return "API tuỳ chỉnh"
+        case .shared: return "AI share"
+        case .appleIntelligence: return "Apple Intelligence · offline"
+        case .appleTranslation: return "Apple Translation · offline, nhanh nhất"
+        }
+    }
+    /// Tên ngắn để hiện ở màn Bắt đầu và thanh trạng thái.
+    var shortLabel: String {
+        switch self {
+        case .auto: return "Gemini"
+        case .openAI: return "OpenAI"
+        case .anthropic: return "Anthropic Claude"
+        case .custom: return "API tuỳ chỉnh"
+        case .shared: return "AI share"
+        case .appleIntelligence: return "Apple Intelligence"
+        case .appleTranslation: return "Apple Translation"
+        }
+    }
+    var isOffline: Bool { self == .appleIntelligence || self == .appleTranslation }
 }
 
 /// Engine cho "Dịch màn hình" (chọn riêng với phụ đề: phụ đề cần nhanh, dịch màn hình cần hiểu kỹ).
 /// Engine viết "Tóm tắt" (thủ công) và "Cốt truyện" (tự động) trong tab Nhật ký.
 enum SummaryEngine: String, Codable, CaseIterable, Identifiable {
-    case sameAsSubtitle, gemini, openAI, anthropic, custom, appleIntelligence
+    case sameAsSubtitle, gemini, openAI, anthropic, custom, shared, appleIntelligence
     var id: String { rawValue }
     var label: String {
         switch self {
@@ -191,13 +218,25 @@ enum SummaryEngine: String, Codable, CaseIterable, Identifiable {
         case .openAI: return "OpenAI (cần mạng, trả phí)"
         case .anthropic: return "Anthropic Claude (cần mạng, trả phí)"
         case .custom: return "API tuỳ chỉnh"
+        case .shared: return "AI share"
         case .appleIntelligence: return "Apple Intelligence (offline, chỉ cho Tóm tắt thủ công)"
+        }
+    }
+    var shortLabel: String {
+        switch self {
+        case .sameAsSubtitle: return "Giống dịch phụ đề"
+        case .gemini: return "Gemini · miễn phí"
+        case .openAI: return "OpenAI · trả phí"
+        case .anthropic: return "Anthropic Claude · trả phí"
+        case .custom: return "API tuỳ chỉnh"
+        case .shared: return "AI share"
+        case .appleIntelligence: return "Apple Intelligence · offline"
         }
     }
 }
 
 enum ScreenEngine: String, Codable, CaseIterable, Identifiable {
-    case sameAsSubtitle, gemini, openAI, anthropic, custom, appleIntelligence, appleTranslation
+    case sameAsSubtitle, gemini, openAI, anthropic, custom, shared, appleIntelligence, appleTranslation
     var id: String { rawValue }
     var label: String {
         switch self {
@@ -206,8 +245,21 @@ enum ScreenEngine: String, Codable, CaseIterable, Identifiable {
         case .openAI: return "OpenAI (cần mạng, trả phí, ~3,5 s) → dự phòng trên máy"
         case .anthropic: return "Anthropic Claude (cần mạng, trả phí) → dự phòng trên máy"
         case .custom: return "API tuỳ chỉnh → dự phòng trên máy"
+        case .shared: return "AI share → dự phòng trên máy"
         case .appleIntelligence: return "Apple Intelligence (offline)"
         case .appleTranslation: return "Apple Translation (offline, nhanh, tóm tắt bằng Apple Intelligence)"
+        }
+    }
+    var shortLabel: String {
+        switch self {
+        case .sameAsSubtitle: return "Giống dịch phụ đề"
+        case .gemini: return "Gemini · miễn phí"
+        case .openAI: return "OpenAI · trả phí"
+        case .anthropic: return "Anthropic Claude · trả phí"
+        case .custom: return "API tuỳ chỉnh"
+        case .shared: return "AI share"
+        case .appleIntelligence: return "Apple Intelligence · offline"
+        case .appleTranslation: return "Apple Translation · offline"
         }
     }
 }

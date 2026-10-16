@@ -1,0 +1,117 @@
+#!game=Saros
+# Thuật ngữ Saros cho ScreenTranslator. Định dạng: thuật ngữ gốc,bản dịch (để trống = giữ nguyên)
+# Nhân vật
+Arjun Devraj,
+Arjun,
+Arj,
+Devraj,
+Nitya Chandran,
+Nitya,
+Sheridan Bouchard,
+Sheridan,
+Bouchard,
+Sebastian,
+Jerome Jackson,
+Jerome,
+Kayla Rhodes,
+Kayla,
+Kiira Varis,
+Kiira,
+Arnold Delroy,
+Delroy,
+Micah Wilde,
+Micah,
+Primary,
+Soltari Enforcer,Người Thực thi Soltari
+Enforcer,Người Thực thi
+# Overlord / Boss
+Overlord,Chúa Tể
+Overlords,các Chúa Tể
+Consort,
+Prophet,
+Bastion,
+Rhabdom,
+Legion,
+Architect,
+Shepherd,
+Priestess,
+The King,Nhà Vua
+Alpha,
+Alpha hostiles,kẻ địch Alpha
+Vessels,
+Osteomaw,
+# Địa danh / Biome
+Carcosa,
+Carcosan,
+The Passage,
+Shattered Rise,
+Ancient Depths,
+Shattered Descent,
+Blighted Marsh,
+Desecrated Fortress,
+Acolyte's Haven,
+Cathedral,
+Yellow Shore,
+Banyan Tree,
+Blue Precipice,
+Nitya's Lab,Phòng thí nghiệm của Nitya
+Earth,Trái Đất
+base camp,trại căn cứ
+# Phe phái / Tổ chức
+Soltari,
+Soltari Corporation,Tập đoàn Soltari
+Echelon,
+Echelon I,
+Echelon II,
+Echelon III,
+Echelon IV,
+# Thuật ngữ cốt truyện
+Saros,
+Lucenite,
+Halcyon,
+Eclipse,Nhật thực
+Preserver,
+Holo Log,Nhật ký hologram
+Holocache,
+Corruption,Tha hóa
+mining colony,thuộc địa khai mỏ
+lost colony,thuộc địa thất lạc
+expedition,chuyến thám hiểm
+cycle,chu kỳ
+time dilation,giãn nở thời gian
+Epilogue,Phần kết
+# Vũ khí
+Soltari Shield,Khiên Soltari
+Power Weapon,Vũ khí Năng lượng
+Main Weapon,Vũ khí Chính
+Handcannon,súng ngắn hạng nặng
+Handcannons,súng ngắn hạng nặng
+Rifle,súng trường
+Shotgun,súng shotgun
+Crossbow,nỏ
+Repeater Crossbow,nỏ liên thanh
+Chakram,
+Prominence,
+Dispiritor,
+Nova Lance,
+Illumine,
+# Vật phẩm / Cơ chế
+Armor Matrix,Ma trận Giáp
+Second Chance,Cơ hội Thứ hai
+OverDrive,
+Adrenaline,
+Integrity,Độ bền
+Integrity Augment,Cường hóa Độ bền
+Power Augment,Cường hóa Năng lượng
+Aether,
+Carcosan Modifier,Bộ điều chỉnh Carcosa
+Carcosan Modifiers,Bộ điều chỉnh Carcosa
+Nightmare Gate,Cổng Ác mộng
+Nightmare Gates,các Cổng Ác mộng
+Nightmare Strand,Chuỗi Ác mộng
+Solar Cage,Lồng Mặt Trời
+Traits,Đặc tính
+Variants,Biến thể
+Databank,Kho dữ liệu
+hostile,kẻ địch
+hostiles,kẻ địch

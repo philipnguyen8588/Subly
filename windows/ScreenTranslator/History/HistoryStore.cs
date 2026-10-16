@@ -147,7 +147,7 @@ public sealed class HistoryStore
     readonly SqliteConnection db;
     const int maxInMemory = 2000, maxAnalyses = 300;
     /// Số ảnh chụp "dịch màn hình" được giữ trên đĩa cho mỗi game.
-    public const int maxShots = 50;
+    public const int maxShots = 200;
     public static string ShotPath(long id) => Path.Combine(AppPaths.Shots, $"{id}.jpg");
     readonly object lk = new();
 
@@ -569,6 +569,28 @@ public sealed class HistoryStore
             cmd.CommandText = "SELECT id, ts, region, source, translated, backend, latency, kind, target, profile FROM history WHERE profile = $p AND id > $a AND kind = 'subtitle' ORDER BY id ASC LIMIT $n";
             cmd.Parameters.AddWithValue("$p", profile);
             cmd.Parameters.AddWithValue("$a", after);
+            cmd.Parameters.AddWithValue("$n", limit);
+            using var r = cmd.ExecuteReader();
+            while (r.Read()) outp.Add(Row(r));
+        }
+        return outp;
+    }
+
+    /// Câu phụ đề của game có chứa một trong các cụm từ (không phân biệt hoa thường với chữ ASCII), mới nhất trước.
+    /// Đọc thẳng từ DB nên tìm được cả những câu cũ không còn trong `entries`.
+    public List<TranslationEntry> SearchEntries(string profile, IEnumerable<string> terms, int limit)
+    {
+        var list = terms.Where(t => t.Length > 0).Take(12).ToList();
+        var outp = new List<TranslationEntry>();
+        if (list.Count == 0) return outp;
+        lock (lk)
+        {
+            using var cmd = db.CreateCommand();
+            var cond = string.Join(" OR ", list.Select((_, i) => $"source LIKE $t{i} ESCAPE '\\' OR translated LIKE $t{i} ESCAPE '\\'"));
+            cmd.CommandText = $"SELECT id, ts, region, source, translated, backend, latency, kind, target, profile FROM history WHERE profile = $p AND kind = 'subtitle' AND ({cond}) ORDER BY id DESC LIMIT $n";
+            cmd.Parameters.AddWithValue("$p", profile);
+            for (int i = 0; i < list.Count; i++)
+                cmd.Parameters.AddWithValue($"$t{i}", "%" + list[i].Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_") + "%");
             cmd.Parameters.AddWithValue("$n", limit);
             using var r = cmd.ExecuteReader();
             while (r.Read()) outp.Add(Row(r));

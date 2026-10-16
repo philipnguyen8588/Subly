@@ -37,6 +37,8 @@ public sealed class AppSettings : INotifyPropertyChanged
     public VoiceEngine? forceEngine;
     /// --translate-engine ghi đè engine khi test.
     public TranslationEngine? forceTranslationEngine;
+    /// Cờ runtime (không lưu): --skip-readiness bỏ qua kiểm tra cài đặt dịch khi test tự động.
+    public bool forceReady;
     /// --no-web / --web-port.
     public bool forceNoWeb;
     public int? forceWebPort;
@@ -120,16 +122,25 @@ public sealed class AppSettings : INotifyPropertyChanged
     public void NotifyAll() => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(null));
 
     // MARK: Profile & vùng
-    public List<Profile> profiles { get => Get("profiles", new List<Profile>()); set => Set("profiles", value); }
+    /// Danh sách game đã giải mã, giữ trong bộ nhớ: JSON của nó có thể vài trăm KB (thuật ngữ của mọi game) và bị đọc
+    /// rất nhiều lần mỗi khi giao diện vẽ lại; giải mã lại mỗi lần làm đổi game bị khựng vài giây.
+    /// Ra ngoài luôn là bản sao (code gọi có thể sửa trực tiếp đối tượng rồi mới gán lại).
+    List<Profile>? profilesCache;
+    List<Profile> ProfilesCache { get { lock (lk) return profilesCache ??= Get("profiles", new List<Profile>()); } }
+    public List<Profile> profiles
+    {
+        get => ProfilesCache.Select(p => p.Clone()).ToList();
+        set { lock (lk) profilesCache = value.Select(p => p.Clone()).ToList(); Set("profiles", value); }
+    }
     public Guid? activeProfileID { get => Get<Guid?>("activeProfileID", null); set => Set("activeProfileID", value); }
 
     public Profile activeProfile
     {
         get
         {
-            var ps = profiles;
+            var ps = ProfilesCache;
             var id = activeProfileID;
-            return ps.FirstOrDefault(p => p.id == id) ?? ps.FirstOrDefault() ?? new Profile { name = "Mặc định" };
+            return (ps.FirstOrDefault(p => p.id == id) ?? ps.FirstOrDefault())?.Clone() ?? new Profile { name = "Mặc định" };
         }
         set
         {
@@ -261,8 +272,11 @@ public sealed class AppSettings : INotifyPropertyChanged
 
     // MARK: Capture
     public int fps { get => Get("fps", 4); set => Set("fps", value); }
-    /// Phóng to ảnh trước khi OCR (Windows chụp theo pixel thật; 1 = giữ nguyên, 1.5–2 giúp đọc chữ nhỏ).
+    /// Đổi cỡ ảnh phụ đề trước khi OCR (Windows chụp theo pixel thật; 1 = giữ nguyên, 0.5–0.75 nhanh hơn với phụ đề chữ to,
+    /// 1.5–2 giúp đọc chữ nhỏ). Vùng PS5: so với ảnh gốc của luồng.
     public double captureScale { get => Get("winCaptureScale", 1.0); set => Set("winCaptureScale", value); }
+    /// Phóng to riêng cho Dịch màn hình (chữ menu, nhật ký nhỏ hơn phụ đề nên cần nét hơn).
+    public double screenCaptureScale { get => Get("winScreenCaptureScale", 2.0); set => Set("winScreenCaptureScale", value); }
     public double stableDelayMs { get => Get("stableDelayMs", 250.0); set => Set("stableDelayMs", value); }
     public double diffThreshold { get => Get("diffThreshold", 4.0); set => Set("diffThreshold", value); }
 
@@ -304,6 +318,7 @@ public sealed class AppSettings : INotifyPropertyChanged
         TranslationEngine.openAI => ScreenEngine.openAI,
         TranslationEngine.anthropic => ScreenEngine.anthropic,
         TranslationEngine.custom => ScreenEngine.custom,
+        TranslationEngine.shared => ScreenEngine.shared,
         _ => ScreenEngine.google,
     };
     public bool analyzeSpeakSummary { get => Get("analyzeSpeakSummary", false); set => Set("analyzeSpeakSummary", value); }
@@ -318,6 +333,7 @@ public sealed class AppSettings : INotifyPropertyChanged
             TranslationEngine.openAI => SummaryEngine.openAI,
             TranslationEngine.anthropic => SummaryEngine.anthropic,
             TranslationEngine.custom => SummaryEngine.custom,
+            TranslationEngine.shared => SummaryEngine.shared,
             _ => SummaryEngine.gemini,
         };
     /// Tự viết cốt truyện game từ phụ đề (nút trên thanh đầu cửa sổ chính; xem ở Nhật ký → Cốt truyện).
@@ -339,6 +355,11 @@ public sealed class AppSettings : INotifyPropertyChanged
     public int ps5Resolution { get => Get("ps5Resolution", 4); set => Set("ps5Resolution", value); }
     public int ps5FPS { get => Get("ps5FPS", 30); set => Set("ps5FPS", value); }
     public bool ps5AutoTranslate { get => Get("ps5AutoTranslate", true); set => Set("ps5AutoTranslate", value); }
+    /// Mất kết nối PS5 khi đang chơi: tự kết nối lại (ở lại màn hình chính) thay vì quay về màn hình Bắt đầu.
+    public bool ps5AutoReconnect { get => Get("ps5AutoReconnect", true); set => Set("ps5AutoReconnect", value); }
+    public int ps5ReconnectAttempts { get => Get("ps5ReconnectAttempts", 10); set => Set("ps5ReconnectAttempts", value); }
+    /// Chữ ký (băm) của các cặp nhà cung cấp + model + key đã "Test key" thành công; không lưu key thô (xem Readiness).
+    public List<string> aiVerified { get => Get("aiVerified", new List<string>()); set => Set("aiVerified", value); }
     public double catchUpPercent { get => Get("catchUpPercent", 10.0); set => Set("catchUpPercent", value); }
     public string localVoiceID { get => Get("localVoiceID", "minhquang"); set => Set("localVoiceID", value); }
     public double localSpeed { get => Get("localSpeed", 1.15); set => Set("localSpeed", value); }
@@ -401,15 +422,29 @@ public sealed class AppSettings : INotifyPropertyChanged
     /// Máy chủ chạy trên máy (Ollama…) không cần key, nên chỉ cần địa chỉ và model.
     public bool customReady => customBaseURL.Trim().Length > 0 && customModel.Length > 0;
 
+    /// AI share: token do chủ server cấp (dán ở Cài đặt → AI). Key thật nằm trên server; app chỉ gửi token qua proxy
+    /// và chỉ dùng được các model trong `aiShare.models` (server cũng chặn model khác).
+    public AIShareInfo? aiShare { get => Get<AIShareInfo?>("aiShare", null); set => Set("aiShare", value); }
+    public string aiShareToken
+    {
+        get => SecretStore.Get("ai-share-token") ?? "";
+        set { SecretStore.Set(value, "ai-share-token"); OnPropertyChanged(nameof(aiShareToken)); Changed?.Invoke(nameof(aiShareToken)); }
+    }
+    /// Cờ runtime (không lưu): --share-server <url> trỏ AI share tới server khác (test với server chạy trên máy).
+    public string? forceShareServer;
+
     /// Model riêng cho từng việc, chọn ở Cài đặt → Dịch. Khoá "<việc>.<nhà cung cấp>" (ví dụ "summary.anthropic");
     /// không có hoặc trống = dùng model mặc định của nhà cung cấp đó ở Cài đặt → AI.
     public Dictionary<string, string> taskModels { get => Get("taskModels", new Dictionary<string, string>()); set => Set("taskModels", value); }
     public string? TaskModel(AITask task, string provider) =>
-        taskModels.TryGetValue($"{task}.{provider}", out var m) && m.Length > 0 ? m : null;
+        taskModels.TryGetValue($"{task}.{provider}", out var m) && m.Length > 0
+        // AI share chỉ dùng được model đã share (admin có thể bớt model sau khi đã chọn).
+        && (provider != "shared" || aiShare?.models.Contains(m) == true) ? m : null;
     /// Model mặc định của một nhà cung cấp (gemini / openAI / anthropic / custom).
     public string DefaultModel(string provider) => provider switch
     {
-        "gemini" => geminiModel, "openAI" => openAIModel, "anthropic" => anthropicModel, "custom" => customModel, _ => "",
+        "gemini" => geminiModel, "openAI" => openAIModel, "anthropic" => anthropicModel, "custom" => customModel,
+        "shared" => aiShare?.models.FirstOrDefault() ?? "", _ => "",
     };
 
     /// Danh sách model đã tải về bằng nút "Tải model" của từng nhà cung cấp (giữ lại giữa các lần mở app).
@@ -438,4 +473,18 @@ public sealed class AppSettings : INotifyPropertyChanged
     public TargetLanguage target => TargetLanguage.Find(targetLanguage);
     public bool voiceOn => voiceEnabled;
     public bool overlayOn => overlayEnabled && !forceNoOverlay;
+}
+
+/// Thông tin một AI share (server trả về theo token).
+public sealed class AIShareInfo
+{
+    public string label { get; set; } = "";
+    /// Nhà cung cấp phía server: openai | anthropic | gemini | custom.
+    public string provider { get; set; } = "";
+    public List<string> models { get; set; } = new();
+    /// Server báo token đã bị thu hồi / không hợp lệ ở lần kiểm tra gần nhất.
+    public bool revoked { get; set; }
+
+    public bool SameAs(AIShareInfo? o) =>
+        o != null && o.label == label && o.provider == provider && o.revoked == revoked && o.models.SequenceEqual(models);
 }

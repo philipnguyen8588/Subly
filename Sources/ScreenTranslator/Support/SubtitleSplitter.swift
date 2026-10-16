@@ -58,13 +58,33 @@ enum SubtitleSplitter {
             if let split { parts = split } else if wholeScore >= threshold { return [] }
         }
         return parts.compactMap { part -> String? in
-            guard TextUtils.letterCount(part) >= 2, !known(part) else { return nil }
+            guard TextUtils.letterCount(part) >= 2, !known(part), !isFragmentOfKnown(part, recent: recent) else { return nil }
             // Câu mới MỞ ĐẦU bằng một câu đã đọc (game nối thêm chữ, hoặc OCR đọc lặp phần đuôi) → chỉ giữ phần thêm.
             if let rest = remainderAfterKnownPrefix(part, recent: recent) {
                 return rest.isEmpty || known(rest) ? nil : rest
             }
             return part
         }
+    }
+
+    /// Mẩu câu (từ 3 từ) nằm trọn trong một câu đã đọc, ví dụ "Jill: . She sent Goetz…" sau "Jill: Eloise… She sent Goetz…":
+    /// OCR bắt được nửa câu lúc phụ đề đang hiện dần hoặc mờ đi. Không phải câu mới nên không dịch lại.
+    /// Hai đầu mẩu có thể bị cắt giữa chữ ("serve any mercy" trong "They don't deserve any mercy") nên không đòi khớp trọn từ ở hai đầu.
+    static func isFragmentOfKnown(_ part: String, recent: [String]) -> Bool {
+        let w = bareWords(part)
+        guard w.count >= 3 else { return false }
+        let needle = w.joined(separator: " ")
+        return recent.contains { r in
+            let hay = bareWords(r).joined(separator: " ")
+            return hay.count > needle.count && hay.contains(needle)
+        }
+    }
+
+    /// Các từ viết thường (chỉ chữ, số, dấu '), bỏ tên người nói ở đầu.
+    private static func bareWords(_ s: String) -> [String] {
+        var t = s
+        if let r = t.range(of: #"^[^:：]{1,40}[:：]\s*"#, options: .regularExpression) { t.removeSubrange(r) }
+        return t.lowercased().split { !$0.isLetter && !$0.isNumber && $0 != "'" && $0 != "’" }.map(String.init)
     }
 
     // MARK: từ cảm thán

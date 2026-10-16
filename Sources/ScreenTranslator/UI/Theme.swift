@@ -24,6 +24,8 @@ enum Theme {
     static var windowBackground: Color { Color(nsColor: .windowBackgroundColor) }
     static var cardFill: Color { Color.primary.opacity(0.045) }
     static var cardStroke: Color { Color.primary.opacity(0.08) }
+    static var controlFill: Color { Color.primary.opacity(0.06) }
+    static var controlStroke: Color { Color.primary.opacity(0.12) }
 }
 
 struct CardStyle: ViewModifier {
@@ -82,37 +84,122 @@ struct StatusPill: View {
     }
 }
 
-struct GradientButtonStyle: ButtonStyle {
-    var tint: LinearGradient = Theme.accentGradient
-    var compact = false
+/// Hệ nút dùng chung cho cả app: mọi nút có chữ cùng chiều cao, cùng bo góc, cùng cỡ chữ.
+/// `.regular` (36 pt) cho thanh công cụ và hộp thoại, `.large` (44 pt) cho nút hành động chính của một màn hình.
+enum AppButtonKind { case primary, tinted, secondary, danger, ghost }
+enum AppButtonSize {
+    case regular, large
+    var height: CGFloat { self == .large ? 44 : 36 }
+    var font: Font { self == .large ? .system(size: 15, weight: .semibold) : .system(size: 13, weight: .semibold) }
+    var padding: CGFloat { self == .large ? 20 : 14 }
+}
+
+struct AppButtonStyle: ButtonStyle {
+    var kind: AppButtonKind = .primary
+    var size: AppButtonSize = .regular
+    /// Nút chỉ có biểu tượng: vuông, cạnh bằng chiều cao.
+    var iconOnly = false
+    /// Giãn hết chiều ngang được cấp.
+    var fill = false
+    var minWidth: CGFloat? = nil
+
     func makeBody(configuration: Configuration) -> some View {
+        AppButtonBody(configuration: configuration, style: self)
+    }
+
+    static let radius: CGFloat = 10
+}
+
+private struct AppButtonBody: View {
+    let configuration: ButtonStyleConfiguration
+    let style: AppButtonStyle
+    @Environment(\.isEnabled) private var isEnabled
+    @State private var hovering = false
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: AppButtonStyle.radius, style: .continuous)
         configuration.label
-            .font(compact ? .callout.weight(.semibold) : .body.weight(.semibold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, compact ? 12 : 16).padding(.vertical, compact ? 6 : 8)
-            .background(tint, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-            .shadow(color: Theme.accentStart.opacity(0.25), radius: 6, y: 2)
-            .opacity(configuration.isPressed ? 0.8 : 1)
+            .font(style.size.font)
+            .labelStyle(AppButtonLabelStyle())
+            .lineLimit(1)
+            .foregroundStyle(foreground)
+            .padding(.horizontal, style.iconOnly ? 0 : style.size.padding)
+            .frame(width: style.iconOnly ? style.size.height : nil, height: style.size.height)
+            .frame(minWidth: style.iconOnly ? nil : style.minWidth, maxWidth: style.fill ? .infinity : nil)
+            .background(background, in: shape)
+            .overlay(shape.strokeBorder(border, lineWidth: 1))
+            .overlay(shape.fill(Color.primary.opacity(hovering && isEnabled && style.kind != .primary && style.kind != .danger ? 0.05 : 0)))
+            .brightness(hovering && isEnabled && (style.kind == .primary || style.kind == .danger) ? 0.04 : 0)
+            .contentShape(shape)
+            .opacity(isEnabled ? (configuration.isPressed ? 0.8 : 1) : 0.45)
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
+            .onHover { hovering = $0 }
+    }
+
+    private var foreground: Color {
+        switch style.kind {
+        case .primary, .danger: return .white
+        case .tinted: return Theme.accentStart
+        case .secondary: return .primary
+        case .ghost: return .secondary
+        }
+    }
+    private var background: AnyShapeStyle {
+        switch style.kind {
+        case .primary: return AnyShapeStyle(Theme.accentGradient)
+        case .danger: return AnyShapeStyle(Theme.danger)
+        case .tinted: return AnyShapeStyle(Theme.accentStart.opacity(0.12))
+        case .secondary: return AnyShapeStyle(Theme.controlFill)
+        case .ghost: return AnyShapeStyle(Color.clear)
+        }
+    }
+    private var border: Color {
+        switch style.kind {
+        case .primary, .danger, .ghost: return .clear
+        case .tinted: return Theme.accentStart.opacity(0.45)
+        case .secondary: return Theme.controlStroke
+        }
     }
 }
 
+/// Biểu tượng + chữ trong nút: khoảng cách đều, biểu tượng nhỏ hơn chữ một chút.
+struct AppButtonLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 7) {
+            configuration.icon.imageScale(.medium)
+            configuration.title
+        }
+    }
+}
+
+extension View {
+    /// Áp kiểu nút chung của app.
+    func appButton(_ kind: AppButtonKind = .secondary, size: AppButtonSize = .regular, fill: Bool = false, minWidth: CGFloat? = nil) -> some View {
+        buttonStyle(AppButtonStyle(kind: kind, size: size, fill: fill, minWidth: minWidth))
+    }
+    /// Nút chỉ có biểu tượng (vuông 36 pt).
+    func appIconButton(_ kind: AppButtonKind = .secondary, size: AppButtonSize = .regular) -> some View {
+        buttonStyle(AppButtonStyle(kind: kind, size: size, iconOnly: true))
+    }
+}
+
+/// Toggle dạng nút có chữ (ví dụ "Vẽ khung phụ đề"): bật = viền màu nhấn, tắt = nút thường. Cùng kích thước với AppButtonStyle.
+struct AppToggleButtonStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Button { configuration.isOn.toggle() } label: { configuration.label }
+            .buttonStyle(AppButtonStyle(kind: configuration.isOn ? .tinted : .secondary))
+    }
+}
+
+/// Toggle chỉ có biểu tượng trên thanh đầu cửa sổ (voice, overlay, cốt truyện): 36×36 như mọi nút biểu tượng khác.
 struct IconToggleStyle: ToggleStyle {
     let icon: String
     let help: String
     func makeBody(configuration: Configuration) -> some View {
         Button { configuration.isOn.toggle() } label: {
-            Image(systemName: icon)
-                .font(.system(size: 14, weight: .medium))
-                .frame(width: 30, height: 26)
-                .foregroundStyle(configuration.isOn ? Color.white : Color.secondary)
-                .background(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(configuration.isOn ? AnyShapeStyle(Theme.accentGradient) : AnyShapeStyle(Theme.cardFill))
-                )
-                .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(Theme.cardStroke, lineWidth: 1))
+            Image(systemName: icon).font(.system(size: 15, weight: .medium))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(AppButtonStyle(kind: configuration.isOn ? .primary : .secondary, iconOnly: true))
         .help(help)
     }
 }

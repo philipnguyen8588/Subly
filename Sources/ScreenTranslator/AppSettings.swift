@@ -4,10 +4,19 @@ import CoreGraphics
 import AVFoundation
 
 /// Property wrapper lưu vào UserDefaults và bắn objectWillChange của ObservableObject chứa nó.
+/// Giá trị đã giải mã được giữ trong bộ nhớ: danh sách game (kèm thuật ngữ) có thể vài trăm KB JSON và bị đọc
+/// hàng chục lần mỗi lần giao diện vẽ lại, giải mã lại mỗi lần làm đổi game bị khựng vài giây.
 @propertyWrapper
 struct Stored<Value: Codable> {
     let key: String
     let defaultValue: Value
+    private let cache = Cache()
+
+    /// Hộp tham chiếu để cập nhật bộ nhớ đệm ngay trong getter; khoá vì cài đặt có thể được đọc từ luồng nền.
+    private final class Cache: @unchecked Sendable {
+        let lock = NSLock()
+        var value: Value?
+    }
 
     init(wrappedValue: Value, _ key: String) { self.key = key; self.defaultValue = wrappedValue }
 
@@ -30,11 +39,16 @@ struct Stored<Value: Codable> {
     }
 
     private func read() -> Value {
-        guard let data = UserDefaults.standard.data(forKey: key),
-              let v = try? JSONDecoder().decode(Value.self, from: data) else { return defaultValue }
+        cache.lock.lock(); defer { cache.lock.unlock() }
+        if ProcessInfo.processInfo.environment["NOCACHE_TMP"] == nil, let v = cache.value { return v }
+        let v: Value
+        if let data = UserDefaults.standard.data(forKey: key), let d = try? JSONDecoder().decode(Value.self, from: data) { v = d }
+        else { v = defaultValue }
+        cache.value = v
         return v
     }
     private func write(_ v: Value) {
+        cache.lock.lock(); cache.value = v; cache.lock.unlock()
         if let data = try? JSONEncoder().encode(v) { UserDefaults.standard.set(data, forKey: key) }
     }
 }
@@ -98,7 +112,7 @@ final class AppSettings: ObservableObject {
             case .gemini: summaryEngine = .gemini
             case .openAI: summaryEngine = .openAI
             case .appleIntelligence: summaryEngine = .appleIntelligence
-            case .sameAsSubtitle, .appleTranslation, .anthropic, .custom: break
+            case .sameAsSubtitle, .appleTranslation, .anthropic, .custom, .shared: break
             }
             UserDefaults.standard.set(true, forKey: "summaryEngineMigrated")
         }
@@ -211,21 +225,12 @@ final class AppSettings: ObservableObject {
         }
     }
 
-    /// Thêm các game mẫu (thuật ngữ đóng kèm app) chưa có trong danh sách, không đụng profile hiện có. Trả về tên đã thêm.
-    @discardableResult
-    func addMissingSampleGames() -> [String] {
-        var added: [String] = []
-        for g in GameGlossaries.bundled() where !profiles.contains(where: { $0.name.lowercased() == g.name.lowercased() }) {
-            profiles.append(Profile(name: g.name, glossary: g.entries))
-            added.append(g.name)
-        }
-        if !added.isEmpty { Log.info("Thêm \(added.count) game mẫu: \(added.joined(separator: ", "))") }
-        return added
-    }
-
     // MARK: Capture
     @Stored("fps") var fps: Int = 4
+    /// Độ phân giải khi quét phụ đề (pixel/point; vùng PS5: so với ảnh gốc của luồng). Phụ đề chữ to nên 0.5–0.75× vẫn đọc được.
     @Stored("captureScale") var captureScale: Double = 2.0
+    /// Độ phân giải riêng cho Dịch màn hình (chữ menu, nhật ký nhỏ hơn phụ đề nên cần nét hơn).
+    @Stored("screenCaptureScale") var screenCaptureScale: Double = 2.0
     @Stored("stableDelayMs") var stableDelayMs: Double = 250
     @Stored("diffThreshold") var diffThreshold: Double = 4.0
 
@@ -269,6 +274,7 @@ final class AppSettings: ObservableObject {
         case .openAI: return .openAI
         case .anthropic: return .anthropic
         case .custom: return .custom
+        case .shared: return .shared
         case .appleIntelligence: return .appleIntelligence
         case .appleTranslation: return .appleTranslation
         }
@@ -286,10 +292,11 @@ final class AppSettings: ObservableObject {
         case .openAI: return .openAI
         case .anthropic: return .anthropic
         case .custom: return .custom
+        case .shared: return .shared
         case .appleIntelligence: return .appleIntelligence
         }
     }
-    /// Tự viết cốt truyện game từ phụ đề (nút trên thanh đầu cửa sổ chính; xem ở Nhật ký → Cốt truyện).
+    /// Tự viết cốt truyện game từ phụ đề (nút trên thanh đầu cửa sổ chính; xem ở tab Cốt truyện).
     @Stored("storyEnabled") var storyEnabled: Bool = false
     @Stored("storyIntervalMin") var storyIntervalMin: Int = 10
     /// Cờ runtime (không lưu): --story-interval <giây> bật cốt truyện với chu kỳ ngắn để test.
@@ -307,6 +314,9 @@ final class AppSettings: ObservableObject {
     @Stored("ps5Resolution") var ps5Resolution: Int = 4      // 3 = 720p, 4 = 1080p
     @Stored("ps5FPS") var ps5FPS: Int = 30
     @Stored("ps5AutoTranslate") var ps5AutoTranslate: Bool = true
+    /// Mất kết nối PS5 khi đang chơi: tự kết nối lại (ở lại màn hình chính) thay vì quay về màn hình Bắt đầu.
+    @Stored("ps5AutoReconnect") var ps5AutoReconnect: Bool = true
+    @Stored("ps5ReconnectAttempts") var ps5ReconnectAttempts: Int = 10
     @Stored("catchUpPercent") var catchUpPercent: Double = 10
     @Stored("localVoiceID") var localVoiceID: String = "minhquang"
     @Stored("localSpeed") var localSpeed: Double = 1.15
@@ -366,11 +376,31 @@ final class AppSettings: ObservableObject {
     /// Máy chủ chạy trên máy (Ollama…) không cần key, nên chỉ cần địa chỉ và model.
     var customReady: Bool { !customBaseURL.trimmingCharacters(in: .whitespaces).isEmpty && !customModel.isEmpty }
 
+    /// AI share: token do chủ server cấp (dán ở Cài đặt → AI). Key thật nằm trên server; app chỉ gửi token qua proxy
+    /// và chỉ dùng được các model trong `aiShare.models` (server cũng chặn model khác).
+    struct AIShareInfo: Codable, Equatable {
+        var label: String
+        /// Nhà cung cấp phía server: openai | anthropic | gemini | custom.
+        var provider: String
+        var models: [String]
+        /// Server báo token đã bị thu hồi / không hợp lệ ở lần kiểm tra gần nhất.
+        var revoked: Bool = false
+    }
+    @Stored("aiShare") var aiShare: AIShareInfo? = nil
+    var aiShareToken: String {
+        get { SecretStore.get("ai-share-token") ?? "" }
+        set { objectWillChange.send(); SecretStore.set(newValue, name: "ai-share-token") }
+    }
+    /// Cờ runtime (không lưu): --share-server <url> trỏ AI share tới server khác (test với server chạy trên máy).
+    var forceShareServer: String? = nil
+
     /// Model riêng cho từng việc, chọn ở Cài đặt → Dịch. Khoá "<việc>.<nhà cung cấp>" (ví dụ "summary.anthropic");
     /// không có hoặc trống = dùng model mặc định của nhà cung cấp đó ở Cài đặt → AI.
     @Stored("taskModels") var taskModels: [String: String] = [:]
     func taskModel(_ task: AITask, _ provider: String) -> String? {
         guard let m = taskModels["\(task.rawValue).\(provider)"], !m.isEmpty else { return nil }
+        // AI share chỉ dùng được model đã share (admin có thể bớt model sau khi đã chọn).
+        if provider == "shared", aiShare?.models.contains(m) != true { return nil }
         return m
     }
     /// Model mặc định của một nhà cung cấp (gemini / openAI / anthropic / custom).
@@ -380,9 +410,16 @@ final class AppSettings: ObservableObject {
         case "openAI": return openAIModel
         case "anthropic": return anthropicModel
         case "custom": return customModel
+        case "shared": return aiShare?.models.first ?? ""
         default: return ""
         }
     }
+
+    /// Chữ ký (băm) của các cặp nhà cung cấp + model + key đã "Test key" thành công; không lưu key thô.
+    /// Engine dịch qua mạng chỉ được Bắt đầu khi cặp đang dùng có trong danh sách này (xem Readiness).
+    @Stored("aiVerified") var aiVerified: [String] = []
+    /// Cờ runtime (không lưu): --skip-readiness bỏ qua kiểm tra cài đặt dịch khi test tự động.
+    var forceReady = false
 
     /// Danh sách model đã tải về bằng nút "Tải model" của từng nhà cung cấp (giữ lại giữa các lần mở app).
     @Stored("aiModelLists") var aiModelLists: [String: [String]] = [:]

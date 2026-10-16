@@ -7,7 +7,7 @@ using System.Windows.Media;
 
 namespace ScreenTranslator;
 
-/// Mục "Cốt truyện" của tab Nhật ký: cốt truyện của game đang chọn do app tự viết từ phụ đề: bài viết liền mạch,
+/// Tab "Cốt truyện": cốt truyện của game đang chọn do app tự viết từ phụ đề: bài viết liền mạch,
 /// dòng thời gian từng đoạn diễn biến, danh sách nhân vật và bách khoa (địa danh, thế lực, khái niệm lấy từ màn hình
 /// nhật ký đã dịch). Thanh ngang ở trên cùng nhảy nhanh tới từng mục. Tab Nhật ký giữ một thể hiện duy nhất (không dựng lại
 /// mỗi khi có câu phụ đề mới), view tự vẽ lại khi cốt truyện hoặc trạng thái cập nhật đổi.
@@ -26,6 +26,17 @@ public sealed class StoryView : Border
     /// Thanh nhảy nhanh ghim ở đầu trang, và chỗ bắt đầu của từng mục để cuộn tới.
     readonly Border jumpBar = new() { Padding = new Thickness(14, 8, 14, 8), BorderBrush = Ui.Res("CardStroke"), BorderThickness = new Thickness(0, 0, 0, 1) };
     readonly Dictionary<string, FrameworkElement> anchors = new();
+    /// Vùng nội dung dưới thanh mục: khung cuộn các mục cốt truyện, hoặc danh sách bản tóm tắt (mục "Tóm tắt").
+    readonly ContentControl body = new();
+    /// Dựng danh sách bản tóm tắt thủ công (LogTab cung cấp).
+    public Func<UIElement>? summariesContent;
+    public bool ShowingSummaries => shown == "summaries";
+    /// Mục "Hỏi đáp": hỏi về cốt truyện (giữ một thể hiện để ô nhập và hội thoại không mất khi vẽ lại).
+    public bool ShowingAsk => shown == "ask";
+    readonly StoryChatPanel chatPanel = new();
+    /// Đổi mục ở thanh trên cùng (LogTab ẩn ô tìm / nút xoá khi đang ở mục Hỏi đáp).
+    public event Action? SectionChanged;
+    public void ShowSummaries() { shown = "summaries"; Refresh(); }
     /// Mục đang xem, chọn ở thanh trên cùng: chỉ dựng mục đó (dựng cả bốn mục một lúc làm trang dài và cuộn giật).
     string shown
     {
@@ -47,9 +58,11 @@ public sealed class StoryView : Border
         var dock = new DockPanel();
         DockPanel.SetDock(jumpBar, Dock.Top);
         dock.Children.Add(jumpBar);
-        dock.Children.Add(scroll);
+        dock.Children.Add(body);
+        body.Content = scroll;
         Child = dock;
         store.StoryChanged += () => Dispatcher.BeginInvoke(Refresh);
+        store.Changed += () => Dispatcher.BeginInvoke(() => { if (ShowingSummaries) Refresh(); });
         tracker.PropertyChanged += (_, _) => Dispatcher.BeginInvoke(Refresh);
         settings.Changed += k => { if (k is "storyEnabled" or "storyIntervalMin") Dispatcher.BeginInvoke(Refresh); };
         IsVisibleChanged += (_, _) => { if (IsVisible) { tracker.RefreshPending(); Refresh(); } };
@@ -73,7 +86,7 @@ public sealed class StoryView : Border
 
     static string Stamp(DateTime t) => $"{t:HH:mm} {t:dd/MM}";
 
-    void Refresh()
+    public void Refresh()
     {
         if (!IsVisible) return;
         var story = store.story;
@@ -98,7 +111,7 @@ public sealed class StoryView : Border
         {
             var view = shown;
             if (view == "narrative" && showNarrative)
-                v.Children.Add(Section("narrative", "Cốt truyện đến hiện tại", "\uE736", Ui.IconBtn("\uE8C8", () => Ui.CopyText(narrative), "Copy"), () => new Border
+                v.Children.Add(Section("narrative", "Cốt truyện đến hiện tại", "\uE736", Ui.InlineIconBtn("\uE8C8", () => Ui.CopyText(narrative), "Copy"), () => new Border
                 {
                     Padding = new Thickness(12), CornerRadius = new CornerRadius(10), Background = new SolidColorBrush(Color.FromArgb(16, 97, 111, 250)),
                     Child = ReadOnly(narrative, 14.5),
@@ -163,7 +176,8 @@ public sealed class StoryView : Border
         }
         v.Margin = new Thickness(14);
         scroll.Content = v;
-        BuildJumpBar(hasContent, showNarrative, parts.Count, chars.Count, loreMatches.Count);
+        body.Content = ShowingAsk ? chatPanel : ShowingSummaries && summariesContent != null ? summariesContent() : scroll;
+        BuildJumpBar(hasContent || store.summaries.Count > 0 || ShowingAsk, showNarrative, parts.Count, chars.Count, loreMatches.Count);
     }
 
     /// Bách khoa còn trống: giải thích cách có mục, và cho đọc lại các màn hình đã dịch trước đây (chưa được đưa vào).
@@ -210,6 +224,7 @@ public sealed class StoryView : Border
                 collapsed.Remove(key);
                 Refresh();
                 scroll.ScrollToTop();
+                SectionChanged?.Invoke();
             };
             bar.Children.Add(chip);
         }
@@ -217,6 +232,8 @@ public sealed class StoryView : Border
         Add("parts", "Diễn biến", "\uE8FD", parts, true);
         Add("characters", "Nhân vật", "\uE716", chars, true);
         Add("lore", "Bách khoa", "\uE82D", lore, true);
+        Add("summaries", "Tóm tắt", "\uE8BD", store.summaries.Count, true);
+        Add("ask", "Hỏi đáp", "\uE8F2", null, true);
         jumpBar.Child = bar;
     }
 
@@ -310,7 +327,7 @@ public sealed class StoryView : Border
             toggled.Remove(p.id);
             store.DeleteStoryPart(p.id);
         }
-        var tools = Ui.H(6, Ui.IconBtn("", () => Ui.CopyText(plain), "Copy đoạn này"), Ui.IconBtn("", Delete, "Xoá đoạn này"));
+        var tools = Ui.H(6, Ui.InlineIconBtn("", () => Ui.CopyText(plain), "Copy đoạn này"), Ui.InlineIconBtn("", Delete, "Xoá đoạn này"));
         tools.Opacity = 0;
         tools.VerticalAlignment = VerticalAlignment.Top;
         var chevron = Ui.Icon(expanded ? "" : "", 9, Ui.AccentStart);
@@ -365,7 +382,7 @@ public sealed class StoryView : Border
         var nameBox = Ui.V(1, Ui.Text(c.name, 15, true, color, wrap: false));
         if (c.role.Length > 0) nameBox.Children.Add(Ui.Text(c.role, 12.5, color: Ui.Secondary).Also(t => { t.MaxHeight = 36; t.TextTrimming = TextTrimming.CharacterEllipsis; }));
         var chevron = Ui.Icon("\uE76C", 9, Ui.Tertiary);
-        var del = Ui.IconBtn("\uE74D", Delete, "Xoá nhân vật này");
+        var del = Ui.InlineIconBtn("\uE74D", Delete, "Xoá nhân vật này");
         del.Opacity = 0;
         var head = new Button
         {
@@ -424,7 +441,7 @@ public sealed class StoryView : Border
         {
             if (Ui.Confirm($"Xoá mục “{l.name}” khỏi bách khoa?")) store.DeleteStoryLore(l.name);
         }
-        var del = Ui.IconBtn("\uE74D", Delete, "Xoá mục này");
+        var del = Ui.InlineIconBtn("\uE74D", Delete, "Xoá mục này");
         del.Opacity = 0;
         var kc = KindColor(l.kind);
         var kind = new Border

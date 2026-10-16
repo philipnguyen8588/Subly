@@ -48,6 +48,31 @@ chạy `docker compose up -d`.
   hành hoặc xoá dữ liệu app, nhưng cũng có thể là có người giả mạo mã máy. Nếu chắc là máy thật thì bấm **Ghi khoá
   mới**; lần kết nối tới, khoá mới được ghi nhận.
 
+## AI share
+
+Trang quản trị có thêm tab **AI share**. Ở đó bạn cho người khác dùng API key AI mà họ không thấy key:
+
+1. Bấm **Thêm AI share**: chọn nhà cung cấp (OpenAI, Anthropic, Gemini hoặc Custom tương thích OpenAI), dán API key,
+   bấm **Tải model** rồi tick các model cho phép dùng (hoặc gõ tên model vào ô "Model khác"), đặt tên gợi nhớ, bấm
+   **Tạo token**.
+2. Bấm **Copy** để lấy token (`sts_…`) và gửi cho người được share. Họ dán token vào app ở Cài đặt → AI → AI share,
+   rồi chọn "AI share" cho từng việc ở Cài đặt → Dịch.
+3. Các nút trên mỗi share:
+   - **Sửa**: đổi tên, model hoặc key. Để trống ô key thì giữ key cũ. App tự nhận thay đổi ở lần mở hoặc lần bấm
+     Kiểm tra kế tiếp.
+   - **Token mới**: token cũ hết hiệu lực ngay.
+   - **Thu hồi / Bật lại**, **Xoá**.
+
+Cách hoạt động:
+- Key và token được mã hoá AES-GCM trong `devices.db`. Khoá mã hoá suy ra từ `server.key`, nên chỉ cần sao lưu `data/`
+  như trước; mất `server.key` thì các share cũ không giải mã được nữa.
+- App gửi token thay cho key tới `/v1/ai/<nhà cung cấp>/…`. Server kiểm tra model trong request có nằm trong danh sách
+  được share không, gắn key thật rồi chuyển tiếp tới nhà cung cấp. Key không bao giờ rời server.
+- Mỗi share tối đa 120 request/phút. Địa chỉ Custom phải là `https` và không được trỏ vào IP nội bộ.
+- Mọi request AI của người được share đi qua server này. Nếu Cloudflare đang chạy chế độ SSL "Flexible" (Cloudflare →
+  nginx bằng HTTP thường), hãy chuyển sang **"Full (strict)"** với origin certificate để key và nội dung không đi
+  qua mạng ở dạng chữ thường.
+
 ## Giới hạn cần biết
 
 - Khoá chạy ở phía máy người dùng nên không tuyệt đối: người rành có thể sửa file chạy để bỏ bước kiểm tra. Server
@@ -67,3 +92,10 @@ Trả về `{"c":0,"t":"<vé>"}` khi máy đã duyệt. Mọi trường hợp kh
 phút) đều trả `{"c":1}`.
 
 Vé có dạng `base64url(payload) + "." + base64url(chữ ký)`, với `payload = "v1|h|k|iat|exp"`.
+
+`GET /v1/share/info` với `Authorization: Bearer <token>` trả `{"label","provider","models"}` của AI share.
+
+`POST /v1/ai/{openai|custom}/chat/completions`, `/v1/ai/anthropic/messages`, `/v1/ai/gemini/interactions`: proxy tới
+nhà cung cấp. Token gửi ở header mà API đó vốn dùng cho key: `Authorization: Bearer`, `x-api-key` hoặc
+`x-goog-api-key`. Lỗi trả dạng `{"error":{"message":"…"}}`: 403 khi token sai, share đã thu hồi hoặc model không được
+share; 429 khi vượt giới hạn; 502 khi không gọi được nhà cung cấp.

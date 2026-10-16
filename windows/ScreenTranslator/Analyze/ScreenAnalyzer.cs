@@ -57,8 +57,8 @@ public sealed class ScreenAnalyzer : INotifyPropertyChanged
                 try
                 {
                     var img = await ScreenCapture.CaptureAsync(r, 1);
-                    // Ảnh nhỏ (vùng < 1500 px) phóng to cho OCR đọc chữ nhỏ tốt hơn
-                    var ocrImg = img.Width < 1500 ? img.Scale(Math.Min(2.0, 3000.0 / Math.Max(1, img.Width))) : img;
+                    // Phóng to theo cài đặt cho OCR đọc chữ nhỏ tốt hơn, ảnh không rộng quá 3000 px
+                    var ocrImg = img.Scale(Math.Max(1, Math.Min(settings.screenCaptureScale, 3000.0 / Math.Max(1, img.Width))));
                     progress = "Đang nhận dạng chữ…";
                     // Bộ nhận dạng chữ có lúc treo hẳn (không bao giờ trả về): chờ tối đa `analyzeTimeout` giây rồi báo lỗi,
                     // để nút Dịch màn hình không kẹt ở "Đang nhận dạng chữ…" mãi.

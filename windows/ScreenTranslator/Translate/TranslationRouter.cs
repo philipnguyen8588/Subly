@@ -63,6 +63,10 @@ public sealed class TranslationRouter : INotifyPropertyChanged
     public readonly AnthropicBackend anthropic = new();
     /// API tuỳ chỉnh: cùng giao thức với OpenAI, khác địa chỉ.
     public readonly OpenAIBackend custom = new() { requiresKey = false };
+    /// AI share: backend của nhà cung cấp mà share dùng, gọi qua proxy của server bằng token
+    /// (chưa nhập share = backend rỗng, isReady = false).
+    ICloudChatBackend shared = new OpenAIBackend();
+    string sharedSignature = "";
     public readonly RateLimiter limiter;
     readonly AppSettings settings = AppSettings.shared;
     readonly List<TranslationPair> context = new();
@@ -117,18 +121,74 @@ public sealed class TranslationRouter : INotifyPropertyChanged
         custom.model = settings.customModel;
         custom.timeout = settings.customTimeout;
         custom.baseURL = OpenAIBackend.NormalizeBaseURL(settings.customBaseURL);
+        ApplySharedSettings();
+    }
+
+    void ApplySharedSettings()
+    {
+        var token = settings.aiShareToken;
+        if (settings.aiShare is not AIShareInfo info || token.Length == 0 || info.revoked || !AIShareClient.Available)
+        {
+            if (sharedSignature.Length > 0) { shared = new OpenAIBackend(); sharedSignature = ""; }
+            return;
+        }
+        var sig = $"{info.provider}|{string.Join(",", info.models)}|{token}";
+        if (sig != sharedSignature)
+        {
+            shared = AIShareClient.MakeBackend(info, token);
+            sharedSignature = sig;
+        }
+        // Đi qua server nên chậm hơn gọi thẳng một chút: cộng thêm 1 s vào thời gian chờ của nhà cung cấp đó.
+        switch (shared)
+        {
+            case OpenAIBackend o:
+                o.subtitlePrompt = () => gemini.subtitleSystemPrompt;
+                o.analysisPrompt = () => gemini.analysisSystemPrompt;
+                o.timeout = (info.provider == "custom" ? settings.customTimeout : settings.openAITimeout) + 1;
+                break;
+            case AnthropicBackend a:
+                a.subtitlePrompt = () => gemini.subtitleSystemPrompt;
+                a.analysisPrompt = () => gemini.analysisSystemPrompt;
+                a.timeout = settings.anthropicTimeout + 1;
+                break;
+            case GeminiBackend g:
+                g.timeout = settings.geminiTimeout + 1;
+                MirrorPrompts(g);
+                break;
+        }
+    }
+
+    /// Gemini của AI share dựng lời dặn từ chính nó → chép các thông tin lời dặn từ Gemini chính (ngữ cảnh truyện,
+    /// thuật ngữ đang dùng… đổi theo từng câu nên chép lại ngay trước mỗi lần gọi).
+    void MirrorPrompts(GeminiBackend g)
+    {
+        g.targetName = gemini.targetName;
+        g.glossary = gemini.glossary;
+        g.speakers = gemini.speakers;
+        g.gameName = gemini.gameName;
+        g.translationStyle = gemini.translationStyle;
+        g.translationNote = gemini.translationNote;
+        g.storyContext = gemini.storyContext;
+        g.glossaryFocus = gemini.glossaryFocus;
     }
 
     record Cloud(ICloudChatBackend backend, BackendKind kind, string name, string id);
     /// Nhà cung cấp trả phí ứng với một lựa chọn engine (theo tên, vì ba loại engine dùng chung tên);
     /// null = Gemini hoặc Google Translate.
-    Cloud? CloudFor(string engine) => engine switch
+    Cloud? CloudFor(string engine)
     {
-        "openAI" => new Cloud(openai, BackendKind.openAI, "OpenAI", engine),
-        "anthropic" => new Cloud(anthropic, BackendKind.anthropic, "Claude", engine),
-        "custom" => new Cloud(custom, BackendKind.custom, "API tuỳ chỉnh", engine),
-        _ => null,
-    };
+        switch (engine)
+        {
+            case "openAI": return new Cloud(openai, BackendKind.openAI, "OpenAI", engine);
+            case "anthropic": return new Cloud(anthropic, BackendKind.anthropic, "Claude", engine);
+            case "custom": return new Cloud(custom, BackendKind.custom, "API tuỳ chỉnh", engine);
+            case "shared":
+                var b = shared;
+                if (b is GeminiBackend g) MirrorPrompts(g);
+                return new Cloud(b, BackendKind.shared, "AI share", engine);
+            default: return null;
+        }
+    }
     Cloud? subtitleCloud => CloudFor(settings.engine.ToString());
 
     /// Số câu nên dịch cùng lúc. Gemini / AI trả phí (qua mạng) chạy song song được; Google cũng nhanh nên chỉ 1 để giữ thứ tự gọn.
@@ -387,7 +447,7 @@ public sealed class TranslationRouter : INotifyPropertyChanged
         var chosen = CloudFor(settings.effectiveSummaryEngine.ToString());
         StoryOutput? done = chosen != null ? await ViaCloud(chosen) : null;
         done ??= await ViaGemini();
-        foreach (var name in new[] { "openAI", "anthropic", "custom" })
+        foreach (var name in new[] { "openAI", "anthropic", "custom", "shared" })
         {
             if (done != null) break;
             var other = CloudFor(name)!;
@@ -469,6 +529,71 @@ public sealed class TranslationRouter : INotifyPropertyChanged
             }
         }
         throw lastErr;
+    }
+
+    /// `inputChars`: số ký tự đã gửi model (để ước lượng token).
+    public record StoryAnswer(string text, BackendKind backend, int ms, int inputChars);
+
+    /// Hỏi đáp cốt truyện. Thứ tự AI như "Tóm tắt": AI của "Tóm tắt & cốt truyện" → Gemini → các AI trả phí còn lại.
+    /// Lỗi ở đây không làm đổi trạng thái engine phụ đề.
+    public async Task<StoryAnswer> AskStory(StoryQA.Material material)
+    {
+        if (!online) throw new StoryException("Không có mạng");
+        var t0 = DateTime.UtcNow;
+        var system = gemini.StoryQAPrompt(material.focus);
+        var input = StoryQA.Render(material, StoryQA.cloudBudget);
+        Exception lastErr = new StoryException("Hỏi đáp cần một AI qua mạng. Nhập key ở Cài đặt → AI");
+        StoryAnswer Out(string raw, BackendKind backend)
+        {
+            var text = raw.Trim();
+            if (text.Length == 0) throw new StoryException("Model trả về câu trả lời rỗng");
+            return new StoryAnswer(text, backend, Ms(t0), system.Length + input.Length);
+        }
+        async Task<StoryAnswer?> ViaCloud(Cloud c)
+        {
+            if (!c.backend.isReady) return null;
+            try { return Out(await c.backend.Complete(system, input, false, 1500, 60, modelOverride: settings.TaskModel(AITask.summary, c.id)), c.kind); }
+            catch (Exception e) { Log.Warn($"{c.name} (hỏi đáp) lỗi → engine khác: {e.Message}"); lastErr = e; return null; }
+        }
+        async Task<StoryAnswer?> ViaGemini()
+        {
+            if (string.IsNullOrEmpty(gemini.apiKey)) return null;
+            var denial = limiter.Acquire();
+            if (denial != null)
+            {
+                lastErr = StoryException.Busy(denial.kind switch
+                {
+                    RateLimiter.DenialKind.cooldown => $"đang chờ {(int)denial.seconds}s sau khi hết quota",
+                    RateLimiter.DenialKind.minute => "hết quota/phút",
+                    _ => "hết quota/ngày",
+                });
+                return null;
+            }
+            try
+            {
+                var raw = await gemini.Generate(system, input, 60, maxOutputTokens: 2048, modelOverride: settings.TaskModel(AITask.summary, "gemini"));
+                usedToday = limiter.usedToday;
+                return Out(raw, BackendKind.gemini);
+            }
+            catch (Exception e)
+            {
+                if (e is GeminiException g && g.kind == GeminiException.Kind.rateLimited) limiter.ReportRateLimited(g.retryAfter);
+                usedToday = limiter.usedToday;
+                Log.Warn($"Gemini (hỏi đáp) lỗi: {e.Message}");
+                lastErr = e;
+                return null;
+            }
+        }
+        var chosen = CloudFor(settings.effectiveSummaryEngine.ToString());
+        StoryAnswer? done = chosen != null ? await ViaCloud(chosen) : null;
+        done ??= await ViaGemini();
+        foreach (var name in new[] { "openAI", "anthropic", "custom", "shared" })
+        {
+            if (done != null) break;
+            var other = CloudFor(name)!;
+            if (other.kind != chosen?.kind) done = await ViaCloud(other);
+        }
+        return done ?? throw lastErr;
     }
 
     /// Đọc {"title", "summary"} (hoặc văn bản thường: dòng đầu là tiêu đề), giữ xuống đoạn.

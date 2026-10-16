@@ -31,6 +31,37 @@ public static class RegionActions
         });
     }
 
+    /// Dùng cả một cửa sổ app làm màn hình game (chọn từ danh sách ở màn Bắt đầu). Vùng bám theo cửa sổ nên
+    /// cửa sổ bị che hay dời chỗ vẫn chụp được. Khung phụ đề giữ tỉ lệ cũ nếu đã có, không thì đặt ở dải dưới.
+    public static void UseWindow(WindowFinder.WindowInfo w)
+    {
+        var settings = AppSettings.shared;
+        var keep = ExternalSubtitleNormalized();
+        var area = new Region
+        {
+            name = "Màn hình game", x = w.bounds.X, y = w.bounds.Y, width = w.bounds.Width, height = w.bounds.Height, kind = RegionKind.manual,
+            appBundleID = w.app.bundleID, appName = w.app.name, windowID = w.hwnd.ToInt64(),
+            winOffsetX = 0, winOffsetY = 0, winWidth = w.bounds.Width, winHeight = w.bounds.Height,
+        };
+        var regions = settings.regions.Where(x => x.embedded).ToList();      // giữ vùng PS5 (nếu có), bỏ các khung app ngoài cũ
+        regions.Add(area);
+        settings.regions = regions;
+        Log.Info($"Vùng game = cửa sổ {w.app.name}{(w.title.Length > 0 ? $" “{w.title}”" : "")} {(int)w.bounds.Width}×{(int)w.bounds.Height}");
+        SetExternalSubtitle(keep ?? new RectD(0.10, 0.74, 0.80, 0.22));
+    }
+
+    /// Khung phụ đề app ngoài theo tỉ lệ bên trong khung màn hình game (null nếu chưa có).
+    public static RectD? ExternalSubtitleNormalized()
+    {
+        var s = AppSettings.shared;
+        if (s.externalArea is not Region area || s.externalSubtitle is not Region sub) return null;
+        var a = WindowFinder.CurrentRect(area); var r = WindowFinder.CurrentRect(sub);
+        if (a.Width <= 1 || a.Height <= 1) return null;
+        double x = Math.Clamp((r.X - a.X) / a.Width, 0, 1), y = Math.Clamp((r.Y - a.Y) / a.Height, 0, 1);
+        double w = Math.Min(r.Width / a.Width, 1 - x), h = Math.Min(r.Height / a.Height, 1 - y);
+        return w > 0.03 && h > 0.02 ? new RectD(x, y, w, h) : null;
+    }
+
     /// Đặt khung phụ đề theo tỉ lệ (0...1) bên trong khung màn hình game. Khung phụ đề bám cùng cửa sổ với khung game.
     public static void SetExternalSubtitle(RectD n)
     {
@@ -108,16 +139,122 @@ public static class RegionActions
     }
 }
 
-/// Điều hướng dùng chung: tab đang mở, hộp tạo game mới, đổi profile.
+/// Điều hướng dùng chung: màn hình đang hiện (Bắt đầu / chơi), tab, hộp tạo game mới, quản lý game, vào và rời phiên chơi.
 public sealed class AppNav : INotifyPropertyChanged
 {
     public static readonly AppNav shared = new();
     public event PropertyChangedEventHandler? PropertyChanged;
-    public enum Tab { source, log, speakers, glossary }
+    void Raise(string n) => App.RunOnUI(() => PropertyChanged?.Invoke(this, new(n)));
+    public enum Tab { source, story, subtitles, screens, game }
+    /// Hai màn hình của cửa sổ chính: Bắt đầu (chọn game + nguồn hình) và màn hình chơi.
+    public enum Screen { start, main }
     Tab _tab = Tab.source;
-    public Tab tab { get => _tab; set { _tab = value; PropertyChanged?.Invoke(this, new(nameof(tab))); } }
+    public Tab tab { get => _tab; set { _tab = value; Raise(nameof(tab)); } }
+    Screen _screen = Screen.start;
+    public Screen screen { get => _screen; set { if (_screen == value) return; _screen = value; Raise(nameof(screen)); } }
+    string? _notice;
+    /// Thông báo ở đầu màn Bắt đầu (ví dụ lý do vừa bị đưa về: mất kết nối PS5).
+    public string? notice { get => _notice; set { _notice = value; Raise(nameof(notice)); } }
+    bool _entering;
+    /// Đang kết nối PS5 từ màn Bắt đầu; có hình thì vào màn hình chính.
+    public bool entering { get => _entering; private set { _entering = value; Raise(nameof(entering)); } }
     public event Action? NewProfileRequested;
-    public void ShowNewProfile() => NewProfileRequested?.Invoke();
+    public void ShowNewProfile() { if (screen == Screen.start) NewProfileRequested?.Invoke(); }
+
+    // MARK: vào / rời phiên
+
+    /// Nút "Bắt đầu" / "Kết nối & bắt đầu" ở màn Bắt đầu.
+    public void Enter()
+    {
+        var settings = AppSettings.shared;
+        if (screen != Screen.start || entering) return;
+        notice = null;
+        if (settings.source == ProfileSource.external)
+        {
+            if (settings.externalArea == null || settings.externalSubtitle == null)
+            {
+                Pipeline.shared.ShowAlert("Chưa chọn cửa sổ game", "Chọn cửa sổ đang chạy game ở cột Nguồn hình (hoặc vẽ vùng thủ công) rồi bấm Bắt đầu.");
+                return;
+            }
+            if (!Readiness.Ensure()) return;
+            screen = Screen.main;
+            tab = Tab.source;
+            _ = Pipeline.shared.Start();
+        }
+        else
+        {
+            if (PS5Stream.shared.host == null)
+            {
+                Pipeline.shared.ShowAlert("Chưa thiết lập PS5", "Bấm “Thiết lập PS5” ở cột Nguồn hình để nhập máy từ chiaki-ng hoặc đăng ký bằng mã PIN.");
+                return;
+            }
+            if (!Readiness.Ensure()) return;
+            entering = true;
+            PS5Reconnector.shared.Cancel();
+            if (PS5Stream.shared.isStreaming) EnteredPS5(); else PS5Coordinator.Connect();
+        }
+    }
+
+    /// PS5 đã có hình sau khi bấm "Kết nối & bắt đầu".
+    public void EnteredPS5()
+    {
+        if (!entering) return;
+        entering = false;
+        screen = Screen.main;
+        tab = Tab.source;
+        _ = Pipeline.shared.Start();
+    }
+
+    /// Kết nối PS5 từ màn Bắt đầu thất bại: ở lại màn Bắt đầu và hiện lý do.
+    public void EnterFailed(string reason)
+    {
+        if (!entering) return;
+        entering = false;
+        notice = reason;
+    }
+
+    public void CancelEnter()
+    {
+        if (!entering) return;
+        entering = false;
+        PS5Stream.shared.Disconnect();
+    }
+
+    /// Rời màn hình chính: dừng dịch, ngắt PS5, đóng mọi thứ đang mở rồi về màn Bắt đầu.
+    public void LeaveToStart(string? reason = null)
+    {
+        PS5Reconnector.shared.Cancel();
+        Pipeline.shared.Stop();
+        if (PS5Stream.shared.state.kind != PS5Stream.StateKind.idle) PS5Stream.shared.Disconnect();
+        ShotViewer.Close();
+        entering = false;
+        screen = Screen.start;
+        notice = reason;
+        if (reason != null) Log.Info($"Về màn hình Bắt đầu: {reason}");
+    }
+
+    /// Nút "Đổi game" ở màn hình chính (hỏi lại nếu đang dịch).
+    public void ChangeGame()
+    {
+        if ((Pipeline.shared.isRunning || PS5Stream.shared.state.isBusy) && !AppSettings.shared.suppressAlerts)
+        {
+            var msg = AppSettings.shared.source == ProfileSource.ps5
+                ? "App sẽ dừng dịch và ngắt kết nối PS5, rồi quay về màn hình chọn game."
+                : "App sẽ dừng dịch rồi quay về màn hình chọn game.";
+            if (System.Windows.MessageBox.Show(msg, "Đổi game?", System.Windows.MessageBoxButton.OKCancel, System.Windows.MessageBoxImage.Question)
+                != System.Windows.MessageBoxResult.OK) return;
+        }
+        LeaveToStart();
+    }
+
+    /// Phím tắt / menu khay Bắt đầu-Dừng: ở màn Bắt đầu thì đi qua bước kiểm tra và kết nối như bấm nút Bắt đầu.
+    public void ToggleTranslation()
+    {
+        if (screen == Screen.start) { App.ShowMain(); Enter(); return; }
+        Pipeline.shared.Toggle();
+    }
+
+    // MARK: game (profile)
 
     public void SwitchProfile(Profile p)
     {
@@ -128,6 +265,7 @@ public sealed class AppNav : INotifyPropertyChanged
         settings.activeProfileID = p.id;
         Pipeline.shared.router.ResetContext();
         settings.NotifyAll();
+        notice = null;
         Log.Info($"Đổi sang game '{p.name}' ({Labels.Of(p.source)})");
     }
 
@@ -141,11 +279,41 @@ public sealed class AppNav : INotifyPropertyChanged
         tab = Tab.source;
     }
 
+    public void RenameProfile(Profile p, System.Windows.Window? owner = null)
+    {
+        var settings = AppSettings.shared;
+        if (Ui.Ask("Tên game", "Ví dụ: God of War Ragnarök", p.name, owner) is not string n) return;
+        var ps = settings.profiles;
+        if (ps.FirstOrDefault(x => x.id == p.id) is Profile x) { x.name = n; settings.profiles = ps; settings.NotifyAll(); }
+    }
+
+    public void DuplicateProfile(Profile p)
+    {
+        var settings = AppSettings.shared;
+        var c = p.Clone();
+        c.id = Guid.NewGuid(); c.name += " (bản sao)";
+        foreach (var r in c.regions) r.id = Guid.NewGuid();
+        var ps = settings.profiles; ps.Add(c); settings.profiles = ps;
+        SwitchProfile(c);
+    }
+
+    public void DeleteProfile(Profile p)
+    {
+        var settings = AppSettings.shared;
+        if (settings.profiles.Count <= 1) return;
+        if (!settings.suppressAlerts && !Ui.Confirm($"Xoá game “{p.name}” (khung phụ đề, thuật ngữ, tên nhân vật)? Nhật ký đã dịch vẫn giữ.", "Xoá game")) return;
+        if (p.id == settings.activeProfileID && settings.profiles.FirstOrDefault(x => x.id != p.id) is Profile other) SwitchProfile(other);
+        settings.profiles = settings.profiles.Where(x => x.id != p.id).ToList();
+        settings.NotifyAll();
+        Log.Info($"Xoá game '{p.name}'");
+    }
+
     /// Đổi nguồn hình của game đang chọn.
     public void SetSource(ProfileSource s)
     {
         var settings = AppSettings.shared;
         if (settings.source == s) return;
+        if (entering) CancelEnter();
         Pipeline.shared.Stop();
         ShotViewer.Close();
         settings.source = s;
@@ -233,18 +401,55 @@ public static class PS5Coordinator
         PS5Stream.shared.Connect(settings.ps5Resolution, settings.ps5FPS);
     }
 
-    public static void StateChanged(PS5Stream.State s)
+    static bool installed;
+    static PS5Stream.StateKind lastKind = PS5Stream.StateKind.idle;
+
+    /// Theo dõi trạng thái PS5 suốt đời app (một lần, không phụ thuộc view nào đang hiện).
+    public static void Install()
+    {
+        if (installed) return;
+        installed = true;
+        var stream = PS5Stream.shared;
+        stream.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName != nameof(PS5Stream.state)) return;
+            App.RunOnUI(() =>
+            {
+                var kind = stream.state.kind;
+                if (kind == lastKind) return;
+                var prev = lastKind;
+                lastKind = kind;
+                StateChanged(stream.state, prev);
+            });
+        };
+    }
+
+    /// Nối trạng thái phiên PS5 với màn hình: vào màn chính khi có hình, tự kết nối lại / về màn Bắt đầu khi rớt.
+    public static void StateChanged(PS5Stream.State s, PS5Stream.StateKind prev)
     {
         var settings = AppSettings.shared;
+        var nav = AppNav.shared;
+        var reconnector = PS5Reconnector.shared;
         if (settings.source != ProfileSource.ps5) return;
         switch (s.kind)
         {
             case PS5Stream.StateKind.streaming:
-                if (settings.ps5AutoTranslate && !Pipeline.shared.isRunning) _ = Pipeline.shared.Start();
+                if (nav.entering) nav.EnteredPS5();
+                else if (reconnector.active) reconnector.StreamingResumed();
                 break;
-            case PS5Stream.StateKind.idle:
             case PS5Stream.StateKind.failed:
+            {
+                bool wasTranslating = Pipeline.shared.isRunning;
+                if (wasTranslating) Pipeline.shared.Stop();
+                if (nav.entering) nav.EnterFailed(s.label);
+                else if (nav.screen == AppNav.Screen.main) reconnector.ConnectionLost(s.label, wasTranslating);
+                break;
+            }
+            case PS5Stream.StateKind.idle:
                 if (Pipeline.shared.isRunning) Pipeline.shared.Stop();
+                // Phiên kết thúc "bình thường" mà người dùng không bấm Đổi game (ví dụ tắt Remote Play trên PS5).
+                if (nav.screen == AppNav.Screen.main && !reconnector.active && prev == PS5Stream.StateKind.streaming)
+                    reconnector.ConnectionLost("PS5 đã đóng phiên Remote Play", true);
                 break;
         }
     }

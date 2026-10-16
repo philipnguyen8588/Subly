@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Mục "Cốt truyện" của tab Nhật ký: cốt truyện của game đang chọn do app tự viết từ phụ đề: bài viết liền mạch,
+/// Tab "Cốt truyện": cốt truyện của game đang chọn do app tự viết từ phụ đề: bài viết liền mạch,
 /// dòng thời gian từng đoạn diễn biến, danh sách nhân vật và bách khoa (địa danh, thế lực, khái niệm lấy từ màn hình
 /// nhật ký đã dịch). Thanh ngang ở trên cùng nhảy nhanh tới từng mục.
 struct GameStoryView: View {
@@ -27,7 +27,7 @@ struct GameStoryView: View {
     @AppStorage("storyCharactersRecentFirst") private var recentFirst = true
 
     /// Các mục của trang (thanh trên cùng chọn mục để xem).
-    private enum Anchor: String { case narrative, parts, characters, lore }
+    private typealias Anchor = StorySection
     private static let topID = "story-top"
 
     private var query: String { search.lowercased() }
@@ -65,7 +65,12 @@ struct GameStoryView: View {
     var body: some View {
         ScrollViewReader { proxy in
         VStack(spacing: 0) {
-            if hasContent { jumpBar(proxy) }
+            if hasContent || !store.summaries.isEmpty || shownAnchor == .ask { jumpBar(proxy) }
+            if shownAnchor == .summaries {
+                StorySummaryView(search: search, summaries: store.summaries)
+            } else if shownAnchor == .ask {
+                StoryChatView()
+            } else {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 Color.clear.frame(height: 0).id(Self.topID)
@@ -75,6 +80,7 @@ struct GameStoryView: View {
                 } else {
                     // Chỉ dựng mục đang chọn ở thanh trên: dựng cả bốn mục một lúc làm trang dài và cuộn giật.
                     switch shownAnchor {
+                    case .summaries, .ask: EmptyView()
                     case .narrative:
                         if showNarrative {
                             header("Cốt truyện đến hiện tại", icon: "text.book.closed") {
@@ -168,6 +174,7 @@ struct GameStoryView: View {
                 return scroller.scroll(key)
             }
         }
+            }
         }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -208,6 +215,8 @@ struct GameStoryView: View {
             (.parts, "Diễn biến", "list.bullet.rectangle", parts.count),
             (.characters, "Nhân vật", "person.2", characters.count),
             (.lore, "Bách khoa", "books.vertical", loreMatches.count),
+            (.summaries, "Tóm tắt", "text.badge.star", store.summaries.count),
+            (.ask, "Hỏi đáp", "bubble.left.and.text.bubble.right", nil),
         ]
         return VStack(spacing: 0) {
             HStack(spacing: 8) {
@@ -262,7 +271,7 @@ struct GameStoryView: View {
                 .font(.callout).foregroundStyle(.tertiary).multilineTextAlignment(.center)
             if search.isEmpty, !store.analyses.isEmpty {
                 Button("Đọc lại \(store.analyses.count) màn hình đã dịch của game này") { tracker.rescanScreens() }
-                    .buttonStyle(.borderedProminent).disabled(tracker.isRunning)
+                    .appButton(.primary).disabled(tracker.isRunning)
                 Text("Các màn hình dịch trước đây chưa được tách ra bách khoa. App sẽ đọc lại chúng (khoảng 15 màn hình mỗi lượt) để thêm địa danh, thế lực và hồ sơ nhân vật; phần diễn biến không đổi.")
                     .font(.caption).foregroundStyle(.tertiary).multilineTextAlignment(.center).frame(maxWidth: 520)
             }
@@ -327,7 +336,7 @@ struct GameStoryView: View {
                 .font(.callout).foregroundStyle(.tertiary).multilineTextAlignment(.center)
             if tracker.backlogLines > 0 {
                 Button("Tóm tắt từ đầu nhật ký đến giờ (\(tracker.backlogLines) câu)") { tracker.summarizeFromStart() }
-                    .buttonStyle(.borderedProminent).disabled(tracker.isRunning)
+                    .appButton(.primary).disabled(tracker.isRunning)
                 Text("Nhật ký của game này đã có \(tracker.backlogLines) câu. Mỗi lượt đưa tối đa 150 câu vào cốt truyện, chạy nối tiếp cho tới hết.")
                     .font(.caption).foregroundStyle(.tertiary).multilineTextAlignment(.center)
             }

@@ -24,6 +24,35 @@ enum RegionActions {
         }
     }
 
+    /// Dùng cả một cửa sổ app làm màn hình game (chọn từ danh sách ở màn Bắt đầu). Vùng bám theo cửa sổ nên
+    /// cửa sổ bị che hay dời chỗ vẫn chụp được. Khung phụ đề giữ tỉ lệ cũ nếu đã có, không thì đặt ở dải dưới.
+    static func useWindow(_ w: WindowFinder.ListedWindow) {
+        let settings = AppSettings.shared
+        let keep = externalSubtitleNormalized()
+        var area = Region(name: "Màn hình game", displayID: WindowFinder.displayID(containing: w.bounds),
+                          x: w.bounds.minX, y: w.bounds.minY, width: w.bounds.width, height: w.bounds.height, kind: .manual)
+        area.appBundleID = w.app.bundleID; area.appName = w.app.name
+        area.windowID = w.id
+        area.winOffsetX = 0; area.winOffsetY = 0
+        area.winWidth = Double(w.bounds.width); area.winHeight = Double(w.bounds.height)
+        var regions = settings.regions.filter { $0.embedded }      // giữ vùng PS5 (nếu có), bỏ các khung app ngoài cũ
+        regions.append(area)
+        settings.regions = regions
+        Log.info("Vùng game = cửa sổ \(w.app.name)\(w.title.isEmpty ? "" : " “\(w.title)”") \(Int(w.bounds.width))×\(Int(w.bounds.height))")
+        setExternalSubtitle(normalized: keep ?? CGRect(x: 0.10, y: 0.74, width: 0.80, height: 0.22))
+    }
+
+    /// Khung phụ đề app ngoài theo tỉ lệ bên trong khung màn hình game (nil nếu chưa có).
+    static func externalSubtitleNormalized() -> CGRect? {
+        let settings = AppSettings.shared
+        guard let area = settings.externalArea, let sub = settings.externalSubtitle else { return nil }
+        let a = WindowFinder.currentRect(of: area), s = WindowFinder.currentRect(of: sub)
+        guard a.width > 1, a.height > 1 else { return nil }
+        let n = CGRect(x: (s.minX - a.minX) / a.width, y: (s.minY - a.minY) / a.height, width: s.width / a.width, height: s.height / a.height)
+            .intersection(CGRect(x: 0, y: 0, width: 1, height: 1))
+        return n.width > 0.03 && n.height > 0.02 ? n : nil
+    }
+
     /// Đặt khung phụ đề theo tỉ lệ (0...1) bên trong khung màn hình game. Khung phụ đề bám cùng cửa sổ với khung game.
     static func setExternalSubtitle(normalized n: CGRect) {
         let settings = AppSettings.shared
@@ -177,10 +206,10 @@ enum RegionActions {
         if r.kind == .subtitle { Pipeline.shared.restartIfRunning() }
     }
 
-    static func askName(default def: String) -> String {
+    static func askName(default def: String, title: String = "Tên vùng", hint: String = "Ví dụ: Phụ đề, Hội thoại, Màn hình game…") -> String {
         let a = NSAlert()
-        a.messageText = "Tên vùng"
-        a.informativeText = "Ví dụ: Phụ đề, Hội thoại, Màn hình game…"
+        a.messageText = title
+        a.informativeText = hint
         let tf = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
         tf.stringValue = def
         a.accessoryView = tf

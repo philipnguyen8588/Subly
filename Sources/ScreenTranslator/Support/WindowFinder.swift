@@ -25,6 +25,46 @@ enum WindowFinder {
         return nil
     }
 
+    /// Một cửa sổ đang hiện trên màn hình, để chọn làm màn hình game.
+    struct ListedWindow: Identifiable, Equatable {
+        let id: UInt32
+        let app: AppInfo
+        let title: String
+        let bounds: CGRect
+        let pid: pid_t
+        static func == (a: Self, b: Self) -> Bool { a.id == b.id && a.title == b.title && a.bounds == b.bounds }
+    }
+
+    /// Cửa sổ thường đang hiện (trước → sau), bỏ chính app này, thanh menu, Dock và cửa sổ quá nhỏ.
+    /// Tên cửa sổ chỉ có khi app đã được cấp quyền Ghi màn hình.
+    static func visibleWindows() -> [ListedWindow] {
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return [] }
+        let me = getpid()
+        var out: [ListedWindow] = []
+        for w in list {
+            guard let pid = w[kCGWindowOwnerPID as String] as? Int32, pid != me,
+                  (w[kCGWindowLayer as String] as? Int ?? 0) == 0,
+                  (w[kCGWindowAlpha as String] as? Double ?? 1) > 0.01,
+                  let b = w[kCGWindowBounds as String] as? [String: CGFloat],
+                  let x = b["X"], let y = b["Y"], let wd = b["Width"], let ht = b["Height"], wd >= 320, ht >= 200,
+                  let wid = w[kCGWindowNumber as String] as? UInt32,
+                  let app = NSRunningApplication(processIdentifier: pid), app.activationPolicy == .regular,
+                  let bid = app.bundleIdentifier else { continue }
+            out.append(ListedWindow(id: wid, app: AppInfo(bundleID: bid, name: app.localizedName ?? bid),
+                                    title: w[kCGWindowName as String] as? String ?? "",
+                                    bounds: CGRect(x: x, y: y, width: wd, height: ht), pid: pid))
+        }
+        return out
+    }
+
+    /// Màn hình chứa tâm của khung (toạ độ CG toàn cục).
+    static func displayID(containing r: CGRect) -> UInt32 {
+        var id: CGDirectDisplayID = 0
+        var count: UInt32 = 0
+        if CGGetDisplaysWithPoint(CGPoint(x: r.midX, y: r.midY), 1, &id, &count) == .success, count > 0 { return id }
+        return CGMainDisplayID()
+    }
+
     /// Các app thường (có Dock icon) đang chạy, để gắn thủ công.
     static func runningApps() -> [AppInfo] {
         NSWorkspace.shared.runningApplications

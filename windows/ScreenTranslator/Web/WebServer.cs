@@ -404,7 +404,9 @@ public sealed class WebServer : INotifyPropertyChanged
                     else
                     {
                         var regions = AppSettings.shared.subtitleRegions.Where(r => r.enabled).ToList();
-                        if (regions.Count == 0) error = "Chưa có vùng phụ đề. Mở tab Màn hình trên máy tính để vẽ khung phụ đề.";
+                        if (AppNav.shared.screen == AppNav.Screen.start) error = "Mở Subly trên máy tính, chọn game và bấm Bắt đầu.";
+                        else if (Readiness.Check().FirstOrDefault() is Readiness.Issue issue) error = issue.detail;
+                        else if (regions.Count == 0) error = "Chưa có vùng phụ đề. Mở tab Màn hình trên máy tính để vẽ khung phụ đề.";
                         else
                         {
                             await p.Start();
@@ -431,6 +433,48 @@ public sealed class WebServer : INotifyPropertyChanged
                 Log.Info($"Web: cập nhật cốt truyện từ xa → {error ?? "đã bắt đầu"}");
             });
             await Respond(c, s, "application/json", J(new { ok = error == null, error }));
+        }
+        else if (method == "POST" && path == "/api/story/ask")
+        {
+            // Mục "Hỏi đáp" của tab Cốt truyện trên web: ?q=câu hỏi&h=[{"q","a"}] (các lượt trước, trang web tự giữ).
+            string Param(string name) => query.Split('&').Where(kv => kv.StartsWith(name + "="))
+                .Select(kv => { try { return Uri.UnescapeDataString(kv[(name.Length + 1)..]); } catch { return ""; } }).FirstOrDefault() ?? "";
+            var question = Param("q").Trim();
+            if (question.Length > StoryQA.maxQuestion) question = question[..StoryQA.maxQuestion];
+            var history = new List<StoryQA.Turn>();
+            try
+            {
+                using var doc = JsonDocument.Parse(Param("h") is { Length: > 0 } h ? h : "[]");
+                foreach (var t in doc.RootElement.EnumerateArray().TakeLast(3))
+                {
+                    string Get(string k) => t.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
+                    string q = Get("q"), a = Get("a");
+                    if (q.Length > 0 && a.Length > 0)
+                        history.Add(new StoryQA.Turn(q.Length > StoryQA.maxQuestion ? q[..StoryQA.maxQuestion] : q, a.Length > 1500 ? a[..1500] : a));
+                }
+            }
+            catch { }
+            object result = new { ok = false, error = "Chưa nhập câu hỏi." };
+            if (question.Length > 0)
+            {
+                var done = new TaskCompletionSource();
+                App.RunOnUI(async () =>
+                {
+                    try
+                    {
+                        if (!SessionCheck.shared.Valid()) result = new { ok = false, error = "Không hỏi được lúc này. Mở Subly trên máy tính để kiểm tra." };
+                        else
+                        {
+                            var a = await StoryChat.Answer(question, history);
+                            result = new { ok = true, answer = a.text, backend = BackendLabels.Label(a.backend), ms = a.ms };
+                        }
+                    }
+                    catch (Exception e) { result = new { ok = false, error = $"Không trả lời được: {e.Message}" }; }
+                    finally { done.TrySetResult(); }
+                });
+                await done.Task;
+            }
+            await Respond(c, s, "application/json", J(result));
         }
         else if (method == "POST" && path == "/api/analyze")
         {

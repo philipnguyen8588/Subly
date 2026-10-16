@@ -1,117 +1,146 @@
 import SwiftUI
 import AppKit
 
-/// Tab Nhật ký: phụ đề đã dịch và lịch sử dịch màn hình, cùng một thanh công cụ.
-struct LogTabView: View {
-    enum Section: String, CaseIterable, Identifiable {
-        case story, subtitles, screens, summaries
-        var id: String { rawValue }
-    }
+/// Trạng thái dùng chung của ba tab nhật ký (Phụ đề / Dịch màn hình / Cốt truyện) và thanh công cụ bên phải thanh tab.
+@MainActor
+final class LogUI: ObservableObject {
+    static let shared = LogUI()
+    @Published var search = ""
+    /// Đang xem các dòng cũ không gắn với game nào (có từ trước khi nhật ký được tách theo game).
+    @Published var legacy = false
+    @Published var confirmClear = false
+    @Published var confirmClearStory = false
+}
+
+/// Mục đang xem trong tab Cốt truyện (thanh mục con); dùng chung giữa GameStoryView và nút xoá của thanh công cụ.
+enum StorySection: String { case narrative, parts, characters, lore, summaries, ask }
+
+/// Nội dung một tab nhật ký: phụ đề đã dịch, lịch sử dịch màn hình, hoặc cốt truyện (kèm các bản tóm tắt).
+struct LogPane: View {
+    let section: MainTab
 
     @ObservedObject var store = HistoryStore.shared
-    @State private var section: Section = .story
-    @State private var search = ""
-    @State private var confirmClear = false
-    @State private var confirmClearStory = false
-    /// Đang xem các dòng cũ không gắn với game nào (có từ trước khi nhật ký được tách theo game).
-    @State private var legacy = false
-    @State private var legacyEntries: [TranslationEntry] = []
-    @State private var legacyAnalyses: [ScreenAnalysis] = []
+    @ObservedObject var ui = LogUI.shared
     @ObservedObject var settings = AppSettings.shared
     @ObservedObject var summarizer = StorySummarizer.shared
+    @AppStorage("storyShownSection") private var storyShown = StorySection.parts.rawValue
+    @State private var legacyEntries: [TranslationEntry] = []
+    @State private var legacyAnalyses: [ScreenAnalysis] = []
 
+    private var legacy: Bool { ui.legacy && section != .story }
     private var entries: [TranslationEntry] { legacy ? legacyEntries : store.entries }
     private var analyses: [ScreenAnalysis] { legacy ? legacyAnalyses : store.analyses }
-    private var clearTitle: String {
-        switch section {
-        case .summaries: return "Xoá mọi bản tóm tắt của game này"
-        case .story: return "Xoá cốt truyện của game này"
-        case _ where legacy: return "Xoá toàn bộ dòng cũ chưa gắn game"
-        case .subtitles: return "Xoá nhật ký phụ đề của game này"
-        case .screens: return "Xoá lịch sử dịch màn hình của game này"
-        }
-    }
+    private var viewingSummaries: Bool { section == .story && storyShown == StorySection.summaries.rawValue }
+    private var scopeName: String { legacy ? "dòng cũ chưa gắn game" : "game “\(settings.activeProfile.name)”" }
     private var clearQuestion: String {
+        if viewingSummaries { return "Xoá mọi bản tóm tắt của game “\(settings.activeProfile.name)”?" }
         switch section {
-        case .summaries: return "Xoá mọi bản tóm tắt của game “\(settings.activeProfile.name)”?"
         case .story: return "Xoá cốt truyện và danh sách nhân vật của game “\(settings.activeProfile.name)”?"
         case _ where legacy: return "Xoá toàn bộ dòng cũ chưa gắn game (cả phụ đề và dịch màn hình)?"
-        case .subtitles: return "Xoá nhật ký phụ đề của \(scopeName)?"
         case .screens: return "Xoá lịch sử dịch màn hình và ảnh chụp của \(scopeName)?"
+        default: return "Xoá nhật ký phụ đề của \(scopeName)?"
         }
     }
-    private var scopeName: String { legacy ? "dòng cũ chưa gắn game" : "game “\(settings.activeProfile.name)”" }
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                Picker("", selection: $section) {
-                    Text("Cốt truyện").tag(Section.story)
-                    Text("Phụ đề  \(entries.count)").tag(Section.subtitles)
-                    Text("Dịch màn hình  \(analyses.count)").tag(Section.screens)
-                    Text("Tóm tắt  \(store.summaries.count)").tag(Section.summaries)
-                }
-                .pickerStyle(.segmented).labelsHidden().fixedSize()
-                if store.legacyCount > 0 {
-                    Toggle(isOn: $legacy) { Text("Dòng cũ") }.toggleStyle(.button)
-                        .help("Nhật ký có từ trước khi tách theo game (\(store.legacyCount) dòng, không gắn với game nào)")
-                }
-                HStack(spacing: 5) {
-                    Image(systemName: "magnifyingglass").foregroundStyle(.tertiary)
-                    TextField("Tìm trong nhật ký", text: $search).textFieldStyle(.plain)
-                    if !search.isEmpty {
-                        Button { search = "" } label: { Image(systemName: "xmark.circle.fill") }.buttonStyle(.plain).foregroundStyle(.tertiary)
-                    }
-                }
-                .padding(.horizontal, 8).padding(.vertical, 4)
-                .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
-                .frame(maxWidth: 280)
-                Spacer()
-                if section != .summaries, section != .story {
-                Menu {
-                    ForEach(Exporter.Format.allCases) { f in
-                        Button(f.label) { Exporter.export(f, entries: entries, analyses: analyses) }
-                    }
-                } label: { Image(systemName: "square.and.arrow.up") }
-                .menuStyle(.borderlessButton).fixedSize().help("Xuất nhật ký (TXT / SRT / JSON)")
-                }
-                Button(role: .destructive) { if section == .story { confirmClearStory = true } else { confirmClear = true } } label: { Image(systemName: "trash") }
-                    .buttonStyle(.borderless)
-                    .help(clearTitle)
-            }
-            .padding(.horizontal, 14).padding(.vertical, 8)
-            Divider()
             switch section {
-            case .subtitles: SubtitleLogView(search: search, entries: entries)
-            case .screens: ScreenLogView(search: search, analyses: analyses)
-            case .summaries: StorySummaryView(search: search, summaries: store.summaries)
-            case .story: GameStoryView(search: search)
+            case .screens: ScreenLogView(search: ui.search, analyses: analyses)
+            case .story: GameStoryView(search: ui.search)
+            default: SubtitleLogView(search: ui.search, entries: entries)
             }
             // Câu đang dịch luôn nằm ở đáy tab, xem mục nào cũng thấy.
             NowTranslatingPanel()
         }
-        .confirmationDialog(clearQuestion, isPresented: $confirmClearStory) {
+        .confirmationDialog(clearQuestion, isPresented: $ui.confirmClearStory) {
             Button("Xoá, viết lại từ đầu nhật ký", role: .destructive) { StoryTracker.shared.reset(fromNow: false) }
             Button("Xoá, chỉ viết tiếp từ bây giờ", role: .destructive) { StoryTracker.shared.reset(fromNow: true) }
         }
-        .confirmationDialog(clearQuestion, isPresented: $confirmClear) {
+        .confirmationDialog(clearQuestion, isPresented: $ui.confirmClear) {
             Button("Xoá", role: .destructive) {
+                if viewingSummaries { store.clearSummaries(); return }
                 switch section {
-                case .summaries: store.clearSummaries()
                 case .story: break
-                case _ where legacy: store.clearLegacy(); legacy = false
-                case .subtitles: store.clear()
+                case _ where legacy: store.clearLegacy(); ui.legacy = false
                 case .screens: store.clearAnalyses()
+                default: store.clear()
                 }
             }
         }
-        // Tóm tắt xong khi đang xem mục Phụ đề → chuyển sang mục Tóm tắt để đọc ngay.
-        .onChange(of: summarizer.lastSavedID) { _, id in if id != nil, section == .subtitles { section = .summaries } }
-        .onChange(of: legacy) { _, on in
-            legacyEntries = on ? store.legacyEntries() : []
-            legacyAnalyses = on ? store.legacyAnalyses() : []
+        // Tóm tắt xong khi đang xem tab Phụ đề → chuyển sang Cốt truyện → Tóm tắt để đọc ngay.
+        .onChange(of: summarizer.lastSavedID) { _, id in
+            if id != nil, section == .subtitles {
+                storyShown = StorySection.summaries.rawValue
+                AppNav.shared.tab = .story
+            }
         }
-        .onChange(of: settings.activeProfileID) { _, _ in legacy = false }
+        .onAppear { loadLegacy(ui.legacy) }
+        .onChange(of: ui.legacy) { _, on in loadLegacy(on) }
+        .onChange(of: settings.activeProfileID) { _, _ in ui.legacy = false }
+    }
+
+    private func loadLegacy(_ on: Bool) {
+        legacyEntries = on ? store.legacyEntries() : []
+        legacyAnalyses = on ? store.legacyAnalyses() : []
+    }
+}
+
+/// Bên phải thanh tab khi đang ở tab nhật ký: ô tìm, "Dòng cũ", xuất, xoá.
+struct LogToolbar: View {
+    let section: MainTab
+    @ObservedObject var store = HistoryStore.shared
+    @ObservedObject var ui = LogUI.shared
+    @AppStorage("storyShownSection") private var storyShown = StorySection.parts.rawValue
+
+    private var viewingSummaries: Bool { section == .story && storyShown == StorySection.summaries.rawValue }
+    private var viewingAsk: Bool { section == .story && storyShown == StorySection.ask.rawValue }
+    private var clearTitle: String {
+        if viewingSummaries { return "Xoá mọi bản tóm tắt của game này" }
+        switch section {
+        case .story: return "Xoá cốt truyện của game này"
+        case _ where ui.legacy: return "Xoá toàn bộ dòng cũ chưa gắn game"
+        case .screens: return "Xoá lịch sử dịch màn hình của game này"
+        default: return "Xoá nhật ký phụ đề của game này"
+        }
+    }
+
+    var body: some View {
+        // Mục Hỏi đáp có ô hỏi và nút xoá hội thoại riêng ở đáy.
+        if viewingAsk { EmptyView() } else { tools }
+    }
+
+    private var tools: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass").foregroundStyle(.tertiary)
+                TextField(section == .story ? "Tìm trong cốt truyện" : "Tìm trong nhật ký", text: $ui.search).textFieldStyle(.plain)
+                if !ui.search.isEmpty {
+                    Button { ui.search = "" } label: { Image(systemName: "xmark.circle.fill") }.buttonStyle(.plain).foregroundStyle(.tertiary)
+                }
+            }
+            .padding(.horizontal, 10).frame(minWidth: 120, maxWidth: 220).frame(height: 36)
+            .background(Theme.controlFill, in: RoundedRectangle(cornerRadius: AppButtonStyle.radius))
+            .overlay(RoundedRectangle(cornerRadius: AppButtonStyle.radius).strokeBorder(Theme.controlStroke))
+            if section != .story, store.legacyCount > 0 {
+                Toggle(isOn: $ui.legacy) { Text("Dòng cũ") }.toggleStyle(AppToggleButtonStyle())
+                    .help("Nhật ký có từ trước khi tách theo game (\(store.legacyCount) dòng, không gắn với game nào)")
+            }
+            if section != .story {
+                Menu {
+                    let entries = ui.legacy ? store.legacyEntries() : store.entries
+                    let analyses = ui.legacy ? store.legacyAnalyses() : store.analyses
+                    ForEach(Exporter.Format.allCases) { f in
+                        Button(f.label) { Exporter.export(f, entries: entries, analyses: analyses) }
+                    }
+                } label: { Image(systemName: "square.and.arrow.up") }
+                .menuStyle(.button).menuIndicator(.hidden).appIconButton().fixedSize().help("Xuất nhật ký (TXT / SRT / JSON)")
+            }
+            Button(role: .destructive) {
+                if section == .story, !viewingSummaries { ui.confirmClearStory = true } else { ui.confirmClear = true }
+            } label: { Image(systemName: "trash") }
+            .appIconButton()
+            .help(clearTitle)
+        }
     }
 }
 
@@ -158,7 +187,7 @@ private struct ChatScroll<Content: View>: View {
                     Button { scroll(proxy, animated: true) } label: {
                         Label(unseen > 0 ? "Mới nhất (\(unseen))" : "Mới nhất", systemImage: "arrow.down")
                     }
-                    .buttonStyle(GradientButtonStyle(compact: true)).padding(12)
+                    .appButton(.primary).padding(12)
                 }
             }
         }
@@ -329,9 +358,9 @@ struct SubtitleLogView: View {
                 } label: { Label("Copy", systemImage: "doc.on.doc") }
                 .menuStyle(.borderlessButton).fixedSize()
                 Button("Bỏ chọn") { clearSelection() }
-                    .buttonStyle(.borderless).keyboardShortcut(.cancelAction).help("Bỏ chọn (Esc)")
+                    .appButton().keyboardShortcut(.cancelAction).help("Bỏ chọn (Esc)")
                 Button { summarize() } label: { Label("Tóm tắt", systemImage: "text.badge.star") }
-                    .buttonStyle(GradientButtonStyle(compact: true))
+                    .appButton(.primary)
                     .disabled(summarizer.isRunning)
                     .help("Tóm tắt nội dung các câu đã chọn; bản tóm tắt được lưu ở mục Tóm tắt")
             } else if summarizer.isRunning {
@@ -558,7 +587,7 @@ struct NowTranslatingPanel: View {
                 Label(e, systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(Theme.danger).lineLimit(2)
             }
             if pipeline.lastTranslated.isEmpty {
-                Text(pipeline.isRunning ? "Đang chờ phụ đề xuất hiện…" : "Bấm Bắt đầu để dịch phụ đề.")
+                Text(pipeline.isRunning ? "Đang chờ phụ đề xuất hiện…" : "Bấm “Bắt đầu dịch” để dịch phụ đề.")
                     .font(.system(size: 17)).foregroundStyle(.tertiary)
                     .frame(maxWidth: .infinity).padding(.vertical, 10)
             } else {

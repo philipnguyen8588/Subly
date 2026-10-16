@@ -32,7 +32,9 @@ final class OpenAIBackend: CloudChatBackend {
     /// Máy chủ tuỳ chỉnh chạy trên máy (Ollama, LM Studio) không cần key.
     var requiresKey = true
     var isReady: Bool { !model.isEmpty && !baseURL.isEmpty && (!requiresKey || !apiKey.isEmpty) }
-    private var isOfficial: Bool { baseURL.contains("api.openai.com") }
+    /// nil = suy từ địa chỉ; AI share gọi OpenAI qua proxy nên địa chỉ khác nhưng vẫn là API chính hãng.
+    var official: Bool?
+    private var isOfficial: Bool { official ?? baseURL.contains("api.openai.com") }
     /// Lời dặn dịch phụ đề / dịch màn hình (router gán, dùng chung với Gemini).
     var subtitlePrompt: () -> String = { "" }
     var analysisPrompt: () -> String = { "" }

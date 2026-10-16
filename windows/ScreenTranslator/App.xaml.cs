@@ -151,6 +151,7 @@ public partial class App : Application
         WebServer.shared.Apply();
         AppSettings.shared.Changed += k => { if (k is "webServerEnabled" or "webServerPort") RunOnUI(WebServer.shared.Apply); };
         RegionActions.FillMissingWindowOffsets();
+        PS5Coordinator.Install();
         RegisterHotkeys();
         if (!Has("--hidden")) ShowMain();
         if (Has("--open-settings")) ShowSettings();
@@ -189,7 +190,7 @@ public partial class App : Application
             };
             var menu = new System.Windows.Forms.ContextMenuStrip();
             menu.Items.Add("Mở cửa sổ chính", null, (_, _) => RunOnUI(ShowMain));
-            menu.Items.Add("Bắt đầu / Dừng dịch", null, (_, _) => RunOnUI(Pipeline.shared.Toggle));
+            menu.Items.Add("Bắt đầu / Dừng dịch", null, (_, _) => RunOnUI(AppNav.shared.ToggleTranslation));
             menu.Items.Add("Dịch màn hình", null, (_, _) => RunOnUI(Pipeline.shared.AnalyzeScreen));
             menu.Items.Add("Tắt màn hình", null, (_, _) => RunOnUI(() => DisplayPower.shared.SleepDisplay()));
             menu.Items.Add("Cài đặt…", null, (_, _) => RunOnUI(ShowSettings));
@@ -212,7 +213,7 @@ public partial class App : Application
             var p = Pipeline.shared;
             switch (a)
             {
-                case HotkeyManager.HotkeyAction.toggle: p.Toggle(); break;
+                case HotkeyManager.HotkeyAction.toggle: AppNav.shared.ToggleTranslation(); break;
                 case HotkeyManager.HotkeyAction.analyze: p.AnalyzeScreen(); break;
                 case HotkeyManager.HotkeyAction.voice:
                     s.voiceEnabled = !s.voiceEnabled;
@@ -252,15 +253,21 @@ public partial class App : Application
         var settings = AppSettings.shared;
         if (Has("--mute")) { settings.forceMute = true; Log.Info("Muted by --mute"); }
         if (Has("--quiet")) settings.suppressAlerts = true;
+        if (Arg("--settings-tab") is string stab) Delay(0.3, () => ShowSettings(stab));
         if (Arg("--tab") is string tab)
         {
             var map = new System.Collections.Generic.Dictionary<string, AppNav.Tab>
             {
                 ["source"] = AppNav.Tab.source, ["ps5"] = AppNav.Tab.source, ["regions"] = AppNav.Tab.source,
-                ["log"] = AppNav.Tab.log, ["live"] = AppNav.Tab.log, ["analysis"] = AppNav.Tab.log, ["speakers"] = AppNav.Tab.speakers, ["glossary"] = AppNav.Tab.glossary,
+                ["subtitles"] = AppNav.Tab.subtitles, ["log"] = AppNav.Tab.subtitles, ["live"] = AppNav.Tab.subtitles,
+                ["screens"] = AppNav.Tab.screens, ["analysis"] = AppNav.Tab.screens, ["story"] = AppNav.Tab.story,
+                ["game"] = AppNav.Tab.game, ["speakers"] = AppNav.Tab.game, ["glossary"] = AppNav.Tab.game,
             };
-            if (map.TryGetValue(tab, out var t)) AppNav.shared.tab = t;
+            if (map.TryGetValue(tab, out var t)) { AppNav.shared.tab = t; AppNav.shared.screen = AppNav.Screen.main; }
         }
+        // --screen start|main: mở thẳng màn hình đó (kiểm tra giao diện). --skip-readiness: bỏ kiểm tra cài đặt dịch.
+        if (Arg("--screen") is string scr) AppNav.shared.screen = scr == "main" ? AppNav.Screen.main : AppNav.Screen.start;
+        if (Has("--skip-readiness")) settings.forceReady = true;
         if (Has("--no-overlay")) settings.forceNoOverlay = true;
         if (Has("--no-web")) settings.forceNoWeb = true;
         if (Arg("--web-port") is string wp && int.TryParse(wp, out var port)) settings.forceWebPort = port;
@@ -288,6 +295,15 @@ public partial class App : Application
         if (Has("--clear-regions")) settings.regions = new();
         if (Arg("--gemini-base-url") is string gb) settings.geminiBaseURL = gb;
         if (Arg("--gemini-key") is string gk) settings.geminiAPIKey = gk;
+        // --share-server <url>: AI share dùng server này (test với server chạy trên máy). --share-token <token>: nhập token.
+        if (Arg("--share-server") is string shareServer) settings.forceShareServer = shareServer;
+        if (Arg("--share-token") is string shareToken)
+            _ = Task.Run(async () =>
+            {
+                try { await AIShareClient.ImportToken(shareToken); } catch (Exception e) { Log.Warn($"AI share: {e.Message}"); }
+            });
+        // Admin có thể đã sửa model hoặc thu hồi share từ lần mở trước.
+        else _ = AIShareClient.Refresh();
         for (int i = 0; i < args.Length; i++)
         {
             if ((args[i] == "--test-region" || args[i] == "--add-region") && i + 1 < args.Length)
@@ -366,7 +382,15 @@ public partial class App : Application
                 var found = PS5Stream.Discover(PS5Stream.BroadcastAddresses());
                 Log.Info($"PS5 discover: {(ChiakiNative.Available ? $"{found.Count} máy" : ChiakiNative.LoadError)} {string.Join("; ", found.Select(f => $"{f.name} {f.addr} ps5={f.ps5} state={f.stateLabel}"))}");
             });
-        if (Has("--ps5-connect")) Delay(1.5, PS5Coordinator.Connect);
+        if (Has("--ps5-connect")) Delay(1.5, AppNav.shared.Enter);
+        // --simulate-ps5-drop <giây>: sau N giây giả lập mất kết nối PS5 ở màn hình chính (không kết nối thật) để xem lớp phủ.
+        if (Arg("--simulate-ps5-drop") is string sd && double.TryParse(sd, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var dropAfter))
+            Delay(dropAfter, () =>
+            {
+                PS5Reconnector.shared.simulate = true;
+                AppNav.shared.screen = AppNav.Screen.main;
+                PS5Reconnector.shared.ConnectionLost("Giả lập: mất kết nối", false);
+            });
         // --show-shot: mở modal ảnh "dịch màn hình" mới nhất còn lưu (kiểm tra giao diện).
         if (Has("--show-shot") && HistoryStore.shared.analyses.FirstOrDefault(a => a.hasImage) is ScreenAnalysis a) Delay(0.5, () => ShotViewer.Show(a.id));
         // --snap <thư mục>: chụp từng vùng ra PNG và OCR thử (kiểm tra toạ độ / chụp cửa sổ).
@@ -390,7 +414,7 @@ public partial class App : Application
             });
         // --render-ui <thư mục>: vẽ từng tab của cửa sổ chính và từng trang Cài đặt ra PNG (kiểm tra giao diện).
         if (Arg("--render-ui") is string uiDir) Delay(2, () => RenderUi(uiDir));
-        if (Has("--autostart")) Delay(0.5, () => _ = Pipeline.shared.Start());
+        if (Has("--autostart")) { AppNav.shared.screen = AppNav.Screen.main; Delay(0.5, () => _ = Pipeline.shared.Start()); }
         if (Has("--analyze-once")) Delay(2, Pipeline.shared.AnalyzeScreen);
         var inv = System.Globalization.CultureInfo.InvariantCulture;
         if (Arg("--story-interval") is string si && double.TryParse(si, System.Globalization.NumberStyles.Float, inv, out var every) && every > 0)
@@ -421,7 +445,11 @@ public partial class App : Application
             Log.Info($"RENDER {path}");
         }
         ShowMain();
-        foreach (var t in new[] { AppNav.Tab.source, AppNav.Tab.log, AppNav.Tab.speakers, AppNav.Tab.glossary })
+        AppNav.shared.screen = AppNav.Screen.start;
+        await Task.Delay(700);
+        Save((FrameworkElement)main!.Content, System.IO.Path.Combine(dir, "start.png"));
+        AppNav.shared.screen = AppNav.Screen.main;
+        foreach (var t in Enum.GetValues<AppNav.Tab>())
         {
             AppNav.shared.tab = t;
             await Task.Delay(700);
@@ -435,7 +463,7 @@ public partial class App : Application
             ShotViewer.Close();
         }
         ShowSettings();
-        foreach (var k in new[] { "translate", "capture", "voice", "overlay", "glossary", "profile", "hotkeys", "web" })
+        foreach (var k in new[] { "translate", "ai", "capture", "voice", "overlay", "glossary", "profile", "hotkeys", "web" })
         {
             settingsWindow!.Select(k);
             await Task.Delay(500);

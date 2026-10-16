@@ -18,8 +18,11 @@ struct ScreenTranslatorApp: App {
                 }
                 CommandGroup(replacing: .newItem) {
                     Button("Mở cửa sổ chính") { WindowManager.shared.showMain() }.keyboardShortcut("1", modifiers: .command)
-                    Button("Game mới…") { WindowManager.shared.showMain(); AppNav.shared.showNewProfile = true }
-                        .keyboardShortcut("n", modifiers: .command)
+                    Button("Game mới…") {
+                        WindowManager.shared.showMain()
+                        if AppNav.shared.screen == .start { AppNav.shared.showNewProfile = true }
+                    }
+                    .keyboardShortcut("n", modifiers: .command)
                 }
             }
     }
@@ -103,7 +106,7 @@ final class WindowManager {
             w.titlebarAppearsTransparent = true
             w.titleVisibility = .hidden
             w.isReleasedWhenClosed = false
-            w.minSize = NSSize(width: 860, height: 560)
+            w.minSize = NSSize(width: 920, height: 560)
             // Không để NSHostingView ép chiều cao/ngang "lý tưởng" của SwiftUI thành kích thước tối thiểu của
             // cửa sổ (nếu không, nội dung dài sẽ khiến cửa sổ cao hết màn hình và không kéo ngắn lại được).
             let host = NSHostingView(rootView: MainWindowView())
@@ -117,7 +120,8 @@ final class WindowManager {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    func showSettings() {
+    func showSettings(tab: SettingsView.Tab? = nil) {
+        if let tab { AppNav.shared.settingsTab = tab }
         if settings == nil {
             let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
                              styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -167,6 +171,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Khởi động đầy đủ (chạy ngay lúc mở app, không phụ thuộc trạng thái duyệt).
     @MainActor private func startApp() {
         Log.info("Profile '\(AppSettings.shared.activeProfile.name)', regions: \(AppSettings.shared.regions.count)")
+        PS5Coordinator.install()
         handleCommandLine()
         StoryTracker.shared.begin()
         WebServer.shared.apply()
@@ -204,7 +209,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let hm = HotkeyManager.shared
         hm.unregisterAll()
         guard s.hotkeysEnabled else { return }
-        hm.register(.toggle, combo: s.hotkeyToggle) { Pipeline.shared.toggle() }
+        hm.register(.toggle, combo: s.hotkeyToggle) { AppNav.shared.toggleTranslation() }
         hm.register(.analyze, combo: s.hotkeyAnalyze) { Pipeline.shared.analyzeScreen() }
         hm.register(.voice, combo: s.hotkeyVoice) {
             s.voiceEnabled.toggle()
@@ -230,6 +235,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     //   --test-region x,y,w,h[,Tên]          vùng tạm, không lưu
     //   --clear-regions  --autostart  --mute  --quiet  --hidden  --analyze-once  --no-web  --web-port N
     //   --gemini-base-url <url>  --gemini-key <key>
+    //   --share-server <url>      AI share dùng server này thay cho server nhúng sẵn (test với server chạy trên máy)
+    //   --share-token <token>     nhập token AI share (như dán ở Cài đặt → AI)
     //   --story-interval <giây>   bật cốt truyện cho phiên này với chu kỳ ngắn (không lưu)
     //   --story-now <giây>        sau N giây thì cập nhật cốt truyện một lần (như bấm "Cập nhật ngay")
     //   --quit-after <giây>       tự thoát sau N giây
@@ -240,9 +247,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if args.contains("--quiet") { settings.suppressAlerts = true }
         if let i = args.firstIndex(of: "--tab"), i + 1 < args.count {
             // Tên tab cũ vẫn dùng được: ps5/regions → Màn hình, live/analysis → Nhật ký.
-            let map: [String: MainTab] = ["source": .source, "ps5": .source, "regions": .source, "log": .log, "live": .log, "analysis": .log, "speakers": .speakers, "glossary": .glossary]
-            if let t = map[args[i + 1]] { AppNav.shared.tab = t }
+            let map: [String: MainTab] = ["source": .source, "ps5": .source, "regions": .source, "subtitles": .subtitles, "log": .subtitles, "live": .subtitles,
+                                          "screens": .screens, "analysis": .screens, "story": .story, "game": .game, "speakers": .game, "glossary": .game]
+            if let t = map[args[i + 1]] { AppNav.shared.tab = t; AppNav.shared.screen = .main }
         }
+        // --screen start|main: mở thẳng màn hình đó (kiểm tra giao diện). --skip-readiness: bỏ kiểm tra cài đặt dịch.
+        if let i = args.firstIndex(of: "--screen"), i + 1 < args.count { AppNav.shared.screen = args[i + 1] == "main" ? .main : .start }
+        if args.contains("--skip-readiness") { settings.forceReady = true }
+        if let i = args.firstIndex(of: "--settings-tab"), i + 1 < args.count, let t = SettingsView.Tab(rawValue: args[i + 1]) { AppNav.shared.settingsTab = t }
         if args.contains("--no-overlay") { settings.forceNoOverlay = true }
         if args.contains("--no-web") { settings.forceNoWeb = true }
         if let i = args.firstIndex(of: "--web-port"), i + 1 < args.count { settings.forceWebPort = Int(args[i + 1]) }
@@ -260,6 +272,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if args.contains("--clear-regions") { settings.regions = [] }
         if let i = args.firstIndex(of: "--gemini-base-url"), i + 1 < args.count { settings.geminiBaseURL = args[i + 1] }
         if let i = args.firstIndex(of: "--gemini-key"), i + 1 < args.count { settings.geminiAPIKey = args[i + 1] }
+        if let i = args.firstIndex(of: "--share-server"), i + 1 < args.count { settings.forceShareServer = args[i + 1] }
+        if let i = args.firstIndex(of: "--share-token"), i + 1 < args.count {
+            let token = args[i + 1]
+            Task { @MainActor in
+                do { _ = try await AIShareClient.importToken(token) } catch { Log.warn("AI share: \(error.localizedDescription)") }
+            }
+        } else {
+            // Admin có thể đã sửa model hoặc thu hồi share từ lần mở trước.
+            Task { @MainActor in await AIShareClient.refresh() }
+        }
         var i = 0
         while i < args.count {
             if args[i] == "--test-region", i + 1 < args.count {
@@ -336,13 +358,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if args.contains("--ps5-connect") {
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 1_500_000_000)
-                PS5Coordinator.connect()
+                AppNav.shared.enter()
+            }
+        }
+        // --simulate-ps5-drop <giây>: sau N giây giả lập mất kết nối PS5 ở màn hình chính (không kết nối thật) để xem lớp phủ.
+        if let i = args.firstIndex(of: "--simulate-ps5-drop"), i + 1 < args.count, let sec = Double(args[i + 1]) {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(sec))
+                PS5Reconnector.shared.simulate = true
+                AppNav.shared.screen = .main
+                PS5Reconnector.shared.connectionLost("Giả lập: mất kết nối", wasTranslating: false)
             }
         }
         // --show-shot: mở modal ảnh "dịch màn hình" mới nhất còn lưu (kiểm tra giao diện).
         if args.contains("--show-shot"), let a = HistoryStore.shared.analyses.first(where: \.hasImage) { ShotViewer.shared.show(a.id) }
         if args.contains("--show-frames") { RegionEditor.shared.showAll(settings.regions) }
-        if args.contains("--autostart") { Task { @MainActor in await Pipeline.shared.start() } }
+        if args.contains("--autostart") { AppNav.shared.screen = .main; Task { @MainActor in await Pipeline.shared.start() } }
         if args.contains("--analyze-once") {
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 2_000_000_000)

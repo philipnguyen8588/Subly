@@ -65,6 +65,8 @@ final class WebServer: ObservableObject, @unchecked Sendable {
         let parts: [Part]; let characters: [StoryCharacter]; let lore: [StoryLore]
     }
     private struct ResultDTO: Encodable { let ok: Bool; let error: String?; var id: Int64? = nil }
+    private struct AskTurnDTO: Decodable { let q: String; let a: String }
+    private struct AskDTO: Encodable { var ok: Bool; var answer = ""; var backend = ""; var ms = 0; var error: String? = nil }
     private struct AudioDTO: Encodable { let id: Int; let mime: String; let flush: Bool; let text: String }
     private var clips: [Int: (Data, String)] = [:]                 // giọng đọc gửi TV; chỉ dùng trên `queue`
     private var clipSeq = 0                                        // chỉ dùng trên `queue`
@@ -344,7 +346,11 @@ final class WebServer: ObservableObject, @unchecked Sendable {
                     p.stop()
                 } else {
                     let regions = p.settings.subtitleRegions.filter(\.enabled)
-                    if regions.isEmpty {
+                    if AppNav.shared.screen == .start {
+                        error = "Mở Subly trên Mac, chọn game và bấm Bắt đầu."
+                    } else if let issue = Readiness.check().first {
+                        error = "\(issue.title). \(issue.detail)"
+                    } else if regions.isEmpty {
                         error = "Chưa có vùng phụ đề. Mở tab Màn hình trên Mac để vẽ khung phụ đề."
                     } else if regions.contains(where: { !$0.embedded }), !CGPreflightScreenCaptureAccess() {
                         error = "App trên Mac chưa có quyền Ghi màn hình."
@@ -372,6 +378,26 @@ final class WebServer: ObservableObject, @unchecked Sendable {
                 else { tracker.updateNow() }
                 Log.info("Web: cập nhật cốt truyện từ xa → \(error ?? "đã bắt đầu")")
                 let body = Self.json(ResultDTO(ok: error == nil, error: error))
+                self.queue.async { self.respond(c, type: "application/json", body: body) }
+            }
+        case ("POST", "/api/story/ask"):
+            // Mục "Hỏi đáp" của tab Cốt truyện trên web: ?q=câu hỏi&h=[{"q","a"}] (các lượt trước, trang web tự giữ).
+            let items = URLComponents(string: "/?" + query)?.queryItems ?? []
+            let question = String((items.first { $0.name == "q" }?.value ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(StoryQA.maxQuestion))
+            let history = (items.first { $0.name == "h" }?.value?.data(using: .utf8))
+                .flatMap { try? JSONDecoder().decode([AskTurnDTO].self, from: $0) }?.suffix(3)
+                .map { StoryQA.Turn(question: String($0.q.prefix(StoryQA.maxQuestion)), answer: String($0.a.prefix(1500))) } ?? []
+            Task { @MainActor in
+                var dto = AskDTO(ok: false)
+                if question.isEmpty { dto.error = "Chưa nhập câu hỏi." }
+                else if !SessionCheck.shared.valid() { dto.error = "Không hỏi được lúc này. Mở Subly trên Mac để kiểm tra." }
+                else {
+                    do {
+                        let a = try await StoryChat.answer(question, history: history)
+                        dto = AskDTO(ok: true, answer: a.text, backend: a.backend.label, ms: a.ms)
+                    } catch { dto.error = "Không trả lời được: \(error.localizedDescription)" }
+                }
+                let body = Self.json(dto)
                 self.queue.async { self.respond(c, type: "application/json", body: body) }
             }
         case ("POST", "/api/analyze"):

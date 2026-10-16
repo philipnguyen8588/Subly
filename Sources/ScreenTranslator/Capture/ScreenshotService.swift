@@ -64,9 +64,11 @@ enum ScreenshotService {
     }
 
     /// `scale` = pixel/point. Dùng ~0.3 cho thumbnail, 2 cho OCR.
-    static func capture(region: Region, scale: Double) async throws -> CGImage {
+    /// Vùng PS5: `scale` < 1 = thumbnail; `embeddedScale` phóng to / thu nhỏ so với ảnh gốc của luồng (Dịch màn hình).
+    static func capture(region: Region, scale: Double, embeddedScale: Double = 1) async throws -> CGImage {
         if region.embedded {
-            guard let img = PS5FrameCapture.image(for: region, maxWidth: scale < 1 ? 640 : nil) else {
+            guard let img = PS5FrameCapture.image(for: region, maxWidth: scale < 1 ? 640 : nil,
+                                                  scale: scale < 1 ? 1 : embeddedScale) else {
                 throw NSError(domain: "Screenshot", code: 5, userInfo: [NSLocalizedDescriptionKey: "Chưa có hình từ PS5 (chưa kết nối)"])
             }
             return img

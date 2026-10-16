@@ -54,6 +54,10 @@ final class PS5Stream: ObservableObject, @unchecked Sendable {
     private var fpsTimer: Timer?
     private var generation = 0
     private var needKeyframe = false
+    /// Số giây liên tiếp không có khung nào trong lúc đang nhận hình.
+    private var silentSeconds = 0
+    /// Rớt mạng (socket báo Broken pipe) thì libchiaki không tự kết thúc phiên: không có hình chừng này giây coi như mất kết nối.
+    private static let stallTimeout = 8
 
     private init() {
         decoder.onFrame = { [weak self] pb in self?.deliver(pb) }
@@ -273,6 +277,8 @@ final class PS5Stream: ObservableObject, @unchecked Sendable {
             Log.info("PS5: phiên kết thúc (\(msg))")
             // Không được join luồng phiên ngay trong callback của nó → dọn ở hàng đợi khác.
             work.async { [self] in
+                // Phiên đã bị dọn chủ động (Ngắt, hoặc watchdog mất hình): trạng thái đã được đặt, bỏ qua sự kiện "Stopped".
+                guard session != nil else { return }
                 teardown()
                 switch code {
                 case 1: setState(.idle)
@@ -312,10 +318,24 @@ final class PS5Stream: ObservableObject, @unchecked Sendable {
 
     private func startFPSTimer() {
         fpsTimer?.invalidate()
+        silentSeconds = 0
         fpsTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             guard let self else { return }
             self.lock.lock(); let n = self.framesThisSecond; self.framesThisSecond = 0; self.lock.unlock()
             if self.fps != n { self.fps = n }
+            guard self.state == .streaming, n == 0 else { self.silentSeconds = 0; return }
+            self.silentSeconds += 1
+            if self.silentSeconds == Self.stallTimeout { self.stalled() }
+        }
+    }
+
+    /// Main thread. Phiên vẫn "mở" nhưng không còn hình → đóng phiên để PS5Reconnector kết nối lại.
+    private func stalled() {
+        Log.warn("PS5: \(Self.stallTimeout) giây không nhận được hình → coi như mất kết nối")
+        work.async { [self] in
+            guard session != nil else { return }
+            teardown()
+            setState(.failed("Mất kết nối: không nhận được hình từ PS5 (mạng bị rớt)"))
         }
     }
 

@@ -55,8 +55,8 @@ struct AddSpeakerSheet: View {
             HStack {
                 Text("Áp dụng cho các câu sau; câu cũ trong nhật ký giữ nguyên.").font(.caption).foregroundStyle(.tertiary)
                 Spacer()
-                Button("Huỷ") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Thêm", action: add).buttonStyle(GradientButtonStyle(compact: true)).keyboardShortcut(.defaultAction)
+                Button("Huỷ") { dismiss() }.appButton().keyboardShortcut(.cancelAction)
+                Button("Thêm", action: add).appButton(.primary, minWidth: 90).keyboardShortcut(.defaultAction)
                     .disabled(cleanName.isEmpty || exists)
             }
         }

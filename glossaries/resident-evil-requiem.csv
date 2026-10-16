@@ -1,0 +1,205 @@
+#!game=Resident Evil Requiem
+# Thuật ngữ Resident Evil Requiem cho ScreenTranslator. Định dạng: thuật ngữ gốc,bản dịch (để trống = giữ nguyên)
+# Nhân vật
+Grace Ashcroft,
+Grace,
+Ashcroft,
+Leon S. Kennedy,
+Leon Scott Kennedy,
+Leon,
+Kennedy,
+Alyssa Ashcroft,
+Alyssa,
+Sherry Birkin,
+Sherry,
+Emily,
+Victor Gideon,
+Dr. Victor Gideon,Tiến sĩ Victor Gideon
+Dr. Gideon,Tiến sĩ Gideon
+Victor,
+Gideon,
+Zeno,
+Oswell E. Spencer,
+Ozwell E. Spencer,
+Oswell Spencer,
+Ozwell Spencer,
+Spencer,
+Nathan Dempsy,
+Dempsy,
+Norman Cole,
+Harry Reed,
+Marie,
+Chloe,
+Charlotte,
+Meryl Branagh,
+Meryl,
+Marvin Branagh,
+Emily Berkhoff,
+Tundra,
+Chris Redfield,
+Chris,
+Claire Redfield,
+Claire,
+Jill Valentine,
+Jill,
+Albert Wesker,
+Wesker,
+William Birkin,
+Ada Wong,
+Barry Burton,
+Barry,
+Rebecca Chambers,
+Brian Irons,
+Robert Kendo,
+Emma Kendo,
+The Girl,Cô Bé
+Subject 170,Đối tượng 170
+Hooded Man,Gã Trùm Mũ
+Wrenwood Hotel Manager,Quản lý Khách sạn Wrenwood
+# Địa danh
+Raccoon City,
+Raccoon City East,Đông Raccoon City
+Raccoon City Center,Trung tâm Raccoon City
+Wrenwood,
+Wrenwood Hotel,Khách sạn Wrenwood
+Rhodes Hill,
+Rhodes Hill Chronic Care Center,Trung tâm Chăm sóc Bệnh Mãn tính Rhodes Hill
+Rhodes Hill Care Center,Trung tâm Chăm sóc Rhodes Hill
+Care Center,Trung tâm Chăm sóc
+Care Center Courtyard,Sân trong Trung tâm Chăm sóc
+Rhodes Hill Water Treatment Plant,Nhà máy Xử lý Nước Rhodes Hill
+Water Treatment Plant,Nhà máy Xử lý Nước
+West Wing,Cánh Tây
+East Wing,Cánh Đông
+Raccoon City Police Department,Sở Cảnh sát Raccoon City
+R.P.D.,
+RPD,
+Police Station,Đồn Cảnh sát
+Raccoon City Orphanage,Trại trẻ mồ côi Raccoon City
+Orphanage,Trại trẻ mồ côi
+Blackthorn Station,Ga Blackthorn
+Cedarbrook Apartments,Chung cư Cedarbrook
+Gun Shop Kendo,Tiệm súng Kendo
+ARK,
+Bioweapon Repository,Kho Vũ khí Sinh học
+Elpis chamber,phòng chứa Elpis
+# Phe phái / Tổ chức
+FBI,
+Federal Bureau of Investigation,Cục Điều tra Liên bang
+Midwest Field Office,Văn phòng FBI khu vực Trung Tây
+Special Agent in Charge,Đặc vụ Phụ trách
+DSO,
+Division of Security Operations,Cục Chiến dịch An ninh
+Umbrella,
+Umbrella Corporation,Tập đoàn Umbrella
+BSAA,
+Bioterrorism Security Assessment Alliance,Liên minh Đánh giá An ninh Khủng bố Sinh học
+Hound Wolf Squad,
+Hound Wolf Unit,
+The Connections,
+Connections,
+Wrenwood Police Department,Sở Cảnh sát Wrenwood
+Engineer Corps,Binh đoàn Công binh
+# Kẻ địch / Boss
+Zombie,xác sống
+Raccoon City Zombie,xác sống Raccoon City
+Chainsaw Zombie,xác sống cưa máy
+Chef Zombie,xác sống đầu bếp
+Zombie Chef,xác sống đầu bếp
+Blister Head,
+Blister Borne,
+Chunk,
+Small Spider,nhện nhỏ
+Titan Spinner,
+Garmr,
+The Children,Lũ Trẻ
+Plant 43,
+Tyrant,
+Tyrant T-501,
+Super Tyrant,
+Super Tyrant T-501,
+Mr. X,
+Licker,
+Licker β2,
+Elite Guard,Vệ binh Tinh nhuệ
+The Commander,Kẻ Chỉ Huy
+# Thuật ngữ cốt truyện
+T-virus,
+Raccoon City Syndrome,Hội chứng Raccoon City
+RCS,
+Elpis,
+Raccoon City Incident,Sự kiện Raccoon City
+Raccoon City Destruction Incident,Sự kiện Hủy diệt Raccoon City
+Raccoon City survivors,những người sống sót ở Raccoon City
+Wrenwood Hotel Case,Vụ án Khách sạn Wrenwood
+Series 60,Loạt 60
+Series 70,Loạt 70
+memory transfer,chuyển giao ký ức
+consciousness transfer,chuyển giao ý thức
+bioweapon,vũ khí sinh học
+outbreak,đợt bùng phát
+missile strike,cuộc tấn công bằng tên lửa
+fail-safe,cơ chế an toàn
+# Vũ khí
+Requiem,
+Requiem revolver,súng ổ quay Requiem
+Alligator Snapper,
+Silencer 9,
+MSBG 500,
+W870 Police,
+990-TAC,
+Stiri REVO3 A1,
+Classic 70,
+Marksman 1A,
+Matilda IMP,
+Ghost Grudge,
+Redemption,
+Clatter Carbine,
+Mortal Edge,
+RPG-7,
+Freya's Needle,
+Kotetsu,
+Makeshift Knife,Dao tự chế
+Hunting Knife,Dao săn
+Hatchet,Rìu cầm tay
+Hand Grenade,Lựu đạn
+Molotov Cocktail,Bom xăng
+# Vật phẩm / Cơ chế
+Ink Ribbon,Ruy băng mực
+Typewriter,Máy đánh chữ
+Supply Box,Hộp tiếp tế
+Green Herb,Thảo dược xanh
+Mixed Herb,Thảo dược trộn
+Med Injector,Ống tiêm y tế
+Stabilizer,Thuốc ổn định
+Steroids,Steroid
+Hemolytic Injector,Ống tiêm tan máu
+Blood Collector,Bộ thu thập máu
+Antique Coin,Đồng xu cổ
+Lockpick,Dụng cụ mở khóa
+Empty Bottle,Chai rỗng
+Old Key,Chìa khóa cũ
+Cherub Key,Chìa khóa Thiên thần
+Pantry Key,Chìa khóa kho thực phẩm
+West Wing Keycard,Thẻ khóa Cánh Tây
+East Wing Keycard,Thẻ khóa Cánh Đông
+ID Wristband,Vòng tay nhận dạng
+Moon Quartz,Thạch anh Mặt Trăng
+Sun Quartz,Thạch anh Mặt Trời
+Star Quartz,Thạch anh Ngôi Sao
+Unicorn Trinket Box,Hộp nữ trang Kỳ Lân
+Organ Transport Box,Hộp vận chuyển nội tạng
+Artificial Heart,Tim nhân tạo
+Artificial Lungs,Phổi nhân tạo
+Double Helix Model,Mô hình chuỗi xoắn kép
+Helicopter Key,Chìa khóa trực thăng
+Marie's Doll,Búp bê của Marie
+BSAA Container,Thùng chứa BSAA
+Override Key,Chìa khóa vô hiệu hóa
+Magnetic Key,Chìa khóa từ
+Animus Orb,Quả cầu Animus
+Noblesse Orb,Quả cầu Noblesse
+Data disk,Đĩa dữ liệu
+Alyssa's Journal,Nhật ký của Alyssa
+Investigation Report,Báo cáo điều tra
+Spencer's Research,Nghiên cứu của Spencer

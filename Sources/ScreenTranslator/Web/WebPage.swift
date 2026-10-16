@@ -157,6 +157,28 @@ summary p { margin: 4px 0 0; font-size: 15px; line-height: 1.4; }
   background: none; color: var(--accent); font-size: 13px; font-weight: 600; }
 #storyInfo button:disabled { opacity: .5; }
 #storyNote { margin: -6px 2px 14px; color: var(--bad); font-size: 13px; }
+/* Hỏi đáp: hỏi về cốt truyện, app trả lời từ dữ liệu đã ghi lại */
+#askBar { display: none; flex: none; gap: 8px; padding: 8px 16px 10px; border-top: 1px solid var(--line); }
+#story.asking #askBar { display: flex; }
+#story.asking #storyFilter { display: none; }
+#askInput { flex: 1; min-width: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel);
+  color: var(--text); outline: none; font-size: 16px; }
+#askInput:focus { border-color: var(--accent); }
+#askSend { flex: none; height: 42px; padding: 0 16px; border: 0; border-radius: 10px; background: var(--accent); color: var(--on-accent);
+  font-size: 15px; font-weight: 700; }
+#askSend:disabled { opacity: .5; }
+.askIntro { margin: 6px 2px 12px; color: var(--dim); font-size: 14.5px; line-height: 1.45; }
+.sugg { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+.sugg button { min-height: 32px; padding: 4px 12px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel);
+  color: var(--text); font-size: 13.5px; text-align: left; }
+.qa { display: flex; flex-direction: column; gap: 8px; margin: 6px 0 16px; }
+.qa .q { align-self: flex-end; max-width: 85%; padding: 9px 13px; border-radius: 14px 14px 4px 14px; background: var(--accent);
+  color: var(--on-accent); font-size: 15px; line-height: 1.35; white-space: pre-wrap; overflow-wrap: anywhere; }
+.qa .a { align-self: flex-start; max-width: 94%; padding: 11px 13px; border: 1px solid var(--line); border-radius: 14px 14px 14px 4px;
+  background: var(--panel); color: var(--body); font-size: 15.5px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.qa .a.err { color: var(--bad); }
+.qa .a.wait { color: var(--faint); }
+.qa small { display: block; margin-top: 6px; color: var(--faint); font-size: 11.5px; }
 #storyInfo.busy::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex: none;
   animation: pulse 1.1s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: .25; } }
@@ -282,9 +304,10 @@ nav button.active { color: var(--accent); }
     <section id="story">
       <input id="storyFilter" class="search" type="search" placeholder="Tìm trong cốt truyện, nhân vật, bách khoa" autocomplete="off">
       <div id="chips">
-        <button data-kind="all">Tất cả</button><button data-kind="narr">Tóm lược</button><button data-kind="parts">Diễn biến<i id="nParts"></i></button><button data-kind="chars">Nhân vật<i id="nChars"></i></button><button data-kind="lore">Bách khoa<i id="nLore"></i></button>
+        <button data-kind="all">Tất cả</button><button data-kind="narr">Tóm lược</button><button data-kind="parts">Diễn biến<i id="nParts"></i></button><button data-kind="chars">Nhân vật<i id="nChars"></i></button><button data-kind="lore">Bách khoa<i id="nLore"></i></button><button data-kind="ask">Hỏi đáp</button>
       </div>
       <div class="scroll" id="storyList"></div>
+      <form id="askBar"><input id="askInput" type="text" placeholder="Hỏi về cốt truyện, vd. Iron Kingdom có những ai?" autocomplete="off" enterkeyhint="send"><button id="askSend">Gửi</button></form>
     </section>
     <section id="scan">
       <div class="scroll" id="scanList"><div id="shots"></div><div id="texts"></div></div>
@@ -523,6 +546,8 @@ function partTime(p) {
 function renderStory() {
   const box = $('storyList'), q = fold($('storyFilter').value.trim());
   for (const b of $('chips').children) b.classList.toggle('active', b.dataset.kind === storyKind);
+  $('story').classList.toggle('asking', storyKind === 'ask');
+  if (storyKind === 'ask') { renderAsk(); return; }
   box.textContent = '';
   const s = story;
   if (s && !s.lore) s.lore = [];
@@ -661,6 +686,47 @@ function renderStory() {
 async function loadStory() {
   try { story = await (await fetch('/api/story')).json(); renderStory(); } catch {}
 }
+// ---- Hỏi đáp: hội thoại giữ trên trang (riêng từng game), gửi kèm vài lượt trước để hỏi tiếp được
+let askTurns = [], askBusy = false;
+function renderAsk() {
+  const box = $('storyList');
+  box.textContent = '';
+  if (!askTurns.length) {
+    box.append(node('p', 'askIntro', 'Hỏi bất cứ điều gì về cốt truyện game này. App trả lời dựa trên cốt truyện, nhân vật, bách khoa và phụ đề đã ghi lại: chỉ những gì bạn đã chơi tới, không tiết lộ trước.'));
+    const ideas = ['Tóm tắt cốt truyện đến hiện tại', 'Nhân vật chính là ai?', 'Ai đang đồng hành cùng nhân vật chính?'];
+    const f = story && (story.lore || []).find(l => l.kind === 'faction');
+    if (f) ideas.push(f.name + ' có những ai?');
+    const sg = node('div', 'sugg');
+    for (const t of ideas) { const b = node('button', '', t); b.onclick = () => ask(t); sg.append(b); }
+    box.append(sg);
+  }
+  for (const t of askTurns) {
+    const w = node('div', 'qa');
+    w.append(node('div', 'q', t.q));
+    const a = node('div', 'a' + (t.error ? ' err' : t.a == null ? ' wait' : ''), t.error || (t.a ?? 'Đang tìm trong cốt truyện…'));
+    if (t.a && t.backend) a.append(node('small', '', t.backend + ' · ' + (t.ms / 1000).toFixed(1) + 's'));
+    w.append(a);
+    box.append(w);
+  }
+  $('askSend').disabled = askBusy;
+  box.scrollTop = box.scrollHeight;
+}
+async function ask(text) {
+  const q = text.trim();
+  if (!q || askBusy) return;
+  // Câu hỏi đi trong địa chỉ (server không đọc thân request): chỉ gửi kèm hai lượt gần nhất, cắt ngắn.
+  const h = askTurns.filter(t => t.a).slice(-2).map(t => ({ q: t.q.slice(0, 200), a: t.a.slice(0, 400) }));
+  const t = { q: q.slice(0, 500), a: null };
+  askTurns.push(t); askBusy = true; $('askInput').value = '';
+  renderAsk();
+  try {
+    const r = await post('/api/story/ask?q=' + encodeURIComponent(t.q) + '&h=' + encodeURIComponent(JSON.stringify(h)));
+    if (r.ok) { t.a = r.answer; t.backend = r.backend; t.ms = r.ms; } else t.error = r.error || 'Không trả lời được.';
+  } catch { t.error = OFFLINE; }
+  askBusy = false;
+  if (tab === 'story' && storyKind === 'ask') renderAsk();
+}
+$('askBar').onsubmit = e => { e.preventDefault(); ask($('askInput').value); };
 $('storyFilter').oninput = () => { renderStory(); $('storyList').scrollTop = 0; };
 for (const b of $('chips').children) b.onclick = () => {
   storyKind = b.dataset.kind; store.set('storyKind', storyKind);
@@ -834,7 +900,7 @@ function renderStatus() {
 }
 // Trên app đổi sang game khác: bỏ hết dữ liệu của game cũ và nạp lại theo game mới.
 function switchGame() {
-  current = null; hist = []; entries = []; scans = []; story = null;
+  current = null; hist = []; entries = []; scans = []; story = null; askTurns = [];
   partFlip.clear(); charOpen.clear(); narrOpen = false;
   closeViewer();
   renderCurrent(); renderHist();

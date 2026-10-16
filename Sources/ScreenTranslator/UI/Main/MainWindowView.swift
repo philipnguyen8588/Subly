@@ -3,55 +3,90 @@ import AppKit
 
 struct MainWindowView: View {
     @ObservedObject var nav = AppNav.shared
-    @ObservedObject var settings = AppSettings.shared
-    @ObservedObject var viewer = ShotViewer.shared
 
     var body: some View {
-        VStack(spacing: 0) {
-            HeaderBar()
-            SupportBanner()
-            TabBar(tab: $nav.tab, badges: [
-                .speakers: settings.showsSpeakerNames && !settings.speakers.isEmpty ? "\(settings.speakers.count)" : nil,
-                .glossary: settings.glossary.isEmpty ? nil : "\(settings.glossary.count)",
-            ])
-            Divider()
-            Group {
-                switch nav.tab {
-                case .source: SourceTabView()
-                case .log: LogTabView()
-                case .speakers: SpeakersTab()
-                case .glossary:
-                    VStack(alignment: .leading, spacing: 10) {
-                        TranslationStyleBox()
-                        GlossaryEditor(entries: $settings.glossary, fileName: "thuat-ngu-\(settings.activeProfile.name).csv",
-                                   note: "Thuật ngữ riêng của game “\(settings.activeProfile.name)”: tên riêng, địa danh, chiêu thức… Khi trùng với thuật ngữ chung (Cài đặt → Thuật ngữ chung) thì bảng này được ưu tiên. Để trống bản dịch = giữ nguyên.")
-                    }
-                    .padding(16)
-                }
+        Group {
+            switch nav.screen {
+            case .start: StartView()
+            case .main: MainScreen()
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(Theme.windowBackground)
-        .overlay { if let id = viewer.currentID { ShotModal(id: id) } }
         .sheet(isPresented: $nav.showNewProfile) { NewProfileSheet() }
     }
 }
 
-/// Tạo game mới: tên game + nguồn hình.
+/// Màn hình chơi: game đang chơi + nút Đổi game, hai nút chính, các tab, thanh trạng thái.
+struct MainScreen: View {
+    @ObservedObject var nav = AppNav.shared
+    @ObservedObject var settings = AppSettings.shared
+    @ObservedObject var viewer = ShotViewer.shared
+    @ObservedObject var reconnector = PS5Reconnector.shared
+    @ObservedObject var store = HistoryStore.shared
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HeaderBar()
+            TabBar(tab: $nav.tab, badges: [
+                .subtitles: store.entries.isEmpty ? nil : String(store.entries.count),
+                .screens: store.analyses.isEmpty ? nil : String(store.analyses.count),
+            ]) {
+                if nav.tab.isLog { LogToolbar(section: nav.tab) }
+            }
+            Divider()
+            Group {
+                switch nav.tab {
+                case .source: SourceTabView()
+                case .subtitles, .screens, .story: LogPane(section: nav.tab)
+                case .game: GameSetupView()
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay { if reconnector.active { ReconnectOverlay() } }
+            StatusBar()
+        }
+        .overlay { if let id = viewer.currentID { ShotModal(id: id) } }
+    }
+}
+
+/// Thêm game: chọn một hoặc nhiều game mẫu (kèm sẵn thuật ngữ, từ glossaries/*.csv đóng kèm app),
+/// hoặc gõ tên để tạo game trống. Ô tên đồng thời là ô tìm trong danh sách game mẫu.
 struct NewProfileSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject var settings = AppSettings.shared
     @State private var name = ""
     @State private var source: ProfileSource = .external
+    @State private var samples: [GameGlossaries.Game] = []
+    @State private var picked: Set<String> = []      // tên game mẫu đã tick
     @FocusState private var focused: Bool
+
+    private var query: String { name.trimmingCharacters(in: .whitespaces) }
+    private var filtered: [GameGlossaries.Game] {
+        query.isEmpty ? samples : samples.filter { $0.name.localizedStandardContains(query) }
+    }
+    private func isAdded(_ g: GameGlossaries.Game) -> Bool {
+        settings.profiles.contains { $0.name.lowercased() == g.name.lowercased() }
+    }
+    /// Tên gõ vào trùng đúng một game mẫu chưa có → thêm game mẫu đó (kèm thuật ngữ) thay vì tạo game trống.
+    private var exactSample: GameGlossaries.Game? {
+        samples.first { $0.name.compare(query, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame && !isAdded($0) }
+    }
+    private var actionTitle: String {
+        if !picked.isEmpty { return "Thêm \(picked.count) game" }
+        if let g = exactSample { return "Thêm “\(g.name)”" }
+        if !query.isEmpty { return "Tạo “\(query)”" }
+        return "Tạo game trống"
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Label("Game mới", systemImage: "gamecontroller.fill").font(.title3.weight(.semibold))
-            Text("Mỗi game giữ riêng nguồn hình, khung phụ đề, thuật ngữ và tên nhân vật.")
-                .font(.callout).foregroundStyle(.secondary)
-            TextField("Tên game (ví dụ: God of War Ragnarök)", text: $name)
+            Text("Chọn game mẫu có sẵn thuật ngữ (chọn được nhiều game), hoặc gõ tên để tạo game của riêng bạn. Mỗi game giữ riêng nguồn hình, khung phụ đề, thuật ngữ và tên nhân vật.")
+                .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            TextField("Tìm game mẫu hoặc nhập tên game mới", text: $name)
                 .textFieldStyle(.roundedBorder).focused($focused)
                 .onSubmit(create)
+            sampleList
             VStack(alignment: .leading, spacing: 8) {
                 Text("Lấy hình từ đâu?").font(.callout.weight(.medium))
                 ForEach(ProfileSource.allCases) { s in
@@ -78,18 +113,92 @@ struct NewProfileSheet: View {
             }
             HStack {
                 Spacer()
-                Button("Huỷ") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Tạo", action: create).buttonStyle(GradientButtonStyle(compact: true)).keyboardShortcut(.defaultAction)
+                Button("Huỷ") { dismiss() }.appButton().keyboardShortcut(.cancelAction)
+                Button(actionTitle, action: create).appButton(.primary, minWidth: 90).keyboardShortcut(.defaultAction)
             }
         }
         .padding(20)
-        .frame(width: 460)
-        .onAppear { focused = true }
+        .frame(width: 540)
+        .onAppear {
+            focused = true
+            if samples.isEmpty { samples = GameGlossaries.bundled().sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending } }
+        }
+    }
+
+    private var sampleList: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text("GAME MẪU").font(.caption.weight(.semibold)).tracking(1).foregroundStyle(.secondary)
+                Text("\(filtered.count)").font(.caption.weight(.semibold)).monospacedDigit().foregroundStyle(.secondary)
+                Spacer()
+                if !picked.isEmpty {
+                    Button("Bỏ chọn (\(picked.count))") { picked.removeAll() }.appButton(.ghost)
+                }
+            }
+            ScrollView {
+                LazyVStack(spacing: 4) {
+                    ForEach(filtered, id: \.name) { g in
+                        SampleGameRow(game: g, added: isAdded(g), checked: picked.contains(g.name)) {
+                            if picked.contains(g.name) { picked.remove(g.name) } else { picked.insert(g.name) }
+                        }
+                    }
+                    if filtered.isEmpty {
+                        Text(samples.isEmpty ? "Không tìm thấy game mẫu nào trong app."
+                                             : "Không có game mẫu nào khớp “\(query)”. Bấm “\(actionTitle)” để tạo game mới với tên này.")
+                            .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity).padding(.vertical, 20)
+                    }
+                }
+                .padding(4)
+            }
+            .frame(height: 240)
+            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.controlFill))
+            .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Theme.controlStroke))
+        }
     }
 
     private func create() {
-        AppNav.shared.createProfile(name: name, source: source)
+        if !picked.isEmpty {
+            AppNav.shared.addSampleGames(samples.filter { picked.contains($0.name) }, source: source)
+        } else if let g = exactSample {
+            AppNav.shared.addSampleGames([g], source: source)
+        } else {
+            AppNav.shared.createProfile(name: name, source: source)
+        }
         dismiss()
+    }
+}
+
+/// Một dòng game mẫu: ô tick, tên game, số thuật ngữ. Game đã có trong danh sách thì mờ và không chọn được.
+struct SampleGameRow: View {
+    let game: GameGlossaries.Game
+    let added: Bool
+    let checked: Bool
+    let toggle: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: toggle) {
+            HStack(spacing: 10) {
+                Image(systemName: added ? "checkmark.circle" : (checked ? "checkmark.square.fill" : "square"))
+                    .font(.system(size: 15))
+                    .foregroundStyle(checked ? Theme.accentStart : Color.secondary)
+                    .frame(width: 20)
+                Text(game.name).font(.callout.weight(.medium)).lineLimit(1)
+                Spacer(minLength: 8)
+                Text(added ? "Đã có" : "\(game.entries.count) thuật ngữ")
+                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+            }
+            .padding(.horizontal, 10).frame(height: 32)
+            .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(checked ? Theme.accentStart.opacity(0.12) : (hovering && !added ? Theme.cardFill : Color.clear)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(added)
+        .opacity(added ? 0.5 : 1)
+        .onHover { hovering = $0 }
+        .help(added ? "Game này đã có trong danh sách của bạn" : "Chọn để thêm game này kèm \(game.entries.count) thuật ngữ")
     }
 }
 
@@ -98,72 +207,60 @@ struct NewProfileSheet: View {
 struct HeaderBar: View {
     @ObservedObject var pipeline = Pipeline.shared
     @ObservedObject var settings = AppSettings.shared
-    @ObservedObject var router: TranslationRouter = Pipeline.shared.router
     @ObservedObject var analyzer: ScreenAnalyzer = Pipeline.shared.analyzer
-
-    private var statusColor: Color {
-        switch router.state.level { case 0: return Theme.gemini; case 1: return Theme.apple; default: return Theme.danger }
-    }
+    @ObservedObject var reconnector = PS5Reconnector.shared
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
+            Button { AppNav.shared.changeGame() } label: { Label("Đổi game", systemImage: "chevron.left") }
+                .appButton()
+                .help("Dừng dịch\(settings.source == .ps5 ? ", ngắt PS5" : "") và quay về màn hình chọn game")
+            CurrentGameLabel()
+                .frame(minWidth: 120, maxWidth: .infinity, alignment: .leading)
+
             HStack(spacing: 8) {
-                Image(systemName: "captions.bubble.fill").font(.system(size: 17)).foregroundStyle(Theme.accentGradient)
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("Subly").font(.headline)
-                    Text(AppInfo.versionLabel).font(.system(size: 9)).foregroundStyle(.tertiary).monospacedDigit()
+                Button { pipeline.toggle() } label: {
+                    Label(pipeline.isRunning ? "Dừng dịch" : "Bắt đầu dịch", systemImage: pipeline.isRunning ? "stop.fill" : "play.fill")
                 }
-            }
+                .appButton(pipeline.isRunning ? .danger : .primary, minWidth: 140)
+                .disabled(reconnector.active)
+                .keyboardShortcut("s", modifiers: [.command, .option])
+                .help("Bắt đầu / dừng dịch phụ đề (\(settings.hotkeyToggle.display))")
 
-            Button { pipeline.toggle() } label: {
-                Label(pipeline.isRunning ? "Dừng" : "Bắt đầu", systemImage: pipeline.isRunning ? "stop.fill" : "play.fill")
-                    .frame(minWidth: 84)
+                Button { pipeline.analyzeScreen() } label: {
+                    Label(analyzer.isRunning ? (analyzer.progress.isEmpty ? "Đang dịch…" : analyzer.progress) : "Dịch màn hình",
+                          systemImage: "doc.text.magnifyingglass")
+                        .frame(maxWidth: 190)
+                }
+                .appButton(.tinted, minWidth: 140)
+                .disabled(analyzer.isRunning || reconnector.active)
+                .help("Chụp màn hình game, dịch toàn bộ chữ và mở ảnh với bản dịch đặt đè đúng vị trí (\(settings.hotkeyAnalyze.display))")
             }
-            .buttonStyle(GradientButtonStyle(tint: pipeline.isRunning
-                ? LinearGradient(colors: [Theme.danger, Theme.danger.opacity(0.8)], startPoint: .top, endPoint: .bottom)
-                : Theme.accentGradient, compact: true))
-            .keyboardShortcut("s", modifiers: [.command, .option])
-            .help("Bắt đầu/Dừng dịch phụ đề (\(settings.hotkeyToggle.display))")
+            .fixedSize()
 
-            Button { pipeline.analyzeScreen() } label: {
-                Label(analyzer.isRunning ? (analyzer.progress.isEmpty ? "Đang dịch…" : analyzer.progress) : "Dịch màn hình",
-                      systemImage: "doc.text.magnifyingglass").lineLimit(1)
+            HStack(spacing: 6) {
+                Toggle("", isOn: $settings.voiceEnabled)
+                    .toggleStyle(IconToggleStyle(icon: settings.voiceEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill", help: "Đọc bản dịch bằng giọng nói (\(settings.hotkeyVoice.display))"))
+                Toggle("", isOn: $settings.overlayEnabled)
+                    .toggleStyle(IconToggleStyle(icon: "captions.bubble", help: "Hiện phụ đề dịch trên màn hình (\(settings.hotkeyOverlay.display))"))
+                Toggle("", isOn: $settings.storyEnabled)
+                    .toggleStyle(IconToggleStyle(icon: settings.storyEnabled ? "text.book.closed.fill" : "text.book.closed",
+                                                 help: "Tự viết cốt truyện game từ phụ đề khi đang dịch (xem ở tab Cốt truyện)"))
+                Divider().frame(height: 22).padding(.horizontal, 2)
+                Button { DisplayPower.shared.sleepDisplay() } label: { Image(systemName: "moon.fill") }
+                    .appIconButton()
+                    .help("Tắt màn hình để tiết kiệm điện (app vẫn dịch và đọc). Di chuột hoặc gõ phím để bật lại")
+                Button { Self.openGuide() } label: { Image(systemName: "questionmark") }
+                    .appIconButton()
+                    .help("Hướng dẫn sử dụng app")
+                Button { WindowManager.shared.showSettings() } label: { Image(systemName: "gearshape") }
+                    .appIconButton()
+                    .help("Cài đặt: ngôn ngữ, AI, voice, overlay, thuật ngữ, phím tắt")
             }
-            .buttonStyle(.bordered).disabled(analyzer.isRunning)
-            .help("Chụp màn hình game, dịch toàn bộ chữ và mở ảnh với bản dịch đặt đè đúng vị trí (\(settings.hotkeyAnalyze.display))")
-
-            StatusPill(color: statusColor, text: router.state.label,
-                       detail: settings.geminiAPIKey.isEmpty ? nil : "\(router.usedToday)/\(settings.geminiRPD)")
-                .lineLimit(1)
-
-            Spacer(minLength: 8)
-
-            ProfilePicker()
-            Toggle("", isOn: $settings.voiceEnabled)
-                .toggleStyle(IconToggleStyle(icon: settings.voiceEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill", help: "Đọc bản dịch bằng giọng nói (\(settings.hotkeyVoice.display))"))
-            Toggle("", isOn: $settings.overlayEnabled)
-                .toggleStyle(IconToggleStyle(icon: "captions.bubble", help: "Hiện phụ đề dịch trên màn hình (\(settings.hotkeyOverlay.display))"))
-            Toggle("", isOn: $settings.storyEnabled)
-                .toggleStyle(IconToggleStyle(icon: settings.storyEnabled ? "text.book.closed.fill" : "text.book.closed",
-                                             help: "Tự viết cốt truyện game từ phụ đề khi đang dịch (xem ở Nhật ký → Cốt truyện)"))
-            Button { DisplayPower.shared.sleepDisplay() } label: {
-                Image(systemName: "moon.fill").font(.system(size: 13, weight: .medium)).frame(width: 30, height: 26)
-            }
-            .buttonStyle(.bordered)
-            .help("Tắt màn hình để tiết kiệm điện (app vẫn dịch và đọc). Di chuột hoặc gõ phím để bật lại")
-            Button { Self.openGuide() } label: {
-                Image(systemName: "questionmark.circle").font(.system(size: 14, weight: .medium)).frame(width: 30, height: 26)
-            }
-            .buttonStyle(.bordered)
-            .help("Hướng dẫn sử dụng app")
-            Button { WindowManager.shared.showSettings() } label: {
-                Image(systemName: "gearshape").font(.system(size: 14, weight: .medium)).frame(width: 30, height: 26)
-            }
-            .buttonStyle(.bordered)
-            .help("Cài đặt: ngôn ngữ, Gemini, voice, overlay, thuật ngữ, phím tắt")
+            .fixedSize()
         }
         .padding(.horizontal, 14)
-        .frame(height: 48)
+        .frame(height: 60)
     }
 
     /// Mở file hướng dẫn HTML đóng kèm app bằng trình duyệt mặc định.
@@ -196,72 +293,112 @@ struct SupportBanner: View {
     }
 }
 
-struct TabBar: View {
+struct TabBar<Trailing: View>: View {
     @Binding var tab: MainTab
     let badges: [MainTab: String?]
+    @ViewBuilder var trailing: Trailing
 
     var body: some View {
         HStack(spacing: 4) {
             ForEach(MainTab.allCases) { t in
                 Button { tab = t } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: t.icon).font(.system(size: 12, weight: .medium))
-                        Text(t.title).font(.callout.weight(tab == t ? .semibold : .regular))
+                        Image(systemName: t.icon).font(.system(size: 13, weight: .medium))
+                        Text(t.title).font(.system(size: 13, weight: tab == t ? .semibold : .medium))
                         if let b = badges[t] ?? nil {
                             Text(b).font(.caption2.weight(.semibold)).monospacedDigit()
                                 .padding(.horizontal, 5).padding(.vertical, 1)
                                 .background(Capsule().fill(tab == t ? Color.white.opacity(0.25) : Color.primary.opacity(0.1)))
                         }
                     }
-                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    .padding(.horizontal, 12)
+                    .frame(height: 34)
                     .foregroundStyle(tab == t ? Color.white : Color.primary.opacity(0.75))
                     .background(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        RoundedRectangle(cornerRadius: AppButtonStyle.radius, style: .continuous)
                             .fill(tab == t ? AnyShapeStyle(Theme.accentGradient) : AnyShapeStyle(Color.clear))
                     )
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .fixedSize()
             }
-            Spacer()
+            Spacer(minLength: 12)
+            trailing
         }
-        .padding(.horizontal, 12).padding(.bottom, 8)
+        .padding(.horizontal, 14).padding(.bottom, 8)
     }
 }
 
-struct ProfilePicker: View {
+/// Tên game đang chơi + nguồn hình và trạng thái của nó (thay cho bộ chọn game cũ).
+struct CurrentGameLabel: View {
     @ObservedObject var settings = AppSettings.shared
-    var body: some View {
-        Menu {
-            ForEach(settings.profiles) { p in
-                Button { AppNav.shared.switchProfile(p) } label: {
-                    Label(p.name, systemImage: p.id == settings.activeProfileID ? "checkmark" : p.source.icon)
-                }
+    @ObservedObject var stream = PS5Stream.shared
+    @ObservedObject var mirror = ExternalMirror.shared
+    @ObservedObject var reconnector = PS5Reconnector.shared
+
+    private var status: (color: Color, text: String) {
+        switch settings.source {
+        case .ps5:
+            if reconnector.active { return (.orange, "Đang kết nối lại PS5…") }
+            let name = stream.host?.nickname ?? "PS5"
+            switch stream.state {
+            case .streaming: return (.green, "\(name) · \(Int(stream.videoSize.height))p · \(stream.fps) fps")
+            case .failed: return (Theme.danger, "\(name) · \(stream.state.label)")
+            case .idle: return (.secondary, "\(name) · chưa kết nối")
+            default: return (.orange, "\(name) · \(stream.state.label)")
             }
-            Divider()
-            Button { AppNav.shared.showNewProfile = true } label: { Label("Game mới…", systemImage: "plus") }
-            Button { addSamples() } label: { Label("Thêm game mẫu có sẵn", systemImage: "square.stack.3d.down.right") }
-            Button("Đổi tên, xoá game…") { WindowManager.shared.showSettings() }
-        } label: {
-            Label(settings.activeProfile.name, systemImage: "gamecontroller").lineLimit(1)
+        case .external:
+            guard let area = settings.externalArea else { return (.secondary, "Chưa chọn cửa sổ game") }
+            return (mirror.error == nil ? .green : Theme.danger, area.appName ?? "Vùng màn hình \(Int(area.width))×\(Int(area.height))")
         }
-        .menuStyle(.borderedButton)
-        .fixedSize()
-        .help("Game đang dịch. Mỗi game có nguồn hình, khung phụ đề, thuật ngữ và tên nhân vật riêng")
     }
 
-    /// Thêm các game mẫu còn thiếu rồi báo kết quả.
-    private func addSamples() {
-        let added = settings.addMissingSampleGames()
-        let alert = NSAlert()
-        if added.isEmpty {
-            alert.messageText = "Đã có đủ game mẫu"
-            alert.informativeText = "Tất cả game mẫu có sẵn đều đã nằm trong danh sách của bạn."
-        } else {
-            alert.messageText = "Đã thêm \(added.count) game"
-            alert.informativeText = added.joined(separator: ", ") + ".\nMỗi game đã có sẵn thuật ngữ; bạn chỉ cần chọn nguồn hình và vẽ khung phụ đề."
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: settings.source.icon).font(.system(size: 18, weight: .medium))
+                .foregroundStyle(Theme.accentGradient).frame(width: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(settings.activeProfile.name).font(.system(size: 15, weight: .bold)).lineLimit(1)
+                HStack(spacing: 5) {
+                    Circle().fill(status.color).frame(width: 7, height: 7)
+                    Text(status.text).font(.caption).foregroundStyle(.secondary).lineLimit(1).monospacedDigit()
+                }
+            }
         }
-        alert.runModal()
+        .help("Game đang chơi: \(settings.activeProfile.name) (\(settings.source.label)). Bấm Đổi game để chọn game khác.")
+    }
+}
+
+/// Thanh trạng thái cuối cửa sổ: engine dịch đang dùng, quota, phím tắt.
+struct StatusBar: View {
+    @ObservedObject var settings = AppSettings.shared
+    @ObservedObject var pipeline = Pipeline.shared
+    @ObservedObject var router: TranslationRouter = Pipeline.shared.router
+
+    private var statusColor: Color {
+        switch router.state.level { case 0: return Theme.gemini; case 1: return Theme.apple; default: return Theme.danger }
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle().fill(pipeline.isRunning ? Color.green : Color.secondary.opacity(0.5)).frame(width: 7, height: 7)
+            Text(pipeline.isRunning ? "Đang dịch" : "Đã dừng").fontWeight(.medium)
+            Text("·").foregroundStyle(.tertiary)
+            Circle().fill(statusColor).frame(width: 7, height: 7)
+            Text(router.state.label).lineLimit(1)
+            if settings.engine == .auto, !settings.geminiAPIKeys.isEmpty {
+                Text("\(router.usedToday)/\(settings.geminiRPD) hôm nay").foregroundStyle(.secondary).monospacedDigit()
+            }
+            Spacer()
+            Text("\(settings.hotkeyToggle.display) bắt đầu/dừng · \(settings.hotkeyAnalyze.display) dịch màn hình")
+                .foregroundStyle(.tertiary).lineLimit(1)
+        }
+        .font(.caption)
+        .padding(.horizontal, 14)
+        .frame(height: 28)
+        .background(Theme.cardFill)
+        .overlay(alignment: .top) { Divider() }
     }
 }
 
@@ -293,7 +430,7 @@ struct TranslationStyleBox: View {
     }
 }
 
-// MARK: - Tab: Nhân vật
+// MARK: - Thiết lập game → Tên người nói
 
 struct SpeakersTab: View {
     @ObservedObject var settings = AppSettings.shared
@@ -338,7 +475,7 @@ struct SpeakersTab: View {
                 if settings.showsSpeakerNames {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack {
-                            Text("Nhân vật đã học").font(.headline)
+                            Text("Tên người nói đã học").font(.headline)
                             Text("\(settings.speakers.count)").font(.caption.weight(.semibold)).monospacedDigit()
                                 .padding(.horizontal, 6).padding(.vertical, 1)
                                 .background(Capsule().fill(Color.primary.opacity(0.1)))
@@ -346,9 +483,9 @@ struct SpeakersTab: View {
                             TextField("Thêm tên…", text: $newName)
                                 .textFieldStyle(.roundedBorder).frame(width: 180)
                                 .onSubmit(add)
-                            Button("Thêm", action: add).disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty)
+                            Button("Thêm", action: add).disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty).appButton(.tinted)
                             if !settings.speakers.isEmpty {
-                                Button("Xoá hết", role: .destructive) { settings.speakers = [] }
+                                Button("Xoá hết", role: .destructive) { settings.speakers = [] }.appButton()
                             }
                         }
                         if settings.speakers.isEmpty {

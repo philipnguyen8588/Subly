@@ -23,27 +23,32 @@
         <Setter Property="FontSize" Value="13" />
     </Style>
 
-    <!-- Nút thường: bo góc, viền mảnh -->
+    <!-- Hệ nút chung (giống AppButtonStyle bản macOS): cùng bo góc 10, chữ 13 SemiBold; chiều cao 36 (44 cho nút lớn) đặt trong Ui.Btn.
+         Màu nền / viền / chữ do từng kiểu đặt, template dùng chung. -->
     <Style x:Key="PlainButton" TargetType="{x:Type Button}">
         <Setter Property="Background" Value="White" />
         <Setter Property="Foreground" Value="#FF1D1D1F" />
-        <Setter Property="BorderBrush" Value="#26000000" />
+        <Setter Property="BorderBrush" Value="#1F000000" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="Padding" Value="10,4" />
+        <Setter Property="Padding" Value="14,0" />
+        <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="{x:Type Button}">
-                    <Border x:Name="bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                            BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="7" Padding="{TemplateBinding Padding}">
-                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
-                    </Border>
+                    <Grid>
+                        <Border x:Name="bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="10" />
+                        <Border x:Name="hover" Background="Transparent" CornerRadius="10" />
+                        <ContentPresenter Margin="{TemplateBinding Padding}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Grid>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="bd" Property="Background" Value="#FFEFEFF4" />
+                            <Setter TargetName="hover" Property="Background" Value="#0F000000" />
                         </Trigger>
                         <Trigger Property="IsPressed" Value="True">
-                            <Setter TargetName="bd" Property="Background" Value="#FFE2E2E8" />
+                            <Setter TargetName="hover" Property="Background" Value="#1F000000" />
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter Property="Opacity" Value="0.45" />
@@ -54,34 +59,30 @@
         </Setter>
     </Style>
     <Style TargetType="{x:Type Button}" BasedOn="{StaticResource PlainButton}" />
+    <Style x:Key="AppButtonSecondary" TargetType="{x:Type Button}" BasedOn="{StaticResource PlainButton}" />
 
     <!-- Nút chính: nền gradient -->
     <Style x:Key="GradientButton" TargetType="{x:Type Button}" BasedOn="{StaticResource PlainButton}">
         <Setter Property="Foreground" Value="White" />
         <Setter Property="Background" Value="{StaticResource AccentGradient}" />
         <Setter Property="BorderThickness" Value="0" />
-        <Setter Property="FontWeight" Value="SemiBold" />
-        <Setter Property="Padding" Value="12,5" />
-        <Setter Property="Template">
-            <Setter.Value>
-                <ControlTemplate TargetType="{x:Type Button}">
-                    <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}">
-                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
-                    </Border>
-                    <ControlTemplate.Triggers>
-                        <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="bd" Property="Opacity" Value="0.9" />
-                        </Trigger>
-                        <Trigger Property="IsPressed" Value="True">
-                            <Setter TargetName="bd" Property="Opacity" Value="0.75" />
-                        </Trigger>
-                        <Trigger Property="IsEnabled" Value="False">
-                            <Setter Property="Opacity" Value="0.45" />
-                        </Trigger>
-                    </ControlTemplate.Triggers>
-                </ControlTemplate>
-            </Setter.Value>
-        </Setter>
+    </Style>
+    <Style x:Key="AppButtonPrimary" TargetType="{x:Type Button}" BasedOn="{StaticResource GradientButton}" />
+    <!-- Nút nhấn mạnh nhẹ: chữ màu nhấn trên nền nhạt -->
+    <Style x:Key="AppButtonTinted" TargetType="{x:Type Button}" BasedOn="{StaticResource PlainButton}">
+        <Setter Property="Foreground" Value="{StaticResource AccentStart}" />
+        <Setter Property="Background" Value="#1F616FFA" />
+        <Setter Property="BorderBrush" Value="#73616FFA" />
+    </Style>
+    <Style x:Key="AppButtonDanger" TargetType="{x:Type Button}" BasedOn="{StaticResource PlainButton}">
+        <Setter Property="Foreground" Value="White" />
+        <Setter Property="Background" Value="{StaticResource Danger}" />
+        <Setter Property="BorderThickness" Value="0" />
+    </Style>
+    <Style x:Key="AppButtonGhost" TargetType="{x:Type Button}" BasedOn="{StaticResource PlainButton}">
+        <Setter Property="Foreground" Value="{StaticResource Secondary}" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
     </Style>
 
     <!-- Nút dạng chữ (link) -->
@@ -97,30 +98,61 @@
         </Setter>
     </Style>
 
-    <!-- Toggle dạng nút -->
+    <!-- Toggle dạng nút có chữ (Vẽ khung phụ đề…): cùng kích thước nút chung; bật = viền + nền màu nhấn -->
     <Style TargetType="{x:Type ToggleButton}">
         <Setter Property="Background" Value="White" />
-        <Setter Property="BorderBrush" Value="#26000000" />
+        <Setter Property="Foreground" Value="#FF1D1D1F" />
+        <Setter Property="BorderBrush" Value="#1F000000" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="Padding" Value="10,4" />
+        <Setter Property="Padding" Value="14,0" />
+        <Setter Property="MinHeight" Value="36" />
+        <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="{x:Type ToggleButton}">
                     <Border x:Name="bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                            BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="7" Padding="{TemplateBinding Padding}">
+                            BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="10" Padding="{TemplateBinding Padding}">
                         <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
                     </Border>
                     <ControlTemplate.Triggers>
-                        <Trigger Property="IsChecked" Value="True">
-                            <Setter TargetName="bd" Property="Background" Value="#33616FFA" />
-                            <Setter TargetName="bd" Property="BorderBrush" Value="#99616FFA" />
-                        </Trigger>
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="bd" Property="BorderBrush" Value="#99616FFA" />
                         </Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="bd" Property="Background" Value="#1F616FFA" />
+                            <Setter TargetName="bd" Property="BorderBrush" Value="#99616FFA" />
+                            <Setter Property="Foreground" Value="{StaticResource AccentStart}" />
+                        </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter Property="Opacity" Value="0.45" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Toggle biểu tượng trên thanh đầu (voice, overlay, cốt truyện): 36×36, bật = nền gradient -->
+    <Style x:Key="AppIconToggle" TargetType="{x:Type ToggleButton}">
+        <Setter Property="Width" Value="36" />
+        <Setter Property="Height" Value="36" />
+        <Setter Property="Foreground" Value="#FF6E6E73" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type ToggleButton}">
+                    <Border x:Name="bd" Background="White" BorderBrush="#1F000000" BorderThickness="1" CornerRadius="10">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="bd" Property="BorderBrush" Value="#99616FFA" />
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="bd" Property="Background" Value="{StaticResource AccentGradient}" />
+                            <Setter TargetName="bd" Property="BorderThickness" Value="0" />
+                            <Setter Property="Foreground" Value="White" />
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>

@@ -35,6 +35,7 @@ var adminTmpl = template.Must(template.New("admin").Funcs(template.FuncMap{
 		}
 	},
 	"date": func(t time.Time) string { return t.Local().Format("2006-01-02 15:04") },
+	"join": strings.Join,
 }).Parse(adminHTML))
 
 const cookieName = "sid"
@@ -79,12 +80,15 @@ type adminPage struct {
 	Status   string
 	Q        string
 	TTLDays  int
+	Tab      string // "" = máy, "ai" = AI share
+	Shares   []shareView
+	Draft    *shareDraft
 }
 
 func (a *App) render(w http.ResponseWriter, p adminPage) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'")
 	p.TTLDays = int(a.ticketTTL.Hours() / 24)
 	if err := adminTmpl.Execute(w, p); err != nil {
 		log.Printf("template: %v", err)
@@ -98,6 +102,16 @@ func (a *App) handleAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 	if c, err := r.Cookie(cookieName); err == nil {
 		a.setSession(w, c.Value)
+	}
+	if r.URL.Query().Get("tab") == "ai" {
+		var draft *shareDraft
+		if id := r.URL.Query().Get("edit"); id != "" {
+			if sh, _ := a.shares.Get(id); sh != nil {
+				draft = draftFromShare(sh)
+			}
+		}
+		a.renderShares(w, draft)
+		return
 	}
 	status, q := r.URL.Query().Get("status"), r.URL.Query().Get("q")
 	switch status {

@@ -28,7 +28,7 @@ public class GeminiException : Exception
     public static GeminiException Timeout() => new(Kind.timeout, "Gemini quá thời gian chờ");
 }
 
-public sealed class GeminiBackend : ITranslationBackend
+public sealed class GeminiBackend : ITranslationBackend, ICloudChatBackend
 {
     public BackendKind kind => BackendKind.gemini;
 
@@ -43,6 +43,8 @@ public sealed class GeminiBackend : ITranslationBackend
     };
     /// Thứ tự thử khi model đã chọn bị 503/404/timeout.
     public static readonly string[] fallbackModels = { "gemini-3.5-flash-lite", "gemini-flash-lite-latest", "gemini-3.1-flash-lite", "gemini-3.5-flash" };
+    /// Model dự phòng của bản này (AI share chỉ được thử các model đã share).
+    public string[] fallbacks = fallbackModels;
 
     /// Nhiều key miễn phí dùng xoay vòng: mỗi request lấy key kế tiếp để chia đều quota; key bị 429 thì nghỉ đến hết
     /// thời gian Google báo, các key còn lại chạy tiếp.
@@ -90,13 +92,21 @@ public sealed class GeminiBackend : ITranslationBackend
         this.apiKeys = apiKeys; this.model = model; this.timeout = timeout;
     }
 
+    // AI share dùng Gemini qua proxy của server: router gọi nó như các nhà cung cấp kiểu chat khác.
+    public bool isReady => !string.IsNullOrEmpty(apiKey) && model.Length > 0;
+    public string modelName => model;
+    Task<string> ICloudChatBackend.Translate(string text, IList<TranslationPair> context, CancellationToken ct, string? modelOverride) =>
+        TranslateWith(text, context, modelOverride, ct);
+    Task<string> ICloudChatBackend.Complete(string system, string user, bool json, int maxTokens, double timeout, CancellationToken ct, string? modelOverride) =>
+        Generate(system, user, timeout, ct, maxTokens, modelOverride);
+
     /// Danh sách model để thử theo thứ tự cho một request.
     List<string> CandidateModels(int maxAttempts)
     {
         var list = new List<string>();
         if (activeModel != null && DateTime.UtcNow < activeUntil) list.Add(activeModel);
         list.Add(model);
-        list.AddRange(fallbackModels);
+        list.AddRange(fallbacks);
         return list.Distinct().Take(maxAttempts).ToList();
     }
 
@@ -239,6 +249,33 @@ public sealed class GeminiBackend : ITranslationBackend
         }
     }
 
+    /// Trả lời câu hỏi của người chơi về cốt truyện, chỉ dựa trên dữ liệu `StoryQA` gửi kèm (dùng chung cho mọi engine).
+    public string StoryQAPrompt(string focus)
+    {
+        var source = gameName.Length == 0 ? "a video game" : $"the video game \"{gameName}\"";
+        var trimmedNote = translationNote.Trim();
+        var note = trimmedNote.Length == 0 ? "" : $"Notes from the player about this game (relationships, names): {trimmedNote}\n";
+        return $"You answer a player's questions about the story of {source}, using ONLY the story record in the user message. " +
+               "The app built that record from the subtitles and journal screens the player has seen so far. The user message may contain: " +
+               "STORY SO FAR, STORY PARTS, CHARACTERS (full details of the characters related to the question), ALL OTHER CHARACTERS " +
+               "(name and role), LORE (places, factions, concepts), OTHER LORE ENTRIES (names only), SUBTITLE EXCERPTS (original lines " +
+               "that mention the question's keywords, oldest first; a line may start with the speaker's name and a colon), PREVIOUS Q&A " +
+               "(earlier turns of this conversation, for follow-up questions) and finally QUESTION.\n" +
+               "Rules:\n" +
+               $"- Answer in {targetName}, directly. For \"who / what / which\" questions, put each item on its own line starting with \"- \", " +
+               "the name first, then a short note on how the record links it to the question (role, relation, what they did).\n" +
+               "- Be complete: look through every block, including ALL OTHER CHARACTERS, LORE and SUBTITLE EXCERPTS. When asked who is in, " +
+               "belongs to or is connected with a place or faction, list everyone and every group the record ties to it: rulers, " +
+               "members, people who live there, come from there, serve or served it, fight for or against it, and its people or army.\n" +
+               "- Use only the record. Never add facts, plot, backstory or future events from your own knowledge of the game (no spoilers). " +
+               "When the record only hints at something, say that it is not certain.\n" +
+               "- If the record has nothing relevant, say in one sentence that the record has no information about it yet, and mention the " +
+               "closest related thing it does contain, if any.\n" +
+               "- Keep character names and game terms as written in the record unless the glossary says otherwise.\n" +
+               "- Plain text only: no headings, bold, tables or code fences.\n" +
+               note + GlossaryBlock(focus);
+    }
+
     /// Cập nhật cốt truyện game: một lần gọi trả về đoạn diễn biến mới, bài viết liền mạch và các nhân vật có thay đổi.
     public string StoryUpdatePrompt(string focus)
     {
@@ -372,7 +409,7 @@ public sealed class GeminiBackend : ITranslationBackend
         Exception lastErr = GeminiException.Empty();
         if (!string.IsNullOrEmpty(preferred) && preferred != model)
         {
-            foreach (var pm in new[] { preferred }.Concat(fallbackModels).Distinct().Take(maxAttempts))
+            foreach (var pm in new[] { preferred }.Concat(fallbacks).Distinct().Take(maxAttempts))
             {
                 try
                 {
