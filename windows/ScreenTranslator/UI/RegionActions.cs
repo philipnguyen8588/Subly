@@ -145,7 +145,7 @@ public sealed class AppNav : INotifyPropertyChanged
     public static readonly AppNav shared = new();
     public event PropertyChangedEventHandler? PropertyChanged;
     void Raise(string n) => App.RunOnUI(() => PropertyChanged?.Invoke(this, new(n)));
-    public enum Tab { source, story, subtitles, screens, game }
+    public enum Tab { source, story, subtitles, screens, search, game }
     /// Hai màn hình của cửa sổ chính: Bắt đầu (chọn game + nguồn hình) và màn hình chơi.
     public enum Screen { start, main }
     Tab _tab = Tab.source;
@@ -158,6 +158,10 @@ public sealed class AppNav : INotifyPropertyChanged
     bool _entering;
     /// Đang kết nối PS5 từ màn Bắt đầu; có hình thì vào màn hình chính.
     public bool entering { get => _entering; private set { _entering = value; Raise(nameof(entering)); } }
+    bool _browsing;
+    /// Màn hình chính mở ở chế độ chỉ xem (nút "Xem" ở danh sách game): đọc cốt truyện, phụ đề, ảnh đã dịch
+    /// mà không cần kết nối PS5 / chọn cửa sổ. Không có nút dịch, chỉ có nút quay lại để kết nối.
+    public bool browsing { get => _browsing; private set { _browsing = value; Raise(nameof(browsing)); } }
     public event Action? NewProfileRequested;
     public void ShowNewProfile() { if (screen == Screen.start) NewProfileRequested?.Invoke(); }
 
@@ -177,6 +181,7 @@ public sealed class AppNav : INotifyPropertyChanged
                 return;
             }
             if (!Readiness.Ensure()) return;
+            browsing = false;
             screen = Screen.main;
             tab = Tab.source;
             _ = Pipeline.shared.Start();
@@ -200,9 +205,24 @@ public sealed class AppNav : INotifyPropertyChanged
     {
         if (!entering) return;
         entering = false;
+        browsing = false;
         screen = Screen.main;
         tab = Tab.source;
         _ = Pipeline.shared.Start();
+    }
+
+    /// Nút "Xem" ở danh sách game: vào màn hình chính của game đó mà không kết nối nguồn hình.
+    public void Browse(Profile p)
+    {
+        if (screen != Screen.start) return;
+        if (entering) CancelEnter();
+        if (PS5Stream.shared.state.kind != PS5Stream.StateKind.idle) PS5Stream.shared.Disconnect();
+        SwitchProfile(p);
+        notice = null;
+        browsing = true;
+        if (tab is Tab.source or Tab.game) tab = Tab.story;
+        screen = Screen.main;
+        Log.Info($"Xem game '{p.name}' (chưa kết nối)");
     }
 
     /// Kết nối PS5 từ màn Bắt đầu thất bại: ở lại màn Bắt đầu và hiện lý do.
@@ -228,6 +248,7 @@ public sealed class AppNav : INotifyPropertyChanged
         if (PS5Stream.shared.state.kind != PS5Stream.StateKind.idle) PS5Stream.shared.Disconnect();
         ShotViewer.Close();
         entering = false;
+        browsing = false;
         screen = Screen.start;
         notice = reason;
         if (reason != null) Log.Info($"Về màn hình Bắt đầu: {reason}");
@@ -236,6 +257,7 @@ public sealed class AppNav : INotifyPropertyChanged
     /// Nút "Đổi game" ở màn hình chính (hỏi lại nếu đang dịch).
     public void ChangeGame()
     {
+        if (browsing) { LeaveToStart(); return; }
         if ((Pipeline.shared.isRunning || PS5Stream.shared.state.isBusy) && !AppSettings.shared.suppressAlerts)
         {
             var msg = AppSettings.shared.source == ProfileSource.ps5
@@ -251,6 +273,7 @@ public sealed class AppNav : INotifyPropertyChanged
     public void ToggleTranslation()
     {
         if (screen == Screen.start) { App.ShowMain(); Enter(); return; }
+        if (browsing) { App.ShowMain(); LeaveToStart(); Enter(); return; }
         Pipeline.shared.Toggle();
     }
 
@@ -442,13 +465,13 @@ public static class PS5Coordinator
                 bool wasTranslating = Pipeline.shared.isRunning;
                 if (wasTranslating) Pipeline.shared.Stop();
                 if (nav.entering) nav.EnterFailed(s.label);
-                else if (nav.screen == AppNav.Screen.main) reconnector.ConnectionLost(s.label, wasTranslating);
+                else if (nav.screen == AppNav.Screen.main && !nav.browsing) reconnector.ConnectionLost(s.label, wasTranslating);
                 break;
             }
             case PS5Stream.StateKind.idle:
                 if (Pipeline.shared.isRunning) Pipeline.shared.Stop();
                 // Phiên kết thúc "bình thường" mà người dùng không bấm Đổi game (ví dụ tắt Remote Play trên PS5).
-                if (nav.screen == AppNav.Screen.main && !reconnector.active && prev == PS5Stream.StateKind.streaming)
+                if (nav.screen == AppNav.Screen.main && !nav.browsing && !reconnector.active && prev == PS5Stream.StateKind.streaming)
                     reconnector.ConnectionLost("PS5 đã đóng phiên Remote Play", true);
                 break;
         }

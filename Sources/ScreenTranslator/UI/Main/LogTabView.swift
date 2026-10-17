@@ -111,16 +111,8 @@ struct LogToolbar: View {
 
     private var tools: some View {
         HStack(spacing: 8) {
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass").foregroundStyle(.tertiary)
-                TextField(section == .story ? "Tìm trong cốt truyện" : "Tìm trong nhật ký", text: $ui.search).textFieldStyle(.plain)
-                if !ui.search.isEmpty {
-                    Button { ui.search = "" } label: { Image(systemName: "xmark.circle.fill") }.buttonStyle(.plain).foregroundStyle(.tertiary)
-                }
-            }
-            .padding(.horizontal, 10).frame(minWidth: 120, maxWidth: 220).frame(height: 36)
-            .background(Theme.controlFill, in: RoundedRectangle(cornerRadius: AppButtonStyle.radius))
-            .overlay(RoundedRectangle(cornerRadius: AppButtonStyle.radius).strokeBorder(Theme.controlStroke))
+            SearchField(text: $ui.search, prompt: section == .story ? "Tìm trong cốt truyện" : "Tìm trong nhật ký")
+                .frame(minWidth: 120, maxWidth: 220)
             if section != .story, store.legacyCount > 0 {
                 Toggle(isOn: $ui.legacy) { Text("Dòng cũ") }.toggleStyle(AppToggleButtonStyle())
                     .help("Nhật ký có từ trước khi tách theo game (\(store.legacyCount) dòng, không gắn với game nào)")
@@ -303,7 +295,7 @@ struct SubtitleLogView: View {
     private func row(_ e: TranslationEntry) -> some View {
         let isSelected = selected.contains(e.id)
         let count = isSelected ? selected.count : 0
-        return SubtitleLogRow(entry: e, selected: isSelected)
+        return SubtitleLogRow(entry: e, selected: isSelected, query: search.trimmingCharacters(in: .whitespaces))
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(ChatScroll<EmptyView>.space)) } action: { [geo] in geo.frames[e.id] = $0 }
             .gesture(
                 DragGesture(minimumDistance: 0, coordinateSpace: .named(ChatScroll<EmptyView>.space))
@@ -491,16 +483,18 @@ private struct TimeMarker: View {
 private struct SubtitleLogRow: View {
     let entry: TranslationEntry
     var selected = false
+    /// Từ khoá ô tìm: tô nền chỗ khớp như tab Tìm kiếm.
+    var query = ""
     @State private var hovering = false
 
     var body: some View {
         // Câu quá đơn giản không được dịch: chỉ hiện câu gốc, mờ, ở cột câu gốc.
         let skipped = entry.backend == BackendKind.skipped.rawValue
         HStack(alignment: .firstTextBaseline, spacing: 28) {
-            Text(skipped ? AttributedString("—") : SpeakerColors.styled(entry.translated, size: 15))
+            Text(skipped ? AttributedString("—") : SearchHighlight.mark(SpeakerColors.styled(entry.translated, size: 15), query))
                 .lineSpacing(3).foregroundStyle(skipped ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.primary))
                 .frame(maxWidth: .infinity, alignment: .leading)
-            Text(SpeakerColors.styled(entry.source, size: 14))
+            Text(SearchHighlight.mark(SpeakerColors.styled(entry.source, size: 14), query))
                 .lineSpacing(3).foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }

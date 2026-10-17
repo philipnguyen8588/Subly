@@ -339,20 +339,36 @@ struct GlossaryEditor: View {
     let note: String
     @State private var selection = Set<UUID>()
     @State private var message = ""
+    @State private var search = ""
+    /// Id các dòng khớp ô tìm: chỉ tính lại khi đổi ô tìm hoặc thêm/xoá dòng, để dòng đang sửa không biến mất giữa chừng.
+    @State private var shownIDs: Set<UUID>?
+
+    private var query: String { search.trimmingCharacters(in: .whitespaces) }
+    private func matches(_ e: GlossaryEntry) -> Bool {
+        query.isEmpty || e.term.localizedStandardContains(query) || e.translation.localizedStandardContains(query)
+    }
+    /// Các dòng đang hiện (đã lọc theo ô tìm); sửa một dòng thì ghi ngược vào `entries` theo id.
+    private var shown: Binding<[GlossaryEntry]> {
+        Binding(get: { shownIDs.map { ids in entries.filter { ids.contains($0.id) } } ?? entries }, set: { rows in
+            for r in rows { if let i = entries.firstIndex(where: { $0.id == r.id }), entries[i] != r { entries[i] = r } }
+        })
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(note).font(.caption).foregroundStyle(.secondary)
-            Table($entries, selection: $selection) {
+            SearchField(text: $search, prompt: "Tìm thuật ngữ hoặc bản dịch", height: 32)
+            Table(shown, selection: $selection) {
                 TableColumn("Thuật ngữ gốc") { $e in TextField("", text: $e.term) }
                 TableColumn("Dịch thành") { $e in TextField("(giữ nguyên)", text: $e.translation) }
                 TableColumn("Giữ nguyên") { $e in Toggle("", isOn: $e.keepAsIs).labelsHidden() }.width(70)
             }
             HStack {
-                Button { entries.append(GlossaryEntry(term: "")) } label: { Image(systemName: "plus") }
+                Button { search = ""; entries.append(GlossaryEntry(term: "")) } label: { Image(systemName: "plus") }
                 Button { entries.removeAll { selection.contains($0.id) }; selection = [] } label: { Image(systemName: "minus") }
                     .disabled(selection.isEmpty)
-                Text("\(entries.count) thuật ngữ").font(.caption).foregroundStyle(.secondary)
+                Text(shownIDs.map { "\($0.count) / \(entries.count) thuật ngữ" } ?? "\(entries.count) thuật ngữ")
+                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
                 if !message.isEmpty { Text(message).font(.caption).foregroundStyle(.secondary) }
                 Spacer()
                 Button("Nhập CSV…") { importCSV() }
@@ -360,6 +376,12 @@ struct GlossaryEditor: View {
             }
         }
         .padding(.top, 8)
+        .onChange(of: search) { _, _ in refilter() }
+        .onChange(of: entries.map(\.id)) { _, _ in refilter() }
+    }
+
+    private func refilter() {
+        shownIDs = query.isEmpty ? nil : Set(entries.filter(matches).map(\.id))
     }
 
     /// CSV `thuật ngữ,bản dịch` (bản dịch trống = giữ nguyên). Bỏ dòng tiêu đề và dòng chú thích `#`;

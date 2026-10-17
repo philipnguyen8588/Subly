@@ -345,18 +345,21 @@ final class HistoryStore: ObservableObject {
         sqlite3_bind_text(stmt, 1, profile, -1, transient)
         sqlite3_bind_int(stmt, 2, Int32(maxAnalyses))
         var out: [ScreenAnalysis] = []
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            let id = sqlite3_column_int64(stmt, 0)
-            let lines = (try? JSONDecoder().decode([AnalysisLine].self, from: Data(text(stmt, 4).utf8))) ?? []
-            let items = (try? JSONDecoder().decode([ShotItem].self, from: Data(text(stmt, 8).utf8))) ?? []
-            out.append(ScreenAnalysis(id: id, timestamp: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 1)),
-                                      regionName: text(stmt, 2), summary: text(stmt, 3), lines: lines,
-                                      backend: text(stmt, 5), latencyMs: Int(sqlite3_column_int(stmt, 6)), profile: text(stmt, 7),
-                                      items: items, imageWidth: Int(sqlite3_column_int(stmt, 9)), imageHeight: Int(sqlite3_column_int(stmt, 10)),
-                                      hasImage: FileManager.default.fileExists(atPath: Self.shotURL(id).path)))
-        }
+        while sqlite3_step(stmt) == SQLITE_ROW { out.append(analysisRow(stmt)) }
         sqlite3_finalize(stmt)
         return out
+    }
+
+    /// Một dòng `SELECT id, ts, region, summary, lines, backend, latency, profile, items, iw, ih FROM analyses`.
+    private func analysisRow(_ stmt: OpaquePointer?) -> ScreenAnalysis {
+        let id = sqlite3_column_int64(stmt, 0)
+        let lines = (try? JSONDecoder().decode([AnalysisLine].self, from: Data(text(stmt, 4).utf8))) ?? []
+        let items = (try? JSONDecoder().decode([ShotItem].self, from: Data(text(stmt, 8).utf8))) ?? []
+        return ScreenAnalysis(id: id, timestamp: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 1)),
+                              regionName: text(stmt, 2), summary: text(stmt, 3), lines: lines,
+                              backend: text(stmt, 5), latencyMs: Int(sqlite3_column_int(stmt, 6)), profile: text(stmt, 7),
+                              items: items, imageWidth: Int(sqlite3_column_int(stmt, 9)), imageHeight: Int(sqlite3_column_int(stmt, 10)),
+                              hasImage: FileManager.default.fileExists(atPath: Self.shotURL(id).path))
     }
 
     /// `image`: ảnh chụp màn hình game; được thu nhỏ + nén JPEG rồi lưu ra file, chỉ giữ `maxShots` ảnh mới nhất.
@@ -543,25 +546,56 @@ final class HistoryStore: ObservableObject {
     /// Câu phụ đề của game có chứa một trong các cụm từ (không phân biệt hoa thường với chữ ASCII), mới nhất trước.
     /// Đọc thẳng từ DB nên tìm được cả những câu cũ không còn trong `entries`.
     func searchEntries(profile: String, terms: [String], limit: Int) -> [TranslationEntry] {
+        likeSearch(table: "history", columns: ["source", "translated"],
+                   select: "id, ts, region, source, translated, backend, latency, kind, target, profile",
+                   extra: "AND kind = 'subtitle'", profile: profile, terms: terms, limit: limit, row: row)
+    }
+
+    /// Lần dịch màn hình của game có chứa một trong các cụm từ (trong tóm tắt hoặc các dòng chữ), mới nhất trước.
+    /// Đọc thẳng từ DB nên tìm được cả những lần chụp cũ không còn trong `analyses`.
+    func searchAnalyses(profile: String, terms: [String], limit: Int) -> [ScreenAnalysis] {
+        likeSearch(table: "analyses", columns: ["summary", "lines"],
+                   select: "id, ts, region, summary, lines, backend, latency, profile, items, iw, ih",
+                   extra: "", profile: profile, terms: terms, limit: limit, row: analysisRow)
+    }
+
+    /// `SELECT … WHERE profile = ? <extra> AND (col LIKE %term% OR …) ORDER BY id DESC LIMIT ?` (LIKE chỉ bỏ qua hoa thường với chữ ASCII).
+    private func likeSearch<T>(table: String, columns: [String], select: String, extra: String, profile: String,
+                               terms: [String], limit: Int, row: (OpaquePointer?) -> T) -> [T] {
         let terms = Array(terms.filter { !$0.isEmpty }.prefix(12))
         guard !terms.isEmpty else { return [] }
-        let cond = Array(repeating: "source LIKE ? ESCAPE '\\' OR translated LIKE ? ESCAPE '\\'", count: terms.count).joined(separator: " OR ")
+        let one = columns.map { "\($0) LIKE ? ESCAPE '\\'" }.joined(separator: " OR ")
+        let cond = Array(repeating: one, count: terms.count).joined(separator: " OR ")
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, "SELECT id, ts, region, source, translated, backend, latency, kind, target, profile FROM history WHERE profile = ? AND kind = 'subtitle' AND (\(cond)) ORDER BY id DESC LIMIT ?", -1, &stmt, nil) == SQLITE_OK else { return [] }
+        guard sqlite3_prepare_v2(db, "SELECT \(select) FROM \(table) WHERE profile = ? \(extra) AND (\(cond)) ORDER BY id DESC LIMIT ?", -1, &stmt, nil) == SQLITE_OK else { return [] }
         defer { sqlite3_finalize(stmt) }
         sqlite3_bind_text(stmt, 1, profile, -1, transient)
         var i: Int32 = 2
         for t in terms {
             let pattern = "%" + t.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "%", with: "\\%")
                 .replacingOccurrences(of: "_", with: "\\_") + "%"
-            sqlite3_bind_text(stmt, i, pattern, -1, transient)
-            sqlite3_bind_text(stmt, i + 1, pattern, -1, transient)
-            i += 2
+            for _ in columns { sqlite3_bind_text(stmt, i, pattern, -1, transient); i += 1 }
         }
         sqlite3_bind_int(stmt, i, Int32(limit))
-        var out: [TranslationEntry] = []
+        var out: [T] = []
         while sqlite3_step(stmt) == SQLITE_ROW { out.append(row(stmt)) }
         return out
+    }
+
+    /// Câu phụ đề `id` cùng `radius` câu trước và sau nó (cùng game), cũ trước.
+    func entriesAround(id: Int64, profile: String, radius: Int) -> [TranslationEntry] {
+        func fetch(_ sql: String, _ n: Int) -> [TranslationEntry] {
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, "SELECT id, ts, region, source, translated, backend, latency, kind, target, profile FROM history WHERE profile = ? AND kind = 'subtitle' AND \(sql) LIMIT ?", -1, &stmt, nil) == SQLITE_OK else { return [] }
+            defer { sqlite3_finalize(stmt) }
+            sqlite3_bind_text(stmt, 1, profile, -1, transient)
+            sqlite3_bind_int64(stmt, 2, id)
+            sqlite3_bind_int(stmt, 3, Int32(n))
+            var out: [TranslationEntry] = []
+            while sqlite3_step(stmt) == SQLITE_ROW { out.append(row(stmt)) }
+            return out
+        }
+        return fetch("id < ? ORDER BY id DESC", radius).reversed() + fetch("id >= ? ORDER BY id ASC", radius + 1)
     }
 
     /// Số câu đã dịch và số lần dịch màn hình chưa được đưa vào cốt truyện.

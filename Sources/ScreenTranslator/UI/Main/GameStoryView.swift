@@ -87,7 +87,7 @@ struct GameStoryView: View {
                                 Button { Clipboard.copy(narrative) } label: { Image(systemName: "doc.on.doc") }
                                     .buttonStyle(.borderless).help("Copy")
                             }
-                            Text(narrative)
+                            Text(SearchHighlight.plain(narrative, search))
                                 .font(.system(size: 14.5)).lineSpacing(4)
                                 .textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -179,6 +179,7 @@ struct GameStoryView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .textBackgroundColor))
+        .environment(\.storySearch, search.trimmingCharacters(in: .whitespaces))
         .onAppear { tracker.refreshPending() }
         .onChange(of: settings.activeProfileID) { _, _ in tracker.refreshPending() }
         .confirmationDialog("Xoá đoạn “\(pendingDeletePart?.title ?? "")” khỏi dòng diễn biến?",
@@ -360,6 +361,7 @@ private struct StoryPartCard: View {
     let onToggle: () -> Void
     let onDelete: () -> Void
     @State private var hovering = false
+    @Environment(\.storySearch) private var q
 
     private var timeRange: String {
         let day = part.from.formatted(date: .abbreviated, time: .omitted)
@@ -375,7 +377,7 @@ private struct StoryPartCard: View {
                         Image(systemName: expanded ? "chevron.down" : "chevron.right").font(.caption.weight(.semibold))
                             .foregroundStyle(Theme.accentStart).frame(width: 12).padding(.top, 3)
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(part.title).font(.system(size: 16, weight: .bold)).multilineTextAlignment(.leading)
+                            Text(SearchHighlight.plain(part.title, q)).font(.system(size: 16, weight: .bold)).multilineTextAlignment(.leading)
                                 .foregroundStyle(expanded ? AnyShapeStyle(Theme.accentGradient) : AnyShapeStyle(.primary))
                             Text("\(part.lineCount) câu · \(timeRange) · \(BackendKind.label(raw: part.backend))")
                                 .font(.caption2).foregroundStyle(.tertiary).monospacedDigit()
@@ -394,7 +396,7 @@ private struct StoryPartCard: View {
                 .opacity(hovering ? 1 : 0)
             }
             if expanded {
-                Text(part.summary)
+                Text(SearchHighlight.plain(part.summary, q))
                     .font(.system(size: 14)).lineSpacing(4)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -419,6 +421,7 @@ private struct StoryCharacterCard: View {
     let character: StoryCharacter
     let onDelete: () -> Void
     @State private var hovering = false
+    @Environment(\.storySearch) private var q
     @State private var expanded = false
 
     /// Phần chỉ hiện khi mở thẻ.
@@ -443,9 +446,9 @@ private struct StoryCharacterCard: View {
                         .background(Circle().fill(color.opacity(0.10)))
                         .overlay(Circle().stroke(color, lineWidth: 1.5))
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(character.name).font(.system(size: 15, weight: .bold)).foregroundStyle(color)
+                        Text(SearchHighlight.plain(character.name, q)).font(.system(size: 15, weight: .bold)).foregroundStyle(color)
                         if !character.role.isEmpty {
-                            Text(character.role).font(.system(size: 12.5)).foregroundStyle(.secondary).lineLimit(expanded ? nil : 2)
+                            Text(SearchHighlight.plain(character.role, q)).font(.system(size: 12.5)).foregroundStyle(.secondary).lineLimit(expanded ? nil : 2)
                                 .multilineTextAlignment(.leading)
                         }
                     }
@@ -463,7 +466,7 @@ private struct StoryCharacterCard: View {
             if !character.status.isEmpty {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("HIỆN TẠI").font(.system(size: 9.5, weight: .bold)).tracking(0.8).foregroundStyle(.tertiary)
-                    Text(character.status).font(.system(size: 13)).lineSpacing(2).textSelection(.enabled)
+                    Text(SearchHighlight.plain(character.status, q)).font(.system(size: 13)).lineSpacing(2).textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .padding(.horizontal, 10).padding(.vertical, 7)
@@ -475,7 +478,7 @@ private struct StoryCharacterCard: View {
                 ForEach(details, id: \.0) { label, value in
                     VStack(alignment: .leading, spacing: 2) {
                         Text(label.uppercased()).font(.system(size: 9.5, weight: .bold)).tracking(0.8).foregroundStyle(.tertiary)
-                        Text(value).font(.system(size: 13)).lineSpacing(2).textSelection(.enabled)
+                        Text(SearchHighlight.plain(value, q)).font(.system(size: 13)).lineSpacing(2).textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
@@ -503,6 +506,7 @@ private struct StoryLoreCard: View {
     let lore: StoryLore
     let onDelete: () -> Void
     @State private var hovering = false
+    @Environment(\.storySearch) private var q
 
     private var icon: String {
         switch lore.kind {
@@ -517,7 +521,7 @@ private struct StoryLoreCard: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Image(systemName: icon).font(.system(size: 13, weight: .semibold)).foregroundStyle(lore.kindColor)
-                Text(lore.name).font(.system(size: 16, weight: .bold))
+                Text(SearchHighlight.plain(lore.name, q)).font(.system(size: 16, weight: .bold))
                 Text(lore.kindLabel.uppercased()).font(.system(size: 9.5, weight: .heavy)).tracking(0.6).foregroundStyle(lore.kindColor)
                     .padding(.horizontal, 7).padding(.vertical, 2.5)
                     .background(Capsule().fill(lore.kindColor.opacity(0.14)))
@@ -526,7 +530,7 @@ private struct StoryLoreCard: View {
                 Button(action: onDelete) { Image(systemName: "trash") }.buttonStyle(.borderless).help("Xoá mục này")
                     .opacity(hovering ? 1 : 0)
             }
-            Text(lore.description).font(.system(size: 13)).lineSpacing(2).textSelection(.enabled)
+            Text(SearchHighlight.plain(lore.description, q)).font(.system(size: 13)).lineSpacing(2).textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(12)

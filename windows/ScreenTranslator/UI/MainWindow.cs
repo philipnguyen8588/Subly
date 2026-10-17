@@ -21,7 +21,7 @@ public sealed class MainWindow : Window
     readonly StackPanel tabBar = new() { Orientation = Orientation.Horizontal };
     readonly ContentControl tabTrailing = new();
     readonly HeaderBar header = new();
-    SourceTab? sourceTab; LogTab? logTab; GameSetupView? gameTab;
+    SourceTab? sourceTab; LogTab? logTab; GameSetupView? gameTab; SearchTab? searchTab;
     public bool reallyClose;
 
     public MainWindow()
@@ -103,7 +103,7 @@ public sealed class MainWindow : Window
     static readonly (AppNav.Tab tab, string glyph, string title)[] tabs =
     {
         (AppNav.Tab.source, "", "Màn hình"), (AppNav.Tab.story, "", "Cốt truyện"), (AppNav.Tab.subtitles, "", "Phụ đề"),
-        (AppNav.Tab.screens, "", "Dịch màn hình"), (AppNav.Tab.game, "", "Thiết lập game"),
+        (AppNav.Tab.screens, "", "Dịch màn hình"), (AppNav.Tab.search, "\uE721", "Tìm kiếm"), (AppNav.Tab.game, "", "Thiết lập game"),
     };
 
     void BuildTabBar()
@@ -112,6 +112,7 @@ public sealed class MainWindow : Window
         var store = HistoryStore.shared;
         foreach (var (t, glyph, title) in tabs)
         {
+            if (AppNav.shared.browsing && t == AppNav.Tab.source) continue;   // chế độ chỉ xem: chưa có nguồn hình
             bool sel = AppNav.shared.tab == t;
             var label = Ui.H(6, Ui.Icon(glyph, 13, sel ? Brushes.White : null), Ui.Text(title, 13, sel, sel ? Brushes.White : null, wrap: false));
             int badge = t switch { AppNav.Tab.subtitles => store.entries.Count, AppNav.Tab.screens => store.analyses.Count, _ => 0 };
@@ -141,7 +142,12 @@ public sealed class MainWindow : Window
         else
         {
             tabTrailing.Content = null;
-            content.Content = t == AppNav.Tab.game ? (gameTab ??= new GameSetupView()) : (sourceTab ??= new SourceTab());
+            content.Content = t switch
+            {
+                AppNav.Tab.game => gameTab ??= new GameSetupView(),
+                AppNav.Tab.search => searchTab ??= new SearchTab(),
+                _ => sourceTab ??= new SourceTab(),
+            };
         }
     }
 }
@@ -150,7 +156,7 @@ public sealed class MainWindow : Window
 /// các nút biểu tượng (voice, overlay, cốt truyện, tắt màn hình, hướng dẫn, cài đặt) cùng cỡ 36×36.
 public sealed class HeaderBar : Border
 {
-    readonly Button startBtn, analyzeBtn;
+    readonly Button startBtn, analyzeBtn, connectBtn;
     readonly ToggleButton voiceBtn, overlayBtn, storyBtn;
     readonly TextBlock gameName = Ui.Text("", 15, weight: FontWeights.Bold, wrap: false);
     readonly TextBlock gameStatus = Ui.Caption("");
@@ -164,6 +170,8 @@ public sealed class HeaderBar : Border
         var pipeline = Pipeline.shared; var s = AppSettings.shared;
         var back = Ui.Btn(Ui.IconLabel("", "Đổi game"), AppNav.shared.ChangeGame, tip: "Dừng dịch và quay về màn hình chọn game");
         startBtn = Ui.Btn("", pipeline.Toggle, primary: true, minWidth: 150);
+        // Chế độ chỉ xem: chưa có nguồn hình nên không dịch được, chỉ có nút quay lại màn Bắt đầu để kết nối.
+        connectBtn = Ui.Btn("", () => AppNav.shared.LeaveToStart(), primary: true, minWidth: 180);
         analyzeBtn = Ui.Btn("", pipeline.AnalyzeScreen, kind: Ui.Kind.tinted, minWidth: 150);
         analyzeBtn.MaxWidth = 230;
         voiceBtn = Ui.IconToggle("");
@@ -184,7 +192,7 @@ public sealed class HeaderBar : Border
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var left = Ui.H(12, back, game);
-        var center = Ui.H(8, startBtn, analyzeBtn); center.Margin = new Thickness(12, 0, 12, 0);
+        var center = Ui.H(8, startBtn, analyzeBtn, connectBtn); center.Margin = new Thickness(12, 0, 12, 0);
         var right = Ui.H(6, voiceBtn, overlayBtn, storyBtn, sep, moon, help, gear);
         left.VerticalAlignment = center.VerticalAlignment = right.VerticalAlignment = VerticalAlignment.Center;
         Grid.SetColumnSpan(left, 2); Grid.SetColumn(center, 2); Grid.SetColumn(right, 3);
@@ -197,6 +205,7 @@ public sealed class HeaderBar : Border
         PS5Reconnector.shared.PropertyChanged += (_, _) => Dispatcher.BeginInvoke(Refresh);
         ExternalMirror.shared.PropertyChanged += (_, _) => Dispatcher.BeginInvoke(Refresh);
         s.Changed += _ => Dispatcher.BeginInvoke(Refresh);
+        AppNav.shared.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(AppNav.browsing)) Dispatcher.BeginInvoke(Refresh); };
         Refresh();
     }
 
@@ -204,6 +213,11 @@ public sealed class HeaderBar : Border
     {
         var pipeline = Pipeline.shared; var s = AppSettings.shared; var an = pipeline.analyzer;
         var reconnecting = PS5Reconnector.shared.active;
+        var browsing = AppNav.shared.browsing;
+        startBtn.Visibility = analyzeBtn.Visibility = browsing ? Visibility.Collapsed : Visibility.Visible;
+        connectBtn.Visibility = browsing ? Visibility.Visible : Visibility.Collapsed;
+        connectBtn.Content = Ui.IconLabel("\uE71B", s.source == ProfileSource.ps5 ? "Quay lại để kết nối PS5" : "Quay lại để kết nối");
+        connectBtn.ToolTip = $"Về màn hình Bắt đầu để {(s.source == ProfileSource.ps5 ? "kết nối PS5" : "chọn cửa sổ game")} rồi bắt đầu dịch";
         startBtn.Content = Ui.IconLabel(pipeline.isRunning ? "" : "", pipeline.isRunning ? "Dừng dịch" : "Bắt đầu dịch");
         startBtn.Style = (Style)Application.Current.FindResource(pipeline.isRunning ? "AppButtonDanger" : "AppButtonPrimary");
         startBtn.ToolTip = $"Bắt đầu / dừng dịch phụ đề ({s.hotkeyToggle.display})";
@@ -221,7 +235,8 @@ public sealed class HeaderBar : Border
         gameName.Text = s.activeProfile.name;
         sourceIcon.Text = s.source == ProfileSource.ps5 ? "" : "";
         Brush color; string text;
-        if (s.source == ProfileSource.ps5)
+        if (browsing) { color = Ui.Secondary; text = $"Chỉ xem · chưa kết nối {(s.source == ProfileSource.ps5 ? "PS5" : "cửa sổ game")}"; }
+        else if (s.source == ProfileSource.ps5)
         {
             var st = PS5Stream.shared;
             var name = st.host?.nickname ?? "PS5";
@@ -573,12 +588,12 @@ public sealed class GlossaryTab : DockPanel
         var guess = Labels.Of(TranslationStyles.Guess(s.activeProfile.name));
         var picker = Ui.Picker("", Enum.GetValues<TranslationStyle>().Select(x => (x, x == TranslationStyle.auto ? $"{Labels.Of(x)} (đang là: {guess})" : Labels.Of(x))),
             () => s.translationStyle, v => s.translationStyle = v, 320);
-        var note = new TextBox { Text = s.translationNote, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Height = 54, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+        var note = new TextBox { Text = s.translationNote, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Height = 140, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         note.TextChanged += (_, _) => { if (note.Text != s.translationNote) s.translationNote = note.Text; };
         return Ui.Card(Ui.V(8,
             Ui.H(10, Ui.Text("Phong cách dịch", 14, true, wrap: false), picker),
             Ui.Caption("Quyết định giọng văn và cách xưng hô khi dịch: hiện đại (tôi – cậu, tao – mày), kỳ ảo trung cổ (tôi – ngài, ta – ngươi, Sir → ngài), thần thoại (ta – ngươi, cha – con)."),
-            Ui.Text("Ghi chú cho người dịch (tuỳ chọn)", weight: FontWeights.Medium),
+            Ui.Text("Ghi chú cho AI dịch (tuỳ chọn)", weight: FontWeights.Medium),
             note,
             Ui.Caption("Ví dụ: “Clive và Jill xưng anh – em”, “Cid gọi Clive là cậu”. Gửi kèm mỗi câu dịch, nên viết ngắn.")), 12);
     }

@@ -346,7 +346,7 @@ final class WebServer: ObservableObject, @unchecked Sendable {
                     p.stop()
                 } else {
                     let regions = p.settings.subtitleRegions.filter(\.enabled)
-                    if AppNav.shared.screen == .start {
+                    if AppNav.shared.screen == .start || AppNav.shared.browsing {
                         error = "Mở Subly trên Mac, chọn game và bấm Bắt đầu."
                     } else if let issue = Readiness.check().first {
                         error = "\(issue.title). \(issue.detail)"
@@ -406,7 +406,9 @@ final class WebServer: ObservableObject, @unchecked Sendable {
                 let regions = p.settings.manualRegions.filter(\.enabled)
                 var error: String?
                 var shot: ScreenAnalysis?
-                if regions.isEmpty {
+                if AppNav.shared.browsing {
+                    error = "Subly trên Mac đang ở chế độ xem, chưa kết nối. Bấm “Quay lại để kết nối” trên Mac."
+                } else if regions.isEmpty {
                     error = "Chưa chọn màn hình game. Mở tab Màn hình trên Mac để chọn vùng game hoặc kết nối PS5."
                 } else if p.analyzer.isRunning {
                     error = "Đang dịch, đợi một chút."

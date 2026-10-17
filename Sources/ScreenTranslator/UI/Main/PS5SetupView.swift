@@ -57,11 +57,11 @@ enum PS5Coordinator {
             let wasTranslating = Pipeline.shared.isRunning
             if wasTranslating { Pipeline.shared.stop() }
             if nav.entering { nav.enterFailed(reason) }
-            else if nav.screen == .main { reconnector.connectionLost(reason, wasTranslating: wasTranslating) }
+            else if nav.screen == .main, !nav.browsing { reconnector.connectionLost(reason, wasTranslating: wasTranslating) }
         case .idle:
             if Pipeline.shared.isRunning { Pipeline.shared.stop() }
             // Phiên kết thúc "bình thường" mà người dùng không bấm Ngắt / Đổi game (ví dụ tắt Remote Play trên PS5).
-            if nav.screen == .main, !reconnector.active, prev == .streaming {
+            if nav.screen == .main, !nav.browsing, !reconnector.active, prev == .streaming {
                 reconnector.connectionLost("PS5 đã đóng phiên Remote Play", wasTranslating: true)
             }
         default: break

@@ -404,7 +404,7 @@ public sealed class WebServer : INotifyPropertyChanged
                     else
                     {
                         var regions = AppSettings.shared.subtitleRegions.Where(r => r.enabled).ToList();
-                        if (AppNav.shared.screen == AppNav.Screen.start) error = "Mở Subly trên máy tính, chọn game và bấm Bắt đầu.";
+                        if (AppNav.shared.screen == AppNav.Screen.start || AppNav.shared.browsing) error = "Mở Subly trên máy tính, chọn game và bấm Bắt đầu.";
                         else if (Readiness.Check().FirstOrDefault() is Readiness.Issue issue) error = issue.detail;
                         else if (regions.Count == 0) error = "Chưa có vùng phụ đề. Mở tab Màn hình trên máy tính để vẽ khung phụ đề.";
                         else
@@ -482,7 +482,8 @@ public sealed class WebServer : INotifyPropertyChanged
             var regions = AppSettings.shared.manualRegions.Where(r => r.enabled).ToList();
             string? error = null;
             ScreenAnalysis? shot = null;
-            if (regions.Count == 0) error = "Chưa chọn màn hình game. Mở tab Màn hình trên máy tính để chọn vùng game hoặc kết nối PS5.";
+            if (AppNav.shared.browsing) error = "Subly trên máy tính đang ở chế độ xem, chưa kết nối. Bấm “Quay lại để kết nối” trên máy tính.";
+            else if (regions.Count == 0) error = "Chưa chọn màn hình game. Mở tab Màn hình trên máy tính để chọn vùng game hoặc kết nối PS5.";
             else if (p.analyzer.isRunning) error = "Đang dịch, đợi một chút.";
             else
             {

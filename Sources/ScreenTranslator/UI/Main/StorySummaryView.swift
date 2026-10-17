@@ -92,6 +92,7 @@ private struct StorySummaryCard: View {
     let onToggle: () -> Void
     let onDelete: () -> Void
     @State private var hovering = false
+    @Environment(\.storySearch) private var q
 
     private var timeRange: String {
         let day = summary.from.formatted(date: .abbreviated, time: .omitted)
@@ -108,7 +109,7 @@ private struct StorySummaryCard: View {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: "book.pages").font(.system(size: 15)).foregroundStyle(Theme.accentGradient).padding(.top, 2)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(summary.title).font(.system(size: 15.5, weight: .semibold))
+                    Text(SearchHighlight.plain(summary.title, q)).font(.system(size: 15.5, weight: .semibold))
                     Text("\(summary.lines.count) câu · \(timeRange) · \(BackendKind.label(raw: summary.backend)) · \(String(format: "%.1f", Double(summary.latencyMs) / 1000)) s")
                         .font(.caption2).foregroundStyle(.tertiary).monospacedDigit()
                 }
@@ -121,7 +122,7 @@ private struct StorySummaryCard: View {
                 .buttonStyle(.borderless)
                 .opacity(hovering ? 1 : 0)
             }
-            Text(summary.summary)
+            Text(SearchHighlight.plain(summary.summary, q))
                 .font(.system(size: 14.5)).lineSpacing(4)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -135,9 +136,9 @@ private struct StorySummaryCard: View {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(summary.lines) { l in
                         HStack(alignment: .firstTextBaseline, spacing: 24) {
-                            Text(l.target.isEmpty ? AttributedString("—") : SpeakerColors.styled(l.target, size: 13.5))
+                            Text(l.target.isEmpty ? AttributedString("—") : SearchHighlight.mark(SpeakerColors.styled(l.target, size: 13.5), q))
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                            Text(SpeakerColors.styled(l.source, size: 13)).foregroundStyle(.secondary)
+                            Text(SearchHighlight.mark(SpeakerColors.styled(l.source, size: 13), q)).foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .padding(.vertical, 3)

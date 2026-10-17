@@ -472,7 +472,8 @@ final class Pipeline: ObservableObject {
         }
         if isRunning {
             applyVoiceSettings()
-            speaker.preloadLocal()
+            // Tắt giọng đọc thì không nạp model giọng offline (~60 MB); bật lại giữa chừng thì câu đầu tự nạp.
+            if settings.voiceOn { speaker.preloadLocal() }
             speaker.keepWarm()
             warmTimer?.invalidate()
             warmTimer = Timer.scheduledTimer(withTimeInterval: 6, repeats: true) { [weak self] _ in

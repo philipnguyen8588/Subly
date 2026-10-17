@@ -214,7 +214,7 @@ public partial class App : Application
             switch (a)
             {
                 case HotkeyManager.HotkeyAction.toggle: AppNav.shared.ToggleTranslation(); break;
-                case HotkeyManager.HotkeyAction.analyze: p.AnalyzeScreen(); break;
+                case HotkeyManager.HotkeyAction.analyze: if (!AppNav.shared.browsing) p.AnalyzeScreen(); break;
                 case HotkeyManager.HotkeyAction.voice:
                     s.voiceEnabled = !s.voiceEnabled;
                     if (!s.voiceEnabled) p.speaker.Stop();
@@ -260,7 +260,7 @@ public partial class App : Application
             {
                 ["source"] = AppNav.Tab.source, ["ps5"] = AppNav.Tab.source, ["regions"] = AppNav.Tab.source,
                 ["subtitles"] = AppNav.Tab.subtitles, ["log"] = AppNav.Tab.subtitles, ["live"] = AppNav.Tab.subtitles,
-                ["screens"] = AppNav.Tab.screens, ["analysis"] = AppNav.Tab.screens, ["story"] = AppNav.Tab.story,
+                ["screens"] = AppNav.Tab.screens, ["analysis"] = AppNav.Tab.screens, ["story"] = AppNav.Tab.story, ["search"] = AppNav.Tab.search,
                 ["game"] = AppNav.Tab.game, ["speakers"] = AppNav.Tab.game, ["glossary"] = AppNav.Tab.game,
             };
             if (map.TryGetValue(tab, out var t)) { AppNav.shared.tab = t; AppNav.shared.screen = AppNav.Screen.main; }

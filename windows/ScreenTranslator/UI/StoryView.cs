@@ -237,11 +237,10 @@ public sealed class StoryView : Border
         jumpBar.Child = bar;
     }
 
-    static TextBox ReadOnly(string text, double size) => new()
-    {
-        Text = text, IsReadOnly = true, TextWrapping = TextWrapping.Wrap, FontSize = size, BorderThickness = new Thickness(0),
-        Background = Brushes.Transparent, Padding = new Thickness(0), Margin = new Thickness(-2, 0, 0, 0),
-    };
+    /// Đang tìm thì tô nền chỗ khớp (giống tab Tìm kiếm); không tìm thì là ô chữ chọn / copy được.
+    FrameworkElement ReadOnly(string text, double size) => HistorySearch.Readable(text, search.Trim(), size);
+    TextBlock Label(string s, double size, bool bold = false, Brush? color = null, bool wrap = true) =>
+        HistorySearch.Label(s, search.Trim(), size, bold, color, wrap);
 
     /// Một mục có tiêu đề bấm được để thu gọn / mở cả mục; `accessory` là nút riêng của mục, nằm bên phải tiêu đề.
     UIElement Section(string key, string title, string glyph, UIElement? accessory, Func<UIElement> content)
@@ -335,7 +334,7 @@ public sealed class StoryView : Border
         var title = new Button
         {
             Style = (Style)Application.Current.FindResource("LinkButton"), HorizontalAlignment = HorizontalAlignment.Left,
-            Content = Ui.H(10, chevron, Ui.V(3, Ui.Text(p.title, 16.5, true),
+            Content = Ui.H(10, chevron, Ui.V(3, Label(p.title, 16.5, true),
                 Ui.Text($"{p.lineCount} câu · {timeRange} · {BackendLabels.Label(p.backend)}", 10.5, color: Ui.Tertiary))),
         };
         title.Click += (_, _) =>
@@ -379,8 +378,8 @@ public sealed class StoryView : Border
             Background = new SolidColorBrush(Color.FromArgb(26, color.Color.R, color.Color.G, color.Color.B)),
             Child = Ui.Text(initial, 15, true, color, wrap: false).Also(t => { t.HorizontalAlignment = HorizontalAlignment.Center; t.VerticalAlignment = VerticalAlignment.Center; }),
         };
-        var nameBox = Ui.V(1, Ui.Text(c.name, 15, true, color, wrap: false));
-        if (c.role.Length > 0) nameBox.Children.Add(Ui.Text(c.role, 12.5, color: Ui.Secondary).Also(t => { t.MaxHeight = 36; t.TextTrimming = TextTrimming.CharacterEllipsis; }));
+        var nameBox = Ui.V(1, Label(c.name, 15, true, color, wrap: false));
+        if (c.role.Length > 0) nameBox.Children.Add(Label(c.role, 12.5, color: Ui.Secondary).Also(t => { t.MaxHeight = 36; t.TextTrimming = TextTrimming.CharacterEllipsis; }));
         var chevron = Ui.Icon("\uE76C", 9, Ui.Tertiary);
         var del = Ui.InlineIconBtn("\uE74D", Delete, "Xoá nhân vật này");
         del.Opacity = 0;
@@ -450,7 +449,7 @@ public sealed class StoryView : Border
             Background = new SolidColorBrush(Color.FromArgb(36, kc.R, kc.G, kc.B)), BorderBrush = new SolidColorBrush(Color.FromArgb(115, kc.R, kc.G, kc.B)),
             VerticalAlignment = VerticalAlignment.Center, Child = Ui.Text(l.kindLabel.ToUpperInvariant(), 9.5, true, new SolidColorBrush(kc), wrap: false),
         };
-        var v = Ui.V(6, Ui.Row(Ui.H(7, Ui.Text(l.name, 16, true, wrap: false), kind), del), ReadOnly(l.description, 13));
+        var v = Ui.V(6, Ui.Row(Ui.H(7, Label(l.name, 16, true, wrap: false), kind), del), ReadOnly(l.description, 13));
         var cm = new ContextMenu();
         cm.Items.Add(Mi("Copy", () => Ui.CopyText($"{l.name}\n{l.description}"), "\uE8C8"));
         cm.Items.Add(new Separator());

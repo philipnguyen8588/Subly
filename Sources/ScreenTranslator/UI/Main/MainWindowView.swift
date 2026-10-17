@@ -30,7 +30,7 @@ struct MainScreen: View {
             TabBar(tab: $nav.tab, badges: [
                 .subtitles: store.entries.isEmpty ? nil : String(store.entries.count),
                 .screens: store.analyses.isEmpty ? nil : String(store.analyses.count),
-            ]) {
+            ], hidden: nav.browsing ? [.source] : []) {
                 if nav.tab.isLog { LogToolbar(section: nav.tab) }
             }
             Divider()
@@ -38,6 +38,7 @@ struct MainScreen: View {
                 switch nav.tab {
                 case .source: SourceTabView()
                 case .subtitles, .screens, .story: LogPane(section: nav.tab)
+                case .search: SearchTabView()
                 case .game: GameSetupView()
                 }
             }
@@ -205,6 +206,7 @@ struct SampleGameRow: View {
 // MARK: - Header
 
 struct HeaderBar: View {
+    @ObservedObject var nav = AppNav.shared
     @ObservedObject var pipeline = Pipeline.shared
     @ObservedObject var settings = AppSettings.shared
     @ObservedObject var analyzer: ScreenAnalyzer = Pipeline.shared.analyzer
@@ -214,29 +216,39 @@ struct HeaderBar: View {
         HStack(spacing: 12) {
             Button { AppNav.shared.changeGame() } label: { Label("Đổi game", systemImage: "chevron.left") }
                 .appButton()
-                .help("Dừng dịch\(settings.source == .ps5 ? ", ngắt PS5" : "") và quay về màn hình chọn game")
+                .help(nav.browsing ? "Quay về màn hình chọn game" : "Dừng dịch\(settings.source == .ps5 ? ", ngắt PS5" : "") và quay về màn hình chọn game")
             CurrentGameLabel()
                 .frame(minWidth: 120, maxWidth: .infinity, alignment: .leading)
 
-            HStack(spacing: 8) {
-                Button { pipeline.toggle() } label: {
-                    Label(pipeline.isRunning ? "Dừng dịch" : "Bắt đầu dịch", systemImage: pipeline.isRunning ? "stop.fill" : "play.fill")
+            if nav.browsing {
+                // Chế độ chỉ xem: chưa có nguồn hình nên không dịch được, chỉ có nút quay lại màn Bắt đầu để kết nối.
+                Button { nav.leaveToStart() } label: {
+                    Label(settings.source == .ps5 ? "Quay lại để kết nối PS5" : "Quay lại để kết nối", systemImage: "link")
                 }
-                .appButton(pipeline.isRunning ? .danger : .primary, minWidth: 140)
-                .disabled(reconnector.active)
-                .keyboardShortcut("s", modifiers: [.command, .option])
-                .help("Bắt đầu / dừng dịch phụ đề (\(settings.hotkeyToggle.display))")
+                .appButton(.primary, minWidth: 180)
+                .help("Về màn hình Bắt đầu để \(settings.source == .ps5 ? "kết nối PS5" : "chọn cửa sổ game") rồi bắt đầu dịch")
+                .fixedSize()
+            } else {
+                HStack(spacing: 8) {
+                    Button { pipeline.toggle() } label: {
+                        Label(pipeline.isRunning ? "Dừng dịch" : "Bắt đầu dịch", systemImage: pipeline.isRunning ? "stop.fill" : "play.fill")
+                    }
+                    .appButton(pipeline.isRunning ? .danger : .primary, minWidth: 140)
+                    .disabled(reconnector.active)
+                    .keyboardShortcut("s", modifiers: [.command, .option])
+                    .help("Bắt đầu / dừng dịch phụ đề (\(settings.hotkeyToggle.display))")
 
-                Button { pipeline.analyzeScreen() } label: {
-                    Label(analyzer.isRunning ? (analyzer.progress.isEmpty ? "Đang dịch…" : analyzer.progress) : "Dịch màn hình",
-                          systemImage: "doc.text.magnifyingglass")
-                        .frame(maxWidth: 190)
+                    Button { pipeline.analyzeScreen() } label: {
+                        Label(analyzer.isRunning ? (analyzer.progress.isEmpty ? "Đang dịch…" : analyzer.progress) : "Dịch màn hình",
+                              systemImage: "doc.text.magnifyingglass")
+                            .frame(maxWidth: 190)
+                    }
+                    .appButton(.tinted, minWidth: 140)
+                    .disabled(analyzer.isRunning || reconnector.active)
+                    .help("Chụp màn hình game, dịch toàn bộ chữ và mở ảnh với bản dịch đặt đè đúng vị trí (\(settings.hotkeyAnalyze.display))")
                 }
-                .appButton(.tinted, minWidth: 140)
-                .disabled(analyzer.isRunning || reconnector.active)
-                .help("Chụp màn hình game, dịch toàn bộ chữ và mở ảnh với bản dịch đặt đè đúng vị trí (\(settings.hotkeyAnalyze.display))")
+                .fixedSize()
             }
-            .fixedSize()
 
             HStack(spacing: 6) {
                 Toggle("", isOn: $settings.voiceEnabled)
@@ -296,11 +308,12 @@ struct SupportBanner: View {
 struct TabBar<Trailing: View>: View {
     @Binding var tab: MainTab
     let badges: [MainTab: String?]
+    var hidden: Set<MainTab> = []
     @ViewBuilder var trailing: Trailing
 
     var body: some View {
         HStack(spacing: 4) {
-            ForEach(MainTab.allCases) { t in
+            ForEach(MainTab.allCases.filter { !hidden.contains($0) }) { t in
                 Button { tab = t } label: {
                     HStack(spacing: 6) {
                         Image(systemName: t.icon).font(.system(size: 13, weight: .medium))
@@ -332,12 +345,14 @@ struct TabBar<Trailing: View>: View {
 
 /// Tên game đang chơi + nguồn hình và trạng thái của nó (thay cho bộ chọn game cũ).
 struct CurrentGameLabel: View {
+    @ObservedObject var nav = AppNav.shared
     @ObservedObject var settings = AppSettings.shared
     @ObservedObject var stream = PS5Stream.shared
     @ObservedObject var mirror = ExternalMirror.shared
     @ObservedObject var reconnector = PS5Reconnector.shared
 
     private var status: (color: Color, text: String) {
+        if nav.browsing { return (.secondary, "Chỉ xem · chưa kết nối \(settings.source == .ps5 ? "PS5" : "cửa sổ game")") }
         switch settings.source {
         case .ps5:
             if reconnector.active { return (.orange, "Đang kết nối lại PS5…") }
@@ -419,9 +434,9 @@ struct TranslationStyleBox: View {
             }
             Text("Quyết định giọng văn và cách xưng hô khi dịch: hiện đại (tôi – cậu, tao – mày), kỳ ảo trung cổ (tôi – ngài, ta – ngươi, Sir → ngài), thần thoại (ta – ngươi, cha – con).")
                 .font(.caption).foregroundStyle(.secondary)
-            Text("Ghi chú cho người dịch (tuỳ chọn)").font(.callout.weight(.medium))
+            Text("Ghi chú cho AI dịch (tuỳ chọn)").font(.callout.weight(.medium))
             TextEditor(text: $settings.translationNote)
-                .font(.callout).frame(height: 54)
+                .font(.callout).frame(minHeight: 120, idealHeight: 140)
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.primary.opacity(0.15)))
             Text("Ví dụ: “Clive và Jill xưng anh – em”, “Cid gọi Clive là cậu”. Gửi kèm mỗi câu dịch, nên viết ngắn.")
                 .font(.caption).foregroundStyle(.secondary)

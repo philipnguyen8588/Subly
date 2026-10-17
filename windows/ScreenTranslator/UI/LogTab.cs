@@ -94,7 +94,7 @@ public sealed class LogTab : DockPanel
         storyView.SectionChanged += Rebuild;
         legacyBtn.Checked += (_, _) => { legacy = true; legacyEntries = store.LegacyEntries(); legacyAnalyses = store.LegacyAnalyses(); Rebuild(); };
         legacyBtn.Unchecked += (_, _) => { legacy = false; legacyEntries = new(); legacyAnalyses = new(); Rebuild(); };
-        searchBox.TextChanged += (_, _) => { search = searchBox.Text; ClearSelection(); Rebuild(); };
+        Ui.OnSearch(searchBox, () => { if (search == searchBox.Text) return; search = searchBox.Text; ClearSelection(); Rebuild(); });
         exportBtn = Ui.IconBtn("", () => { }, "Xuất nhật ký (TXT / SRT / JSON)");
         var menu = new ContextMenu();
         foreach (var f in Enum.GetValues<Exporter.Format>())
@@ -274,8 +274,9 @@ public sealed class LogTab : DockPanel
         g.ColumnDefinitions.Add(new ColumnDefinition());
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(28) });
         g.ColumnDefinitions.Add(new ColumnDefinition());
-        var tr = skipped ? Ui.Text("—", 15, color: Ui.Tertiary) : Ui.Styled(e.translated, 15);
-        var src = Ui.Styled(e.source, 14, color: Ui.Secondary);
+        var q = search.Trim();   // tô nền chỗ khớp ô tìm, như tab Tìm kiếm
+        var tr = skipped ? Ui.Text("—", 15, color: Ui.Tertiary) : HistorySearch.Text(e.translated, q, 15, styled: true);
+        var src = HistorySearch.Text(e.source, q, 14, Ui.Secondary, styled: true);
         Grid.SetColumn(src, 2);
         g.Children.Add(tr); g.Children.Add(src);
         var tools = Ui.H(4, Ui.Text($"{e.timestamp:HH:mm:ss} · {BackendLabels.Label(e.backend)} · {e.latencyMs} ms", 10.5, color: Ui.Secondary),
@@ -687,22 +688,19 @@ public sealed class LogTab : DockPanel
         var icon = Ui.Icon("", 15, Ui.AccentStart).Also(i => { i.VerticalAlignment = VerticalAlignment.Top; i.Margin = new Thickness(0, 2, 10, 0); });
         SetDock(icon, Dock.Left);
         titleBox.Children.Add(icon);
-        titleBox.Children.Add(Ui.V(3, Ui.Text(s.title, 15.5, true),
+        var q = search.Trim();
+        titleBox.Children.Add(Ui.V(3, HistorySearch.Label(s.title, q, 15.5, true),
             Ui.Text($"{s.lines.Count} câu · {timeRange} · {BackendLabels.Label(s.backend)} · {s.latencyMs / 1000.0:0.0} s", 10.5, color: Ui.Tertiary)));
         var head = Ui.Row(titleBox, tools);
-        var body = new TextBox
-        {
-            Text = s.summary, IsReadOnly = true, TextWrapping = TextWrapping.Wrap, FontSize = 14.5, BorderThickness = new Thickness(0),
-            Background = Brushes.Transparent, Padding = new Thickness(0), Margin = new Thickness(-2, 0, 0, 0),
-        };
+        var body = HistorySearch.Readable(s.summary, q, 14.5);
         bool expanded = expandedSummaries.Contains(s.id);
         var detail = Ui.V(0, Ui.Divider());
         foreach (var l in s.lines)
         {
             var g = new Grid { Margin = new Thickness(0, 3, 0, 3) };
             g.ColumnDefinitions.Add(new ColumnDefinition()); g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(24) }); g.ColumnDefinitions.Add(new ColumnDefinition());
-            var t1 = l.target.Length == 0 ? Ui.Text("—", 13.5, color: Ui.Tertiary) : Ui.Styled(l.target, 13.5);
-            var t2 = Ui.Styled(l.source, 13, color: Ui.Secondary);
+            var t1 = l.target.Length == 0 ? Ui.Text("—", 13.5, color: Ui.Tertiary) : HistorySearch.Text(l.target, q, 13.5, styled: true);
+            var t2 = HistorySearch.Text(l.source, q, 13, Ui.Secondary, styled: true);
             Grid.SetColumn(t2, 2); g.Children.Add(t1); g.Children.Add(t2);
             detail.Children.Add(g);
         }

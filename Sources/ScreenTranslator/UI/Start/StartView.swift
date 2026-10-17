@@ -484,21 +484,14 @@ struct GameListPanel: View {
                     Button { selection = []; selecting = true } label: { Label("Chọn", systemImage: "checklist") }
                         .appButton(.ghost).disabled(settings.profiles.count <= 1)
                         .help("Chọn nhiều game cùng lúc để xoá")
-                    Button { nav.showNewProfile = true } label: { Label("Game mới", systemImage: "plus") }
-                        .appButton(.tinted)
+                    Button { nav.showNewProfile = true } label: {
+                        Label("Game mới", systemImage: "plus.circle.fill").font(.system(size: 13, weight: .bold))
+                    }
+                    .appButton(.primary, minWidth: 120)
                         .help("Thêm game mẫu có sẵn thuật ngữ, hoặc tạo game của riêng bạn")
                 }
             }
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass").foregroundStyle(.tertiary)
-                TextField("Tìm game", text: $search).textFieldStyle(.plain)
-                if !search.isEmpty {
-                    Button { search = "" } label: { Image(systemName: "xmark.circle.fill") }.buttonStyle(.plain).foregroundStyle(.tertiary)
-                }
-            }
-            .padding(.horizontal, 10).frame(height: 36)
-            .background(Theme.controlFill, in: RoundedRectangle(cornerRadius: AppButtonStyle.radius))
-            .overlay(RoundedRectangle(cornerRadius: AppButtonStyle.radius).strokeBorder(Theme.controlStroke))
+            SearchField(text: $search, prompt: "Tìm game")
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 8) {
@@ -589,6 +582,9 @@ struct GameCard: View {
                 if selected {
                     Image(systemName: "checkmark.circle.fill").font(.system(size: 18)).foregroundStyle(Theme.accentStart)
                 }
+                Button { AppNav.shared.browse(profile) } label: { Label("Xem", systemImage: "eye") }
+                    .appButton(.ghost)
+                    .help("Vào xem cốt truyện, phụ đề và ảnh đã dịch của game này mà không cần kết nối")
                 Menu {
                     Button("Đổi tên…") { AppNav.shared.renameProfile(profile) }
                     Button("Nhân bản") { AppNav.shared.duplicateProfile(profile) }
@@ -616,6 +612,8 @@ struct GameCard: View {
         .onHover { hovering = $0 }
         .contextMenu {
             if checked == nil {
+                Button("Xem cốt truyện, phụ đề…") { AppNav.shared.browse(profile) }
+                Divider()
                 Button("Đổi tên…") { AppNav.shared.renameProfile(profile) }
                 Button("Nhân bản") { AppNav.shared.duplicateProfile(profile) }
                 Button("Xoá…", role: .destructive) { AppNav.shared.deleteProfile(profile) }

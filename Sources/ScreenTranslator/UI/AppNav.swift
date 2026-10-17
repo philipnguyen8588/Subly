@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 
 enum MainTab: String, CaseIterable, Identifiable {
-    case source, story, subtitles, screens, game
+    case source, story, subtitles, screens, search, game
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -10,6 +10,7 @@ enum MainTab: String, CaseIterable, Identifiable {
         case .subtitles: return "Phụ đề"
         case .screens: return "Dịch màn hình"
         case .story: return "Cốt truyện"
+        case .search: return "Tìm kiếm"
         case .game: return "Thiết lập game"
         }
     }
@@ -19,6 +20,7 @@ enum MainTab: String, CaseIterable, Identifiable {
         case .subtitles: return "captions.bubble"
         case .screens: return "doc.text.magnifyingglass"
         case .story: return "text.book.closed"
+        case .search: return "magnifyingglass"
         case .game: return "slider.horizontal.3"
         }
     }
@@ -42,6 +44,9 @@ final class AppNav: ObservableObject {
     @Published var notice: String?
     /// Đang kết nối PS5 từ màn Bắt đầu; có hình thì vào màn hình chính.
     @Published private(set) var entering = false
+    /// Màn hình chính mở ở chế độ chỉ xem (nút "Xem" ở danh sách game): đọc cốt truyện, phụ đề, ảnh đã dịch
+    /// mà không cần kết nối PS5 / chọn cửa sổ. Không có nút dịch, chỉ có nút quay lại để kết nối.
+    @Published private(set) var browsing = false
 
     // MARK: vào / rời phiên
 
@@ -57,6 +62,7 @@ final class AppNav: ObservableObject {
                 return
             }
             guard Readiness.ensure() else { return }
+            browsing = false
             screen = .main
             tab = .source
             Task { await Pipeline.shared.start() }
@@ -76,9 +82,23 @@ final class AppNav: ObservableObject {
     func enteredPS5() {
         guard entering else { return }
         entering = false
+        browsing = false
         screen = .main
         tab = .source
         Task { await Pipeline.shared.start() }
+    }
+
+    /// Nút "Xem" ở danh sách game: vào màn hình chính của game đó mà không kết nối nguồn hình.
+    func browse(_ p: Profile) {
+        guard screen == .start else { return }
+        if entering { cancelEnter() }
+        if PS5Stream.shared.state != .idle { PS5Stream.shared.disconnect() }
+        switchProfile(p)
+        notice = nil
+        browsing = true
+        screen = .main
+        if tab == .source || tab == .game { tab = .story }
+        Log.info("Xem game '\(p.name)' (chưa kết nối)")
     }
 
     /// Kết nối PS5 từ màn Bắt đầu thất bại: ở lại màn Bắt đầu và hiện lý do.
@@ -103,6 +123,7 @@ final class AppNav: ObservableObject {
         RegionEditor.shared.hideAll()
         ShotViewer.shared.close()
         entering = false
+        browsing = false
         screen = .start
         notice = reason
         if let reason { Log.info("Về màn hình Bắt đầu: \(reason)") }
@@ -110,6 +131,7 @@ final class AppNav: ObservableObject {
 
     /// Nút "Đổi game" ở màn hình chính (hỏi lại nếu đang dịch).
     func changeGame() {
+        if browsing { leaveToStart(); return }
         if Pipeline.shared.isRunning || PS5Stream.shared.state.isBusy, !AppSettings.shared.suppressAlerts {
             let a = NSAlert()
             a.messageText = "Đổi game?"
@@ -126,6 +148,7 @@ final class AppNav: ObservableObject {
     /// Phím tắt / nút Bắt đầu-Dừng: ở màn Bắt đầu thì đi qua bước kiểm tra và kết nối như bấm nút Bắt đầu.
     func toggleTranslation() {
         if screen == .start { enter(); return }
+        if browsing { leaveToStart(); enter(); return }
         if Pipeline.shared.isRunning { Pipeline.shared.stop() } else { Task { await Pipeline.shared.start() } }
     }
 

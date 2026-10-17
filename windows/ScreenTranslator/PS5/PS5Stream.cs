@@ -140,7 +140,7 @@ public sealed class PS5Stream : INotifyPropertyChanged
         return true;
     }
 
-    // MARK: tìm máy / đánh thức
+    // MARK: tìm máy
 
     /// Địa chỉ broadcast của các card mạng IPv4 đang hoạt động.
     public static List<string> BroadcastAddresses()
@@ -230,7 +230,7 @@ public sealed class PS5Stream : INotifyPropertyChanged
             Found? found = h.host.Length == 0 ? null : Discover(new[] { h.host }, 900).FirstOrDefault();
             found ??= Discover(BroadcastAddresses()).FirstOrDefault(f => f.hostID.ToUpperInvariant() == h.hostID);
             if (gen != generation) return;
-            // PS5 đang nghỉ có thể không trả lời tìm kiếm: lấy IP từ bảng ARP theo địa chỉ MAC để còn đánh thức.
+            // PS5 đang nghỉ có thể không trả lời tìm kiếm: lấy IP từ bảng ARP theo địa chỉ MAC để lần sau hỏi thẳng.
             if (found == null && h.host.Length == 0 && ArpLookup(h.mac) is string ip)
             {
                 h.host = ip;
@@ -248,24 +248,13 @@ public sealed class PS5Stream : INotifyPropertyChanged
                 SetState(new State(StateKind.failed, $"Không tìm thấy {h.nickname} trong mạng. Bật PS5 (hoặc để chế độ nghỉ có bật mạng) rồi thử lại."));
                 return;
             }
-            // 2. Đang nghỉ (hoặc không trả lời) → gửi gói đánh thức và đợi máy sẵn sàng.
+            // 2. Không tự bật PS5: máy đang nghỉ hoặc không trả lời thì báo và dừng, người chơi tự bật bằng tay cầm.
             if (found?.state != 1)
             {
-                SetState(new State(StateKind.searching, found == null ? "Không thấy PS5 trả lời, thử đánh thức…" : "Đang đánh thức PS5…"));
-                bool ready = false;
-                for (int i = 0; i < 30; i++)
-                {
-                    if (gen != generation) return;
-                    if (i % 5 == 0) ChiakiNative.st_wakeup(h.host, h.registKey, h.ps5 ? 1 : 0);
-                    if (Discover(new[] { h.host }, 900).FirstOrDefault() is { state: 1 }) { ready = true; break; }
-                    Thread.Sleep(1000);
-                }
-                if (!ready)
-                {
-                    SetState(new State(StateKind.failed, "PS5 không trả lời. Máy đang tắt hẳn, hoặc chế độ nghỉ chưa bật “Stay Connected to the Internet” và “Enable Turning On PS5 from Network”."));
-                    return;
-                }
-                Thread.Sleep(3000);   // vừa thức dậy: đợi dịch vụ Remote Play lên
+                SetState(new State(StateKind.failed, found == null
+                    ? $"{h.nickname} không trả lời. Bật PS5 bằng tay cầm rồi kết nối lại."
+                    : $"{h.nickname} đang ở chế độ nghỉ. Bật PS5 bằng tay cầm rồi kết nối lại (app không tự bật máy)."));
+                return;
             }
             if (gen != generation) return;
             // 3. Mở phiên.

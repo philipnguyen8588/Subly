@@ -324,6 +324,20 @@ public static class Ui
 
     public static T Also<T>(this T x, Action<T> f) { f(x); return x; }
 
+    /// Ô tìm: chỉ gọi `apply` sau khi ngừng gõ `ms` mili giây (gõ liên tục thì không tìm). Enter, hoặc chữ bị đặt lại
+    /// từ code (ô không có focus, ví dụ nút xoá / đổi game) thì gọi ngay.
+    public static void OnSearch(TextBox box, Action apply, int ms = 700)
+    {
+        var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(ms) };
+        timer.Tick += (_, _) => { timer.Stop(); apply(); };
+        box.TextChanged += (_, _) =>
+        {
+            timer.Stop();
+            if (box.IsKeyboardFocused && box.Text.Length > 0) timer.Start(); else apply();
+        };
+        box.KeyDown += (_, e) => { if (e.Key == System.Windows.Input.Key.Enter) { timer.Stop(); apply(); } };
+    }
+
     public static void CopyText(string s) { try { Clipboard.SetText(s); } catch { } }
 
     /// Hộp nhập tên (thay NSAlert có ô nhập).

@@ -210,7 +210,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hm.unregisterAll()
         guard s.hotkeysEnabled else { return }
         hm.register(.toggle, combo: s.hotkeyToggle) { AppNav.shared.toggleTranslation() }
-        hm.register(.analyze, combo: s.hotkeyAnalyze) { Pipeline.shared.analyzeScreen() }
+        hm.register(.analyze, combo: s.hotkeyAnalyze) { if !AppNav.shared.browsing { Pipeline.shared.analyzeScreen() } }
         hm.register(.voice, combo: s.hotkeyVoice) {
             s.voiceEnabled.toggle()
             Pipeline.shared.overlay.hud(s.voiceEnabled ? "Voice: bật" : "Voice: tắt", seconds: 1.5)
@@ -248,7 +248,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let i = args.firstIndex(of: "--tab"), i + 1 < args.count {
             // Tên tab cũ vẫn dùng được: ps5/regions → Màn hình, live/analysis → Nhật ký.
             let map: [String: MainTab] = ["source": .source, "ps5": .source, "regions": .source, "subtitles": .subtitles, "log": .subtitles, "live": .subtitles,
-                                          "screens": .screens, "analysis": .screens, "story": .story, "game": .game, "speakers": .game, "glossary": .game]
+                                          "screens": .screens, "analysis": .screens, "story": .story, "search": .search, "game": .game, "speakers": .game, "glossary": .game]
             if let t = map[args[i + 1]] { AppNav.shared.tab = t; AppNav.shared.screen = .main }
         }
         // --screen start|main: mở thẳng màn hình đó (kiểm tra giao diện). --skip-readiness: bỏ kiểm tra cài đặt dịch.

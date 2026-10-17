@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(cd /Users/lipnguyen/VsCodeProjects/ScreenTranslator/glossaries && sed -n 80,215p final-fantasy-7-rebirth.csv; grep '^#' baldurs-gate-3.csv; grep -n '^#' god-of-war-ragnarok.csv | head; sed -n 1,200p ../Sources/ScreenTranslator/Support/GameGlossaries.swift | grep -n -i -E 'comma|split|firstIndex|#' | head -30)",
+      "Read(//Users/lipnguyen/VsCodeProjects/Sources/ScreenTranslator/Support/**)",
+      "WebFetch(domain:assassinscreed.fandom.com)",
+      "WebFetch(domain:en.wikipedia.org)"
+    ]
+  }
+}

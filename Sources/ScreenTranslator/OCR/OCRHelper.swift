@@ -127,7 +127,10 @@ final class OCRClient {
         p.standardError = FileHandle.nullDevice
         outPipe.fileHandleForReading.readabilityHandler = { [weak self] h in
             let d = h.availableData
-            guard let self, !d.isEmpty else { return }
+            // Hết dữ liệu = tiến trình phụ đã thoát / bị kill: phải gỡ handler, nếu không nó được gọi liên tục
+            // với dữ liệu rỗng và chiếm trọn một nhân CPU (mỗi lần dừng dịch / khởi động lại OCR thêm một cái).
+            guard !d.isEmpty else { h.readabilityHandler = nil; return }
+            guard let self else { return }
             self.lock.lock()
             self.buffer.append(d)
             while let nl = self.buffer.firstIndex(of: 0x0A) {

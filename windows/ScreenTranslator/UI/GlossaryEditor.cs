@@ -29,6 +29,11 @@ public sealed class GlossaryEditor : DockPanel
     readonly ObservableCollection<Row> rows = new();
     readonly DataGrid grid;
     readonly TextBlock count = Ui.Caption(""), message = Ui.Caption("");
+    readonly TextBox search = new() { BorderThickness = new Thickness(0), Background = Brushes.Transparent, VerticalContentAlignment = VerticalAlignment.Center };
+    /// Ô tìm: chỉ lọc lại khi gõ vào ô tìm (sửa một dòng không làm nó biến mất giữa chừng); Save() vẫn ghi mọi dòng.
+    string query = "";
+    bool Visible(Row r) => query.Length == 0 || r.term.Contains(query, StringComparison.CurrentCultureIgnoreCase)
+        || r.translation.Contains(query, StringComparison.CurrentCultureIgnoreCase);
 
     public GlossaryEditor(Func<List<GlossaryEntry>> get, Action<List<GlossaryEntry>> set, string fileName, string note)
     {
@@ -45,15 +50,36 @@ public sealed class GlossaryEditor : DockPanel
         grid.CurrentCellChanged += (_, _) => Save();
         Unloaded += (_, _) => Save();
 
-        var add = Ui.IconBtn("", () => { rows.Add(new Row { id = Guid.NewGuid() }); grid.ScrollIntoView(rows[^1]); UpdateCount(); }, "Thêm dòng");
+        var add = Ui.IconBtn("", () => { search.Text = ""; rows.Add(new Row { id = Guid.NewGuid() }); grid.ScrollIntoView(rows[^1]); UpdateCount(); }, "Thêm dòng");
         var del = Ui.IconBtn("", () => { foreach (var r in grid.SelectedItems.Cast<Row>().ToList()) rows.Remove(r); Save(); }, "Xoá dòng đã chọn");
         var head = Ui.Caption(note);
         head.Margin = new Thickness(0, 0, 0, 8);
         SetDock(head, Dock.Top);
+        var view = CollectionViewSource.GetDefaultView(rows);
+        view.Filter = o => o is Row r && Visible(r);
+        var placeholder = Ui.Text("Tìm thuật ngữ hoặc bản dịch", color: Ui.Tertiary, wrap: false);
+        placeholder.IsHitTestVisible = false; placeholder.VerticalAlignment = VerticalAlignment.Center; placeholder.Margin = new Thickness(2, 0, 0, 0);
+        search.TextChanged += (_, _) => placeholder.Visibility = search.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        Ui.OnSearch(search, () =>
+        {
+            if (query == search.Text.Trim()) return;
+            grid.CommitEdit(DataGridEditingUnit.Cell, true); grid.CommitEdit(DataGridEditingUnit.Row, true);
+            query = search.Text.Trim();
+            view.Refresh();
+            UpdateCount();
+        });
+        var field = new Grid(); field.Children.Add(placeholder); field.Children.Add(search);
+        var searchIcon = Ui.Icon("\uE721", 13, Ui.Tertiary); searchIcon.Margin = new Thickness(0, 0, 6, 0);
+        var searchRow = new DockPanel { LastChildFill = true };
+        DockPanel.SetDock(searchIcon, Dock.Left);
+        searchRow.Children.Add(searchIcon); searchRow.Children.Add(field);
+        var searchBox = new Border { Child = searchRow, Height = 32, Padding = new Thickness(10, 0, 10, 0), CornerRadius = new CornerRadius(8),
+            Background = Ui.Hex("#0F000000"), BorderBrush = Ui.Res("CardStroke"), BorderThickness = new Thickness(1), Margin = new Thickness(0, 0, 0, 8) };
+        SetDock(searchBox, Dock.Top);
         var bar = Ui.Row(Ui.H(6, add, del, count, message), Ui.Btn("Nhập CSV…", ImportCSV), Ui.Btn("Xuất CSV…", ExportCSV));
         bar.Margin = new Thickness(0, 8, 0, 0);
         SetDock(bar, Dock.Bottom);
-        Children.Add(head); Children.Add(bar); Children.Add(grid);
+        Children.Add(head); Children.Add(searchBox); Children.Add(bar); Children.Add(grid);
         Reload();
     }
 
@@ -78,7 +104,7 @@ public sealed class GlossaryEditor : DockPanel
         UpdateCount();
     }
 
-    void UpdateCount() => count.Text = $"{rows.Count} thuật ngữ";
+    void UpdateCount() => count.Text = query.Length == 0 ? $"{rows.Count} thuật ngữ" : $"{rows.Count(Visible)} / {rows.Count} thuật ngữ";
 
     /// CSV `thuật ngữ,bản dịch` (bản dịch trống = giữ nguyên). Bỏ dòng tiêu đề và dòng chú thích `#`;
     /// thuật ngữ đã có thì được cập nhật, không thêm trùng.

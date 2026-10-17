@@ -109,7 +109,7 @@ final class PS5Stream: ObservableObject, @unchecked Sendable {
         return true
     }
 
-    // MARK: tìm máy / đánh thức
+    // MARK: tìm máy
 
     /// Địa chỉ broadcast của các card mạng IPv4 đang hoạt động.
     static func broadcastAddresses() -> [String] {
@@ -194,7 +194,7 @@ final class PS5Stream: ObservableObject, @unchecked Sendable {
                 found = Self.discover(Self.broadcastAddresses()).first { $0.hostID.uppercased() == h.hostID } 
             }
             guard gen == generation else { return }
-            // PS5 đang nghỉ có thể không trả lời tìm kiếm: lấy IP từ bảng ARP của máy theo địa chỉ MAC để còn đánh thức.
+            // PS5 đang nghỉ có thể không trả lời tìm kiếm: lấy IP từ bảng ARP của máy theo địa chỉ MAC để lần sau hỏi thẳng.
             if found == nil, h.host.isEmpty, let ip = Self.arpLookup(mac: h.mac) {
                 h.host = ip
                 setHost(h)
@@ -209,21 +209,12 @@ final class PS5Stream: ObservableObject, @unchecked Sendable {
                 setState(.failed("Không tìm thấy \(h.nickname) trong mạng. Bật PS5 (hoặc để chế độ nghỉ có bật mạng) rồi thử lại."))
                 return
             }
-            // 2. Đang nghỉ (hoặc không trả lời) → gửi gói đánh thức và đợi máy sẵn sàng.
+            // 2. Không tự bật PS5: máy đang nghỉ hoặc không trả lời thì báo và dừng, người chơi tự bật bằng tay cầm.
             if found?.state != 1 {
-                setState(.searching(found == nil ? "Không thấy PS5 trả lời, thử đánh thức…" : "Đang đánh thức PS5…"))
-                var ready = false
-                for i in 0..<30 {
-                    guard gen == generation else { return }
-                    if i % 5 == 0 { h.registKey.withUnsafeBytes { _ = st_wakeup(h.host, $0.bindMemory(to: UInt8.self).baseAddress, h.ps5 ? 1 : 0) } }
-                    if let f = Self.discover([h.host], ms: 900).first, f.state == 1 { ready = true; break }
-                    Thread.sleep(forTimeInterval: 1)
-                }
-                guard ready else {
-                    setState(.failed("PS5 không trả lời. Máy đang tắt hẳn, hoặc chế độ nghỉ chưa bật “Stay Connected to the Internet” và “Enable Turning On PS5 from Network”."))
-                    return
-                }
-                Thread.sleep(forTimeInterval: 3)   // vừa thức dậy: đợi dịch vụ Remote Play lên
+                setState(.failed(found == nil
+                    ? "\(h.nickname) không trả lời. Bật PS5 bằng tay cầm rồi kết nối lại."
+                    : "\(h.nickname) đang ở chế độ nghỉ. Bật PS5 bằng tay cầm rồi kết nối lại (app không tự bật máy)."))
+                return
             }
             guard gen == generation else { return }
             // 3. Mở phiên.

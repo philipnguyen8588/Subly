@@ -349,21 +349,24 @@ public sealed class HistoryStore
             cmd.Parameters.AddWithValue("$p", profile);
             cmd.Parameters.AddWithValue("$n", maxAnalyses);
             using var r = cmd.ExecuteReader();
-            while (r.Read())
-            {
-                var id = r.GetInt64(0);
-                List<AnalysisLine> lines; List<ShotItem> items;
-                try { lines = JsonSerializer.Deserialize<List<AnalysisLine>>(r.GetString(4)) ?? new(); } catch { lines = new(); }
-                try { items = JsonSerializer.Deserialize<List<ShotItem>>(r.GetString(8)) ?? new(); } catch { items = new(); }
-                outp.Add(new ScreenAnalysis
-                {
-                    id = id, timestamp = FromUnix(r.GetDouble(1)), regionName = r.GetString(2), summary = r.GetString(3), lines = lines,
-                    backend = r.GetString(5), latencyMs = r.GetInt32(6), profile = r.GetString(7), items = items,
-                    imageWidth = r.GetInt32(9), imageHeight = r.GetInt32(10), hasImage = File.Exists(ShotPath(id)),
-                });
-            }
+            while (r.Read()) outp.Add(AnalysisRow(r));
         }
         return outp;
+    }
+
+    /// Một dòng `SELECT id, ts, region, summary, lines, backend, latency, profile, items, iw, ih FROM analyses`.
+    static ScreenAnalysis AnalysisRow(SqliteDataReader r)
+    {
+        var id = r.GetInt64(0);
+        List<AnalysisLine> lines; List<ShotItem> items;
+        try { lines = JsonSerializer.Deserialize<List<AnalysisLine>>(r.GetString(4)) ?? new(); } catch { lines = new(); }
+        try { items = JsonSerializer.Deserialize<List<ShotItem>>(r.GetString(8)) ?? new(); } catch { items = new(); }
+        return new ScreenAnalysis
+        {
+            id = id, timestamp = FromUnix(r.GetDouble(1)), regionName = r.GetString(2), summary = r.GetString(3), lines = lines,
+            backend = r.GetString(5), latencyMs = r.GetInt32(6), profile = r.GetString(7), items = items,
+            imageWidth = r.GetInt32(9), imageHeight = r.GetInt32(10), hasImage = File.Exists(ShotPath(id)),
+        };
     }
 
     /// `image`: ảnh chụp màn hình game; được thu nhỏ + nén JPEG rồi lưu ra file, chỉ giữ `maxShots` ảnh mới nhất.
@@ -596,6 +599,52 @@ public sealed class HistoryStore
             while (r.Read()) outp.Add(Row(r));
         }
         return outp;
+    }
+
+    /// Lần dịch màn hình của game có chứa một trong các cụm từ (trong tóm tắt hoặc các dòng chữ), mới nhất trước.
+    /// Đọc thẳng từ DB nên tìm được cả những lần chụp cũ không còn trong `analyses`.
+    public List<ScreenAnalysis> SearchAnalyses(string profile, IEnumerable<string> terms, int limit)
+    {
+        var list = terms.Where(t => t.Length > 0).Take(12).ToList();
+        var outp = new List<ScreenAnalysis>();
+        if (list.Count == 0) return outp;
+        lock (lk)
+        {
+            using var cmd = db.CreateCommand();
+            var cond = string.Join(" OR ", list.Select((_, i) => $"summary LIKE $t{i} ESCAPE '\\' OR lines LIKE $t{i} ESCAPE '\\'"));
+            cmd.CommandText = $"SELECT id, ts, region, summary, lines, backend, latency, profile, items, iw, ih FROM analyses WHERE profile = $p AND ({cond}) ORDER BY id DESC LIMIT $n";
+            cmd.Parameters.AddWithValue("$p", profile);
+            for (int i = 0; i < list.Count; i++)
+                cmd.Parameters.AddWithValue($"$t{i}", "%" + list[i].Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_") + "%");
+            cmd.Parameters.AddWithValue("$n", limit);
+            using var r = cmd.ExecuteReader();
+            while (r.Read()) outp.Add(AnalysisRow(r));
+        }
+        return outp;
+    }
+
+    /// Câu phụ đề `id` cùng `radius` câu trước và sau nó (cùng game), cũ trước.
+    public List<TranslationEntry> EntriesAround(long id, string profile, int radius)
+    {
+        List<TranslationEntry> Fetch(string where, int n)
+        {
+            var outp = new List<TranslationEntry>();
+            lock (lk)
+            {
+                using var cmd = db.CreateCommand();
+                cmd.CommandText = $"SELECT id, ts, region, source, translated, backend, latency, kind, target, profile FROM history WHERE profile = $p AND kind = 'subtitle' AND {where} LIMIT $n";
+                cmd.Parameters.AddWithValue("$p", profile);
+                cmd.Parameters.AddWithValue("$id", id);
+                cmd.Parameters.AddWithValue("$n", n);
+                using var r = cmd.ExecuteReader();
+                while (r.Read()) outp.Add(Row(r));
+            }
+            return outp;
+        }
+        var before = Fetch("id < $id ORDER BY id DESC", radius);
+        before.Reverse();
+        before.AddRange(Fetch("id >= $id ORDER BY id ASC", radius + 1));
+        return before;
     }
 
     /// Tóm tắt của các lần "Dịch màn hình" có nội dung (bỏ tóm tắt menu) sau con trỏ, cũ trước.

@@ -56,7 +56,7 @@ public sealed class StartView : DockPanel
 
         // Cột phải: danh sách game.
         var right = new DockPanel { LastChildFill = true };
-        var newGame = Ui.Btn(Ui.IconLabel("", "Game mới"), nav.ShowNewProfile, kind: Ui.Kind.tinted);
+        var newGame = Ui.Btn(Ui.IconLabel("", "Game mới"), nav.ShowNewProfile, primary: true, minWidth: 120);
         var searchBox = new Border
         {
             Height = 36, CornerRadius = new CornerRadius(10), Padding = new Thickness(10, 0, 10, 0), Background = Brushes.White,
@@ -67,7 +67,7 @@ public sealed class StartView : DockPanel
                 DockPanel.SetDock(ic, Dock.Left); d.Children.Add(ic); d.Children.Add(search);
             }),
         };
-        search.TextChanged += (_, _) => BuildGames();
+        Ui.OnSearch(search, BuildGames);
         var countPill = new Border { CornerRadius = new CornerRadius(8), Padding = new Thickness(6, 0, 6, 0), Background = Ui.Res("CardFill"), Child = gameCount };
         var rightTop = Ui.V(0, Ui.Row(Ui.H(8, Ui.Text("CHỌN GAME", 11, true, Ui.Secondary), countPill), newGame), searchBox);
         SetDock(rightTop, Dock.Top); right.Children.Add(rightTop);
@@ -260,6 +260,8 @@ public sealed class StartView : DockPanel
         };
         var menu = new ContextMenu();
         void Item(string text, Action a, bool enabled = true) { var mi = new MenuItem { Header = text, IsEnabled = enabled }; mi.Click += (_, _) => a(); menu.Items.Add(mi); }
+        Item("Xem cốt truyện, phụ đề…", () => nav.Browse(p));
+        menu.Items.Add(new Separator());
         Item("Đổi tên…", () => nav.RenameProfile(p, Window.GetWindow(this)));
         Item("Nhân bản", () => nav.DuplicateProfile(p));
         menu.Items.Add(new Separator());
@@ -269,6 +271,8 @@ public sealed class StartView : DockPanel
         more.Click += (_, e) => { menu.PlacementTarget = more; menu.IsOpen = true; e.Handled = true; };
         var right = new List<UIElement>();
         if (selected) right.Add(Ui.Icon("", 16, Ui.AccentStart));
+        right.Add(Ui.Btn(Ui.IconLabel("\uE7B3", "Xem"), () => nav.Browse(p), kind: Ui.Kind.ghost,
+            tip: "Vào xem cốt truyện, phụ đề và ảnh đã dịch của game này mà không cần kết nối"));
         right.Add(more);
         var row = Ui.Row(Ui.H(12, icon, Ui.V(3, Ui.Text(p.name, 15, true, wrap: false), Ui.Caption(string.Join(" · ", parts)))), right.ToArray());
         var card = new Border
