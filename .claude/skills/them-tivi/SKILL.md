@@ -37,6 +37,24 @@ thì không phải lỗi hết hạn; gần như luôn là DUID chưa có trong 
 | Bộ cài zip xuất ra | `windows\dist\SubtitleTV-Samsung.zip` |
 | app id / package id | `StSubTV001.SubtitleTV` / `StSubTV001` |
 
+## Cách nhanh: script tự động (ưu tiên dùng cách này)
+
+`windows\tizen\auto-install.ps1 -Tv <IP-TV>` (hoặc bấm đúp `windows\tizen\TU-DONG-CAI-TV.bat`) làm hết bước 4–6,
+**không cần Tizen Studio, không cần Python** (chỉ PowerShell + .NET có sẵn của Windows):
+lấy DUID (sdb.exe) → DUID đã có trong bộ chứng chỉ nào (`certs\` cạnh script, hoặc `%USERPROFILE%\SamsungCertificate`)
+thì dùng → chưa có thì mở trang đăng nhập Samsung (người dùng tự đăng nhập), `samsung-cert.ps1` xin Samsung ký chứng chỉ
+có DUID (gọi thẳng API svdca.samsungqbe.com như Certificate Manager, theo tool MIT Apps2Samsung) vào thư mục
+**`Subly-Auto`** (cộng dồn DUID, tối đa 10, giữ nguyên author) → `sign-wgt.ps1` tự ký .wgt (định dạng giống hệt
+`tizen package`, đã đối chiếu bằng cách xác minh chữ ký thật) → cài + mở app.
+- Mật khẩu .p12: `password.txt` / `<author|distributor>.password.txt`, hoặc `*.pwd` của Certificate Manager = DPAPI
+  (bỏ 4 byte đầu là độ dài, `ProtectedData.Unprotect` CurrentUser; chỉ giải được trên máy đã tạo).
+- **Bộ cài cho máy khác:** `windows\tizen\make-installer.ps1` → `windows\dist\SubtitleTV-Installer\` (+ .zip): sdb.exe,
+  app, script, CA, và các bộ chứng chỉ đang có (mật khẩu đã giải ra chữ — chỉ đưa người tin tưởng; `-NoCerts` để bỏ).
+- Cần cổng 4794 trống (đóng Certificate Manager trước). CA của Samsung để ghép .p12 nằm ở `windows\tizen\ca\`.
+- `-NewCert`: luôn xin chứng chỉ mới. `-Reinstall`: gỡ app cũ trước khi cài (TV đã cài app bằng chứng chỉ khác).
+- TV vẫn phải bật Developer Mode + Host PC IP bằng tay (bước 2) — không tự động được.
+- Chỉ khi script lỗi mới làm tay theo các bước dưới.
+
 ## Quy trình (làm theo thứ tự)
 
 ### 1. Xem IP máy tính này (để khai vào TV)

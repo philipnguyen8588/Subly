@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
 using System.Windows;
@@ -266,18 +267,6 @@ public sealed class HeaderBar : Border
         if (System.IO.File.Exists(path)) App.OpenUrl(path);
         else { Log.Warn($"Không thấy file hướng dẫn: {path}"); App.OpenUrl("https://t.me/subly_ps"); }
     }
-
-    /// Thêm các game mẫu còn thiếu rồi báo kết quả.
-    public static void AddSampleGames()
-    {
-        var added = AppSettings.shared.AddMissingSampleGames();
-        if (added.Count == 0)
-            MessageBox.Show("Tất cả game mẫu có sẵn đều đã nằm trong danh sách của bạn.", "Đã có đủ game mẫu",
-                MessageBoxButton.OK, MessageBoxImage.Information);
-        else
-            MessageBox.Show(string.Join(", ", added) + ".\nMỗi game đã có sẵn thuật ngữ; bạn chỉ cần chọn nguồn hình và bấm Bắt đầu.",
-                $"Đã thêm {added.Count} game", MessageBoxButton.OK, MessageBoxImage.Information);
-    }
 }
 
 /// Thanh trạng thái cuối màn hình chơi: đang dịch hay không, engine dịch và quota, phím tắt.
@@ -357,18 +346,60 @@ public sealed class ReconnectOverlay : Grid
     }
 }
 
-/// Tạo game mới: tên game + nguồn hình.
+/// Tạo game mới: chọn một hoặc nhiều game mẫu (kèm thuật ngữ đóng kèm app), hoặc gõ tên để tạo game trống.
+/// Ô tên đồng thời là ô tìm trong danh sách game mẫu.
 public sealed class NewProfileDialog : Window
 {
     ProfileSource source = ProfileSource.external;
+    readonly HashSet<string> picked = new(StringComparer.OrdinalIgnoreCase);
+    List<GameGlossaries.Game> samples = new();
+    readonly TextBox name = new();
+    readonly StackPanel sampleRows = Ui.V(2);
+    readonly TextBlock countLabel = Ui.Text("", 11, true, Ui.Secondary, wrap: false);
+    readonly ContentControl clearPicked = new();
+    Button create = null!;
+
+    string Query => name.Text.Trim();
+
+    /// Bỏ dấu + chữ thường để so sánh "gõ không dấu" cũng khớp (vd: "ff7" khớp "FF7", "metaphor" khớp "Metaphor…").
+    static string Fold(string s)
+    {
+        var norm = s.Normalize(System.Text.NormalizationForm.FormD);
+        var sb = new System.Text.StringBuilder(norm.Length);
+        foreach (var ch in norm)
+            if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(ch) != System.Globalization.UnicodeCategory.NonSpacingMark) sb.Append(ch);
+        return sb.ToString().Normalize(System.Text.NormalizationForm.FormC).ToLowerInvariant();
+    }
+
+    bool IsAdded(GameGlossaries.Game g) =>
+        AppSettings.shared.profiles.Any(p => p.name.Equals(g.name, StringComparison.OrdinalIgnoreCase));
+
+    /// Tên gõ vào trùng đúng một game mẫu chưa có → thêm game mẫu đó (kèm thuật ngữ) thay vì tạo game trống.
+    GameGlossaries.Game? ExactSample()
+    {
+        var q = Query;
+        if (q.Length == 0) return null;
+        var qf = Fold(q);
+        return samples.FirstOrDefault(g => Fold(g.name) == qf && !IsAdded(g));
+    }
+
+    string ActionTitle()
+    {
+        if (picked.Count > 0) return $"Thêm {picked.Count} game";
+        if (ExactSample() is GameGlossaries.Game g) return $"Thêm “{g.name}”";
+        var q = Query;
+        return q.Length == 0 ? "Tạo game trống" : $"Tạo “{q}”";
+    }
 
     public NewProfileDialog()
     {
         Title = "Game mới";
-        Width = 480; SizeToContent = SizeToContent.Height; ResizeMode = ResizeMode.NoResize;
+        Width = 560; Height = 640; MinWidth = 480; MinHeight = 560;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Background = Ui.Res("WindowBg");
-        var name = new TextBox { ToolTip = "Tên game (ví dụ: God of War Ragnarök)" };
+        name.ToolTip = "Tìm game mẫu hoặc nhập tên game mới";
+        name.TextChanged += (_, _) => { RefreshSamples(); RefreshAction(); };
+
         var options = Ui.V(8);
         void BuildOptions()
         {
@@ -379,7 +410,7 @@ public sealed class NewProfileDialog : Window
                 var desc = s == ProfileSource.external
                     ? "Game, phim, trình duyệt… đang mở trên máy này. Bạn vẽ khung quanh màn hình game."
                     : "App kết nối Remote Play để lấy hình PS5. Bạn chơi bằng tay cầm nối thẳng với máy.";
-                var row = Ui.Row(Ui.H(10, Ui.Icon(s == ProfileSource.external ? "" : "", 18), Ui.V(2, Ui.Text(Labels.Of(s), bold: true), Ui.Caption(desc).Also(t => t.MaxWidth = 340))),
+                var row = Ui.Row(Ui.H(10, Ui.Icon(s == ProfileSource.external ? "" : "", 18), Ui.V(2, Ui.Text(Labels.Of(s), bold: true), Ui.Caption(desc).Also(t => t.MaxWidth = 380))),
                                  Ui.Icon(sel ? "" : "", 14, sel ? Ui.AccentStart : Ui.Secondary));
                 var card = new Border
                 {
@@ -393,25 +424,128 @@ public sealed class NewProfileDialog : Window
             }
         }
         BuildOptions();
-        var create = Ui.Btn("Tạo", () => { AppNav.shared.CreateProfile(name.Text, source); DialogResult = true; }, primary: true);
+
+        create = Ui.Btn("Tạo game trống", DoCreate, primary: true, minWidth: 160);
         create.IsDefault = true;
         var cancel = Ui.Btn("Huỷ", () => DialogResult = false);
         cancel.IsCancel = true;
         var buttons = Ui.H(8, cancel, create); buttons.HorizontalAlignment = HorizontalAlignment.Right;
-        Content = new Border
+
+        var samplesHeader = Ui.Row(Ui.H(8, Ui.Text("GAME MẪU", 11, true, Ui.Secondary, wrap: false), countLabel), clearPicked);
+        var samplesBox = new Border
         {
-            Padding = new Thickness(20),
-            Child = Ui.V(14,
-                Ui.H(8, Ui.Icon("", 18, Ui.AccentStart), Ui.Text("Game mới", 17, true)),
-                Ui.Text("Mỗi game giữ riêng nguồn hình, khung phụ đề, thuật ngữ và tên nhân vật.", color: Ui.Secondary),
-                Ui.V(3, Ui.Caption("Tên game (ví dụ: God of War Ragnarök)"), name),
-                Ui.V(8, Ui.Text("Lấy hình từ đâu?", bold: true), options),
-                buttons),
+            MinHeight = 160, CornerRadius = new CornerRadius(9), Background = Ui.Res("CardFill"),
+            BorderBrush = Ui.Res("CardStroke"), BorderThickness = new Thickness(1),
+            Child = Ui.Scroll(sampleRows.Also(v => v.Margin = new Thickness(4))),
         };
-        Loaded += (_, _) => name.Focus();
+
+        // DockPanel: nút Huỷ / Tạo luôn dính dưới (không bị cắt khi cửa sổ hẹp).
+        var body = new DockPanel { LastChildFill = true, Margin = new Thickness(20) };
+        var head = Ui.V(10,
+            Ui.H(8, Ui.Icon("", 18, Ui.AccentStart), Ui.Text("Game mới", 17, true)),
+            Ui.Text("Chọn game mẫu có sẵn thuật ngữ (chọn được nhiều game), hoặc gõ tên để tạo game của riêng bạn. Mỗi game giữ riêng nguồn hình, khung phụ đề, thuật ngữ và tên nhân vật.",
+                color: Ui.Secondary),
+            name);
+        DockPanel.SetDock(head, Dock.Top); body.Children.Add(head);
+        var foot = Ui.V(10, Ui.V(6, Ui.Text("Lấy hình từ đâu?", bold: true), options), buttons);
+        foot.Margin = new Thickness(0, 12, 0, 0);
+        DockPanel.SetDock(foot, Dock.Bottom); body.Children.Add(foot);
+        // Dùng DockPanel ở giữa để ô game mẫu dãn theo chiều cao còn lại (StackPanel không dãn con theo trục dọc).
+        var middle = new DockPanel { LastChildFill = true, Margin = new Thickness(0, 12, 0, 0) };
+        samplesHeader.Margin = new Thickness(0, 0, 0, 6);
+        DockPanel.SetDock(samplesHeader, Dock.Top);
+        middle.Children.Add(samplesHeader);
+        middle.Children.Add(samplesBox);
+        body.Children.Add(middle);
+        Content = body;
+        Loaded += (_, _) =>
+        {
+            samples = GameGlossaries.Bundled().OrderBy(g => g.name, StringComparer.CurrentCultureIgnoreCase).ToList();
+            RefreshSamples();
+            RefreshAction();
+            name.Focus();
+        };
+    }
+
+    void RefreshSamples()
+    {
+        var q = Fold(Query);
+        var filtered = q.Length == 0 ? samples : samples.Where(g => Fold(g.name).Contains(q)).ToList();
+        countLabel.Text = $"{filtered.Count}";
+        clearPicked.Content = picked.Count > 0
+            ? Ui.Btn($"Bỏ chọn ({picked.Count})", () => { picked.Clear(); RefreshSamples(); RefreshAction(); }, kind: Ui.Kind.ghost)
+            : null;
+        sampleRows.Children.Clear();
+        if (filtered.Count == 0)
+        {
+            var empty = samples.Count == 0
+                ? "Không tìm thấy game mẫu nào trong app."
+                : $"Không có game mẫu nào khớp “{Query}”. Bấm “{ActionTitle()}” để tạo game mới với tên này.";
+            sampleRows.Children.Add(Ui.Text(empty, color: Ui.Secondary).Also(t => { t.TextAlignment = TextAlignment.Center; t.Margin = new Thickness(0, 20, 0, 20); }));
+            return;
+        }
+        // Chèn ô trống giữa các dòng (StackPanel không có spacing property; Ui.V chỉ chèn khi dựng ban đầu).
+        bool first = true;
+        foreach (var g in filtered)
+        {
+            if (!first) sampleRows.Children.Add(new Border { Height = 2 });
+            sampleRows.Children.Add(SampleRow(g));
+            first = false;
+        }
+    }
+
+    UIElement SampleRow(GameGlossaries.Game g)
+    {
+        bool added = IsAdded(g);
+        bool chk = picked.Contains(g.name);
+        var accent = ((SolidColorBrush)Ui.AccentStart).Color;
+        var left = Ui.H(10,
+            Ui.Icon(added ? "" : (chk ? "" : ""), 15, chk || added ? Ui.AccentStart : Ui.Secondary).Also(i => i.Width = 20),
+            Ui.Text(g.name, 13, true, wrap: false));
+        var right = Ui.Text(added ? "Đã có" : $"{g.entries.Count} thuật ngữ", 11, color: Ui.Secondary, wrap: false);
+        var row = Ui.Row(left, right);
+        var card = new Border
+        {
+            Child = row, Height = 32, Padding = new Thickness(10, 0, 10, 0), CornerRadius = new CornerRadius(7),
+            Background = chk ? new SolidColorBrush(Color.FromArgb(31, accent.R, accent.G, accent.B)) : Brushes.Transparent,
+            Cursor = added ? Cursors.Arrow : Cursors.Hand,
+            Opacity = added ? 0.55 : 1,
+            ToolTip = added ? "Game này đã có trong danh sách của bạn" : $"Chọn để thêm game này kèm {g.entries.Count} thuật ngữ",
+        };
+        if (!added)
+        {
+            var gm = g;
+            card.MouseEnter += (_, _) => { if (!picked.Contains(gm.name)) card.Background = Ui.Hex("#0F000000"); };
+            card.MouseLeave += (_, _) => { if (!picked.Contains(gm.name)) card.Background = Brushes.Transparent; };
+            card.MouseLeftButtonUp += (_, _) =>
+            {
+                if (!picked.Add(gm.name)) picked.Remove(gm.name);
+                RefreshSamples(); RefreshAction();
+            };
+        }
+        return card;
+    }
+
+    void RefreshAction() => create.Content = ActionTitle();
+
+    void DoCreate()
+    {
+        var nav = AppNav.shared;
+        if (picked.Count > 0)
+        {
+            nav.AddSampleGames(samples.Where(g => picked.Contains(g.name) && !IsAdded(g)).ToList(), source);
+        }
+        else if (ExactSample() is GameGlossaries.Game g)
+        {
+            nav.AddSampleGames(new List<GameGlossaries.Game> { g }, source);
+        }
+        else
+        {
+            nav.CreateProfile(name.Text, source);
+        }
+        DialogResult = true;
     }
 }
-
 // MARK: - Thiết lập game
 
 /// Tab "Thiết lập game": phong cách dịch, tên người nói đã học, thuật ngữ riêng của game đang chơi.

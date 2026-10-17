@@ -20,6 +20,8 @@ public sealed class StartView : DockPanel
     readonly PS5Stream stream = PS5Stream.shared;
     readonly Border notice = new() { Padding = new Thickness(16, 6, 16, 6), BorderThickness = new Thickness(0, 0, 0, 1) };
     readonly ContentControl tiles = new(), detail = new(), engineCard = new(), cta = new(), gameList = new();
+    readonly ContentControl rightActions = new(), bottomBar = new();
+    ScrollViewer gameScroll = null!;
     readonly TextBlock gameCount = Ui.Text("", 11, true, wrap: false);
     readonly TextBox search = new() { BorderThickness = new Thickness(0), Background = Brushes.Transparent, VerticalContentAlignment = VerticalAlignment.Center };
     readonly WindowListView windowList = new();
@@ -27,6 +29,9 @@ public sealed class StartView : DockPanel
     bool pending;
     string testError = "";
     bool testing;
+    bool selecting;
+    readonly HashSet<Guid> selection = new();
+    bool scrolledToActive;
 
     public StartView()
     {
@@ -69,12 +74,12 @@ public sealed class StartView : DockPanel
         };
         Ui.OnSearch(search, BuildGames);
         var countPill = new Border { CornerRadius = new CornerRadius(8), Padding = new Thickness(6, 0, 6, 0), Background = Ui.Res("CardFill"), Child = gameCount };
-        var rightTop = Ui.V(0, Ui.Row(Ui.H(8, Ui.Text("CHỌN GAME", 11, true, Ui.Secondary), countPill), newGame), searchBox);
+        rightActions.Content = newGame;
+        var rightTop = Ui.V(0, Ui.Row(Ui.H(8, Ui.Text("CHỌN GAME", 11, true, Ui.Secondary), countPill), rightActions), searchBox);
         SetDock(rightTop, Dock.Top); right.Children.Add(rightTop);
-        var samples = Ui.Btn(Ui.IconLabel("", "Thêm game mẫu có sẵn"), HeaderBar.AddSampleGames, kind: Ui.Kind.ghost);
-        samples.HorizontalAlignment = HorizontalAlignment.Left; samples.Margin = new Thickness(0, 10, 0, 0);
-        SetDock(samples, Dock.Bottom); right.Children.Add(samples);
-        right.Children.Add(Ui.Scroll(gameList));
+        SetDock(bottomBar, Dock.Bottom); right.Children.Add(bottomBar);
+        gameScroll = Ui.Scroll(gameList);
+        right.Children.Add(gameScroll);
         var rightCard = Card(right);
 
         var grid = new Grid { Margin = new Thickness(16) };
@@ -88,7 +93,7 @@ public sealed class StartView : DockPanel
         s.Changed += _ => Schedule();
         nav.PropertyChanged += (_, _) => Schedule();
         stream.PropertyChanged += (_, e) => { if (e.PropertyName is nameof(PS5Stream.state) or nameof(PS5Stream.host)) Schedule(); };
-        IsVisibleChanged += (_, _) => { if (IsVisible) { windowList.Reload(); Rebuild(); } };
+        IsVisibleChanged += (_, _) => { if (IsVisible) { scrolledToActive = false; windowList.Reload(); Rebuild(); } };
         Rebuild();
     }
 
@@ -238,18 +243,74 @@ public sealed class StartView : DockPanel
         gameCount.Text = $"{all.Count}";
         var q = search.Text.Trim().ToLowerInvariant();
         var games = q.Length == 0 ? all : all.Where(p => p.name.ToLowerInvariant().Contains(q)).ToList();
-        var v = Ui.V(8);
-        foreach (var p in games) v.Children.Add(GameCard(p, p.id == s.activeProfile.id));
+        // Chỉ giữ id còn tồn tại trong danh sách game.
+        selection.IntersectWith(all.Select(p => p.id));
+        BuildHeaderActions();
+        BuildBottomBar(games);
+        Border? activeCard = null;
+        var items = new List<UIElement?>();
+        foreach (var p in games)
+        {
+            var checked_ = selecting ? (bool?)selection.Contains(p.id) : null;
+            var card = GameCard(p, p.id == s.activeProfile.id, checked_);
+            if (p.id == s.activeProfile.id) activeCard = card;
+            items.Add(card);
+        }
         if (games.Count == 0)
-            v.Children.Add(Ui.Text(q.Length == 0 ? "Chưa có game nào." : $"Không có game nào khớp “{search.Text}”.", color: Ui.Secondary)
+            items.Add(Ui.Text(q.Length == 0 ? "Chưa có game nào." : $"Không có game nào khớp “{search.Text}”.", color: Ui.Secondary)
                 .Also(t => { t.HorizontalAlignment = HorizontalAlignment.Center; t.Margin = new Thickness(0, 24, 0, 0); }));
+        // Phải dựng StackPanel với đủ con một lần để Ui.V chèn ô trống giữa các thẻ (khoảng cách 8px).
+        var v = Ui.V(8, items.ToArray());
         v.Margin = new Thickness(0, 0, 4, 0);
         gameList.Content = v;
+        // Chỉ scroll đến game đang chọn ở lần mở đầu tiên, để không giật khi search hoặc đổi game.
+        if (!scrolledToActive && activeCard is Border a)
+        {
+            scrolledToActive = true;
+            Dispatcher.BeginInvoke(() => a.BringIntoView(), DispatcherPriority.ContextIdle);
+        }
     }
 
-    UIElement GameCard(Profile p, bool selected)
+    void BuildHeaderActions()
+    {
+        if (selecting) { rightActions.Content = null; return; }
+        var choose = Ui.Btn(Ui.IconLabel("", "Chọn"), () => { selecting = true; selection.Clear(); BuildGames(); }, kind: Ui.Kind.ghost);
+        choose.ToolTip = "Chọn nhiều game cùng lúc để xoá";
+        choose.IsEnabled = s.profiles.Count > 1;
+        var newGame = Ui.Btn(Ui.IconLabel("", "Game mới"), nav.ShowNewProfile, kind: Ui.Kind.tinted);
+        rightActions.Content = Ui.H(8, choose, newGame);
+    }
+
+    void BuildBottomBar(List<Profile> games)
+    {
+        if (!selecting) { bottomBar.Content = null; return; }
+        var all = s.profiles;
+        bool allShown = games.Count > 0 && games.All(p => selection.Contains(p.id));
+        bool keepsOne = selection.Count < all.Count;
+        var toggleAll = Ui.Btn(allShown ? "Bỏ chọn tất cả" : "Chọn tất cả", () =>
+        {
+            if (allShown) foreach (var p in games) selection.Remove(p.id);
+            else foreach (var p in games) selection.Add(p.id);
+            BuildGames();
+        }, kind: Ui.Kind.ghost);
+        var info = Ui.Text(keepsOne ? $"Đã chọn {selection.Count}" : "Phải giữ lại ít nhất 1 game", 11, color: keepsOne ? Ui.Secondary : Ui.Danger, wrap: false);
+        var del = Ui.Btn(Ui.IconLabel("", selection.Count == 0 ? "Xoá" : $"Xoá {selection.Count} game"),
+            () =>
+            {
+                if (nav.DeleteProfiles(selection.ToList())) { selection.Clear(); selecting = false; BuildGames(); }
+            }, kind: Ui.Kind.danger);
+        del.IsEnabled = selection.Count > 0 && keepsOne;
+        var done = Ui.Btn("Xong", () => { selection.Clear(); selecting = false; BuildGames(); });
+        done.IsCancel = true;
+        var bar = Ui.Row(Ui.H(8, toggleAll, info), Ui.H(8, del, done));
+        bar.Margin = new Thickness(0, 10, 0, 0);
+        bottomBar.Content = bar;
+    }
+
+    Border GameCard(Profile p, bool selected, bool? checked_ = null)
     {
         var accent = ((SolidColorBrush)Ui.AccentStart).Color;
+        bool highlighted = checked_ ?? selected;
         var parts = new List<string> { p.source == ProfileSource.ps5 ? "PS5 qua Chiaki" : "App trên máy" };
         if (p.glossary.Count > 0) parts.Add($"{p.glossary.Count} thuật ngữ");
         if (p.speakers.Count > 0) parts.Add($"{p.speakers.Count} nhân vật");
@@ -260,32 +321,59 @@ public sealed class StartView : DockPanel
         };
         var menu = new ContextMenu();
         void Item(string text, Action a, bool enabled = true) { var mi = new MenuItem { Header = text, IsEnabled = enabled }; mi.Click += (_, _) => a(); menu.Items.Add(mi); }
-        Item("Xem cốt truyện, phụ đề…", () => nav.Browse(p));
-        menu.Items.Add(new Separator());
-        Item("Đổi tên…", () => nav.RenameProfile(p, Window.GetWindow(this)));
-        Item("Nhân bản", () => nav.DuplicateProfile(p));
-        menu.Items.Add(new Separator());
-        Item("Xoá…", () => nav.DeleteProfile(p), s.profiles.Count > 1);
+        if (checked_ == null)
+        {
+            Item("Đổi tên…", () => nav.RenameProfile(p, Window.GetWindow(this)));
+            Item("Nhân bản", () => nav.DuplicateProfile(p));
+            menu.Items.Add(new Separator());
+            Item("Xoá…", () => nav.DeleteProfile(p), s.profiles.Count > 1);
+        }
         var more = Ui.InlineIconBtn("", () => { }, "Đổi tên, nhân bản, xoá game");
         more.Width = 32; more.Height = 32;
         more.Click += (_, e) => { menu.PlacementTarget = more; menu.IsOpen = true; e.Handled = true; };
         var right = new List<UIElement>();
+        if (checked_ == null) {
         if (selected) right.Add(Ui.Icon("", 16, Ui.AccentStart));
         right.Add(Ui.Btn(Ui.IconLabel("\uE7B3", "Xem"), () => nav.Browse(p), kind: Ui.Kind.ghost,
             tip: "Vào xem cốt truyện, phụ đề và ảnh đã dịch của game này mà không cần kết nối"));
         right.Add(more);
-        var row = Ui.Row(Ui.H(12, icon, Ui.V(3, Ui.Text(p.name, 15, true, wrap: false), Ui.Caption(string.Join(" · ", parts)))), right.ToArray());
+        }
+        else if (selected) right.Add(Ui.Text("Đang chọn", 11, color: Ui.Secondary, wrap: false));
+        UIElement head = checked_ is bool ck ? Ui.H(10, Checkbox(ck), icon) : (UIElement)icon;
+        var row = Ui.Row(Ui.H(12, head, Ui.V(3, Ui.Text(p.name, 15, true, wrap: false), Ui.Caption(string.Join(" · ", parts)))), right.ToArray());
         var card = new Border
         {
             Child = row, Height = 64, Padding = new Thickness(12, 0, 12, 0), CornerRadius = new CornerRadius(12), Cursor = Cursors.Hand,
-            Background = selected ? new SolidColorBrush(Color.FromArgb(26, accent.R, accent.G, accent.B)) : Ui.Hex("#08000000"),
-            BorderBrush = selected ? new SolidColorBrush(Color.FromArgb(180, accent.R, accent.G, accent.B)) : Ui.Res("CardStroke"),
-            BorderThickness = new Thickness(selected ? 1.5 : 1), ContextMenu = menu,
+            Background = highlighted ? new SolidColorBrush(Color.FromArgb(26, accent.R, accent.G, accent.B)) : Ui.Hex("#08000000"),
+            BorderBrush = highlighted ? new SolidColorBrush(Color.FromArgb(180, accent.R, accent.G, accent.B)) : Ui.Res("CardStroke"),
+            BorderThickness = new Thickness(highlighted ? 1.5 : 1), ContextMenu = menu.Items.Count > 0 ? menu : null,
         };
-        card.MouseEnter += (_, _) => { if (!selected) card.Background = Ui.Hex("#12000000"); };
-        card.MouseLeave += (_, _) => { if (!selected) card.Background = Ui.Hex("#08000000"); };
-        card.MouseLeftButtonUp += (_, _) => nav.SwitchProfile(p);
+        card.MouseEnter += (_, _) => { if (!highlighted) card.Background = Ui.Hex("#12000000"); };
+        card.MouseLeave += (_, _) => { if (!highlighted) card.Background = Ui.Hex("#08000000"); };
+        card.MouseLeftButtonUp += (_, _) =>
+        {
+            if (checked_ is bool) { if (!selection.Add(p.id)) selection.Remove(p.id); BuildGames(); }
+            else nav.SwitchProfile(p);
+        };
         return card;
+    }
+
+    static UIElement Checkbox(bool chk)
+    {
+        var box = new Border
+        {
+            Width = 20, Height = 20, CornerRadius = new CornerRadius(4), BorderThickness = new Thickness(2),
+            BorderBrush = chk ? Ui.AccentStart : Ui.Secondary,
+            Background = chk ? Ui.AccentStart : Brushes.Transparent,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        if (chk)
+        {
+            var mark = Ui.Text("✓", 12, true, Brushes.White, wrap: false);
+            mark.HorizontalAlignment = HorizontalAlignment.Center; mark.VerticalAlignment = VerticalAlignment.Center;
+            box.Child = mark;
+        }
+        return box;
     }
 }
 
@@ -414,7 +502,7 @@ public sealed class PS5Panel : ContentControl
 
     UIElement Segmented((int value, string text)[] items, int current, Action<int> set)
     {
-        var h = Ui.H(0);
+        var h = Ui.H(6);
         foreach (var (v, t) in items)
         {
             var b = new RadioButton { Content = t, GroupName = Guid.NewGuid().ToString(), IsChecked = v == current, MinWidth = 90, IsEnabled = !stream.state.isBusy,

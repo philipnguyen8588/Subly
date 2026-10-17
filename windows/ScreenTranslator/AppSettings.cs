@@ -255,21 +255,6 @@ public sealed class AppSettings : INotifyPropertyChanged
             activeProfileID = ps[0].id;
     }
 
-    /// Thêm các game mẫu (thuật ngữ đóng kèm app) chưa có trong danh sách, không đụng profile hiện có. Trả về tên đã thêm.
-    public List<string> AddMissingSampleGames()
-    {
-        var ps = profiles;
-        var added = new List<string>();
-        foreach (var g in GameGlossaries.Bundled())
-            if (!ps.Any(p => p.name.Equals(g.name, StringComparison.OrdinalIgnoreCase)))
-            {
-                ps.Add(new Profile { name = g.name, glossary = g.entries });
-                added.Add(g.name);
-            }
-        if (added.Count > 0) { profiles = ps; Log.Info($"Thêm {added.Count} game mẫu: {string.Join(", ", added)}"); }
-        return added;
-    }
-
     // MARK: Capture
     public int fps { get => Get("fps", 4); set => Set("fps", value); }
     /// Đổi cỡ ảnh phụ đề trước khi OCR (Windows chụp theo pixel thật; 1 = giữ nguyên, 0.5–0.75 nhanh hơn với phụ đề chữ to,

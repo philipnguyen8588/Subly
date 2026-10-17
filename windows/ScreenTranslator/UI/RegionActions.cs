@@ -302,6 +302,20 @@ public sealed class AppNav : INotifyPropertyChanged
         tab = Tab.source;
     }
 
+    /// Thêm các game mẫu đã chọn (kèm thuật ngữ đóng kèm app) rồi chuyển sang game đầu tiên.
+    public void AddSampleGames(IList<GameGlossaries.Game> games, ProfileSource source)
+    {
+        if (games.Count == 0) return;
+        var settings = AppSettings.shared;
+        var ps = settings.profiles;
+        var created = games.Select(g => new Profile { name = g.name, source = source, glossary = g.entries }).ToList();
+        foreach (var p in created) ps.Add(p);
+        settings.profiles = ps;
+        Log.Info($"Thêm {created.Count} game mẫu: {string.Join(", ", created.Select(p => p.name))}");
+        SwitchProfile(created[0]);
+        tab = Tab.source;
+    }
+
     public void RenameProfile(Profile p, System.Windows.Window? owner = null)
     {
         var settings = AppSettings.shared;
@@ -320,15 +334,33 @@ public sealed class AppNav : INotifyPropertyChanged
         SwitchProfile(c);
     }
 
-    public void DeleteProfile(Profile p)
+    public void DeleteProfile(Profile p) => DeleteProfiles(new[] { p.id });
+
+    /// Xoá nhiều game một lần (hỏi xác nhận). Luôn giữ lại ít nhất một game. Trả về true nếu đã xoá.
+    public bool DeleteProfiles(ICollection<Guid> ids)
     {
         var settings = AppSettings.shared;
-        if (settings.profiles.Count <= 1) return;
-        if (!settings.suppressAlerts && !Ui.Confirm($"Xoá game “{p.name}” (khung phụ đề, thuật ngữ, tên nhân vật)? Nhật ký đã dịch vẫn giữ.", "Xoá game")) return;
-        if (p.id == settings.activeProfileID && settings.profiles.FirstOrDefault(x => x.id != p.id) is Profile other) SwitchProfile(other);
-        settings.profiles = settings.profiles.Where(x => x.id != p.id).ToList();
+        var doomed = settings.profiles.Where(p => ids.Contains(p.id)).ToList();
+        if (doomed.Count == 0 || doomed.Count >= settings.profiles.Count) return false;
+        if (!settings.suppressAlerts)
+        {
+            string msg;
+            if (doomed.Count == 1)
+                msg = $"Xoá game “{doomed[0].name}”?\nKhung phụ đề, thuật ngữ và tên nhân vật riêng của game này sẽ bị xoá. Nhật ký đã dịch vẫn giữ.";
+            else
+            {
+                var shown = string.Join("\n", doomed.Take(8).Select(p => $"• {p.name}"));
+                var more = doomed.Count > 8 ? $"\n…và {doomed.Count - 8} game khác" : "";
+                msg = $"Xoá {doomed.Count} game?\n{shown}{more}\n\nKhung phụ đề, thuật ngữ và tên nhân vật riêng của các game này sẽ bị xoá. Nhật ký đã dịch vẫn giữ.";
+            }
+            if (!Ui.Confirm(msg, "Xoá game")) return false;
+        }
+        if (settings.activeProfileID is Guid active && ids.Contains(active)
+            && settings.profiles.FirstOrDefault(p => !ids.Contains(p.id)) is Profile other) SwitchProfile(other);
+        settings.profiles = settings.profiles.Where(p => !ids.Contains(p.id)).ToList();
         settings.NotifyAll();
-        Log.Info($"Xoá game '{p.name}'");
+        Log.Info($"Xoá {doomed.Count} game: {string.Join(", ", doomed.Select(p => p.name))}");
+        return true;
     }
 
     /// Đổi nguồn hình của game đang chọn.

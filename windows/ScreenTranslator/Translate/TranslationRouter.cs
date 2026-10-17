@@ -302,6 +302,11 @@ public sealed class TranslationRouter : INotifyPropertyChanged
         gemini.storyContext = story.Length > 500 ? story[..500] : story;
     }
 
+    /// Model viết cả lời suy luận / giải thích thay vì chỉ trả câu dịch (đã gặp với Claude khi gặp mẩu câu khó hiểu):
+    /// câu dịch dài gấp ba câu gốc và hơn 80 ký tự. Bản dịch tiếng Việt thường chỉ dài 1–1,5 lần câu tiếng Anh.
+    public static bool IsRunaway(string source, string translated) =>
+        translated.Length > Math.Max(source.Length * 3, source.Length + 80);
+
     public async Task<Output?> Translate(string text)
     {
         if (!SessionCheck.shared.Valid()) return null;
@@ -314,6 +319,11 @@ public sealed class TranslationRouter : INotifyPropertyChanged
             try
             {
                 var outp = await c.backend.Translate(text, ctx, modelOverride: settings.TaskModel(AITask.subtitle, c.id));
+                if (IsRunaway(text, outp))
+                {
+                    Log.Warn($"{c.name} trả lời dài bất thường, không phải bản dịch: {outp[..Math.Min(120, outp.Length)]}");
+                    throw new Exception("model trả lời dài bất thường (lời giải thích thay vì bản dịch)");
+                }
                 state = new State(StateKind.cloud, "", c.name);
                 lastError = null;
                 var fixedText = FixSpeaker(text, outp);

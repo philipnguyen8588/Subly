@@ -8,3 +8,4 @@ Vendor/
 ScreenTranslator/Resources/words.txt
 # Cấu hình server nhúng lúc build — sinh bởi Scripts/gen-runtime-config.ps1, không commit
 ScreenTranslator/Core/RuntimeConfigValues.cs
+tizen/certs/
