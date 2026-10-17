@@ -34,8 +34,11 @@ var adminTmpl = template.Must(template.New("admin").Funcs(template.FuncMap{
 			return strconv.Itoa(int(d.Hours()/24)) + " ngày trước"
 		}
 	},
-	"date": func(t time.Time) string { return t.Local().Format("2006-01-02 15:04") },
-	"join": strings.Join,
+	"date":      func(t time.Time) string { return t.Local().Format("2006-01-02 15:04") },
+	"join":      strings.Join,
+	"styles":    styleOptions,
+	"unix":      func(n int64) time.Time { return time.Unix(n, 0) },
+	"hasPrefix": strings.HasPrefix,
 }).Parse(adminHTML))
 
 const cookieName = "sid"
@@ -73,16 +76,19 @@ func sameOrigin(r *http.Request) bool {
 }
 
 type adminPage struct {
-	LoggedIn bool
-	Error    string
-	Devices  []*Device
-	Counts   map[string]int
-	Status   string
-	Q        string
-	TTLDays  int
-	Tab      string // "" = máy, "ai" = AI share
-	Shares   []shareView
-	Draft    *shareDraft
+	LoggedIn  bool
+	Error     string
+	Devices   []*Device
+	Counts    map[string]int
+	Status    string
+	Q         string
+	TTLDays   int
+	Tab       string // "" = máy, "ai" = AI share, "games" = game mẫu
+	Shares    []shareView
+	Draft     *shareDraft
+	Games     []gameView
+	GameDraft *gameDraft
+	Notice    string
 }
 
 func (a *App) render(w http.ResponseWriter, p adminPage) {
@@ -102,6 +108,18 @@ func (a *App) handleAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 	if c, err := r.Cookie(cookieName); err == nil {
 		a.setSession(w, c.Value)
+	}
+	if r.URL.Query().Get("tab") == "games" {
+		var draft *gameDraft
+		if id := r.URL.Query().Get("edit"); id != "" {
+			if g, _ := a.store.Game(id); g != nil {
+				draft = draftFromGame(g)
+			}
+		} else if r.URL.Query().Get("new") == "1" {
+			draft = &gameDraft{Style: "modern", ShowsSpeakerNames: true}
+		}
+		a.renderGames(w, draft, "")
+		return
 	}
 	if r.URL.Query().Get("tab") == "ai" {
 		var draft *shareDraft

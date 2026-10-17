@@ -235,7 +235,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     //   --test-region x,y,w,h[,Tên]          vùng tạm, không lưu
     //   --clear-regions  --autostart  --mute  --quiet  --hidden  --analyze-once  --no-web  --web-port N
     //   --gemini-base-url <url>  --gemini-key <key>
-    //   --share-server <url>      AI share dùng server này thay cho server nhúng sẵn (test với server chạy trên máy)
+    //   --server <url>            AI share và game mẫu dùng server này thay cho server nhúng sẵn (test với server trên máy)
     //   --share-token <token>     nhập token AI share (như dán ở Cài đặt → AI)
     //   --story-interval <giây>   bật cốt truyện cho phiên này với chu kỳ ngắn (không lưu)
     //   --story-now <giây>        sau N giây thì cập nhật cốt truyện một lần (như bấm "Cập nhật ngay")
@@ -272,7 +272,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if args.contains("--clear-regions") { settings.regions = [] }
         if let i = args.firstIndex(of: "--gemini-base-url"), i + 1 < args.count { settings.geminiBaseURL = args[i + 1] }
         if let i = args.firstIndex(of: "--gemini-key"), i + 1 < args.count { settings.geminiAPIKey = args[i + 1] }
-        if let i = args.firstIndex(of: "--share-server"), i + 1 < args.count { settings.forceShareServer = args[i + 1] }
+        if let i = args.firstIndex(where: { $0 == "--server" || $0 == "--share-server" }), i + 1 < args.count { settings.forceServer = args[i + 1] }
         if let i = args.firstIndex(of: "--share-token"), i + 1 < args.count {
             let token = args[i + 1]
             Task { @MainActor in
@@ -282,6 +282,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Admin có thể đã sửa model hoặc thu hồi share từ lần mở trước.
             Task { @MainActor in await AIShareClient.refresh() }
         }
+        // Danh sách game mẫu mới nhất trên server (dùng cho "Thêm game" và phong cách dịch tự động).
+        Task { @MainActor in await GameCatalog.shared.refresh() }
         var i = 0
         while i < args.count {
             if args[i] == "--test-region", i + 1 < args.count {

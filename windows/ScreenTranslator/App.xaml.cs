@@ -295,8 +295,8 @@ public partial class App : Application
         if (Has("--clear-regions")) settings.regions = new();
         if (Arg("--gemini-base-url") is string gb) settings.geminiBaseURL = gb;
         if (Arg("--gemini-key") is string gk) settings.geminiAPIKey = gk;
-        // --share-server <url>: AI share dùng server này (test với server chạy trên máy). --share-token <token>: nhập token.
-        if (Arg("--share-server") is string shareServer) settings.forceShareServer = shareServer;
+        // --server <url>: AI share và game mẫu dùng server này (test với server chạy trên máy). --share-token <token>: nhập token.
+        if ((Arg("--server") ?? Arg("--share-server")) is string server) settings.forceServer = server;
         if (Arg("--share-token") is string shareToken)
             _ = Task.Run(async () =>
             {
@@ -304,6 +304,8 @@ public partial class App : Application
             });
         // Admin có thể đã sửa model hoặc thu hồi share từ lần mở trước.
         else _ = AIShareClient.Refresh();
+        // Danh sách game mẫu mới nhất trên server (dùng cho "Thêm game mẫu" và phong cách dịch tự động).
+        _ = GameCatalog.Refresh();
         for (int i = 0; i < args.Length; i++)
         {
             if ((args[i] == "--test-region" || args[i] == "--add-region") && i + 1 < args.Length)

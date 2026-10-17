@@ -49,9 +49,9 @@
   </ItemGroup>
 
   <!-- Thuật ngữ game đóng kèm (glossaries/ ở gốc repo, dùng chung với bản macOS). Chép vào glossaries/ cạnh exe;
-       GameGlossaries.cs đọc để tạo sẵn profile lần đầu chạy. -->
+       GameCatalog.cs đọc làm bản dự phòng khi chưa tải được danh sách game mẫu từ server. -->
   <ItemGroup Condition="Exists('..\..\glossaries')">
-    <None Include="..\..\glossaries\*.csv" CopyToOutputDirectory="PreserveNewest" Link="glossaries\%(Filename)%(Extension)" />
+    <None Include="..\..\glossaries\*.json" CopyToOutputDirectory="PreserveNewest" Link="glossaries\%(Filename)%(Extension)" />
   </ItemGroup>
 
   <!-- Hướng dẫn sử dụng HTML đóng kèm; nút Help (?) trên header mở bằng trình duyệt. -->

@@ -55,6 +55,13 @@
   .row.share { grid-template-columns: 1.6fr 1fr 1.6fr auto; }
   @media (max-width: 760px) { .row.share { grid-template-columns: 1fr; } }
   .token { display:flex; gap:6px; } .token input { flex:1; min-width:0; padding:5px 7px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size:12px; }
+  .row.game { grid-template-columns: 2fr 1.2fr auto; }
+  @media (max-width: 760px) { .row.game { grid-template-columns: 1fr; } }
+  .form textarea { width:100%; padding:7px 9px; border:1px solid var(--line); border-radius:7px; background:var(--card); color:var(--text); font:inherit; resize:vertical; }
+  .form textarea.mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size:12.5px; }
+  .form .chk { color:var(--text); }
+  .importf { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin:0; }
+  a.btn.ok { background:var(--ok); border-color:var(--ok); color:#fff; }
   a.btn { font:inherit; padding:5px 10px; border-radius:7px; border:1px solid var(--line); color:var(--text); text-decoration:none; }
 </style>
 </head>
@@ -71,8 +78,9 @@
   </div>
 {{else}}
   <nav class="top">
-    <a href="/admin" class="{{if ne .Tab "ai"}}on{{end}}">Máy</a>
+    <a href="/admin" class="{{if eq .Tab ""}}on{{end}}">Máy</a>
     <a href="/admin?tab=ai" class="{{if eq .Tab "ai"}}on{{end}}">AI share</a>
+    <a href="/admin?tab=games" class="{{if eq .Tab "games"}}on{{end}}">Game mẫu</a>
   </nav>
 {{if eq .Tab "ai"}}
   <header>
@@ -141,6 +149,77 @@
   </div>
   {{else}}
   <div class="empty">Chưa có AI share nào.</div>
+  {{end}}
+{{else if eq .Tab "games"}}
+  <header>
+    <h1>Game mẫu</h1>
+    <span class="sp"></span>
+    <a class="btn" href="/admin/games/export">Tải tất cả (JSON)</a>
+    <a class="btn ok" href="/admin?tab=games&amp;new=1#form">Thêm game</a>
+    <form method="post" action="/admin/logout" class="inline"><button type="submit">Đăng xuất</button></form>
+  </header>
+  <p class="muted">App tải danh sách này khi mở và khi bấm Thêm game, nên thêm / sửa ở đây là app nhận được, không cần build lại. Tạo game từ game mẫu thì game mới lấy luôn thuật ngữ, phong cách dịch, ghi chú cho AI và cài đặt tên người nói. Game đã tạo trước đó không bị đổi theo.</p>
+  {{if .Notice}}<p class="{{if hasPrefix .Notice "Lỗi"}}err{{else}}info{{end}}">{{.Notice}}</p>{{end}}
+  {{with .GameDraft}}
+  <div class="card" id="form">
+    <h2>{{if .OrigID}}Sửa “{{.Name}}”{{else}}Thêm game mẫu{{end}}</h2>
+    {{if .Error}}<p class="err">{{.Error}}</p>{{end}}
+    <form method="post" action="/admin/games" class="form">
+      <input type="hidden" name="orig_id" value="{{.OrigID}}">
+      <label for="g-name">Tên game</label>
+      <input type="text" id="g-name" name="name" value="{{.Name}}" placeholder="ví dụ: Grand Theft Auto V" required>
+      <label for="g-id">Id</label>
+      {{if .OrigID}}<input type="text" id="g-id" value="{{.ID}}" disabled>{{else}}<input type="text" id="g-id" name="id" value="{{.ID}}" placeholder="để trống = tạo từ tên (gta-5)">{{end}}
+      <label for="g-aliases">Tên gọi khác</label>
+      <input type="text" id="g-aliases" name="aliases" value="{{.Aliases}}" placeholder="GTA V, GTA 5 (cách nhau dấu phẩy; dùng để tìm và nhận ra game)">
+      <label for="g-style">Phong cách dịch</label>
+      <select id="g-style" name="style">{{$cur := .Style}}{{range styles}}<option value="{{.Value}}" {{if eq .Value $cur}}selected{{end}}>{{.Label}}</option>{{end}}</select>
+      <label for="g-desc">Mô tả</label>
+      <input type="text" id="g-desc" name="description" value="{{.Description}}" placeholder="phạm vi, nguồn dữ liệu… (chỉ để ghi nhớ)">
+      <label for="g-note">Ghi chú cho AI dịch</label>
+      <textarea id="g-note" name="note" rows="3" placeholder="ví dụ: Clive và Jill xưng anh – em. Gửi kèm mỗi câu dịch, nên viết ngắn.">{{.Note}}</textarea>
+      <label>Tên người nói</label>
+      <div>
+        <label class="chk"><input type="checkbox" name="shows_speaker_names" value="1" {{if .ShowsSpeakerNames}}checked{{end}}> Game hiện tên người nói (“Tên: câu thoại”)</label><br>
+        <label class="chk"><input type="checkbox" name="speaker_above" value="1" {{if .SpeakerAbove}}checked{{end}}> Tên nằm ở dòng riêng phía trên câu thoại</label>
+      </div>
+      <label for="g-speakers">Tên nhân vật</label>
+      <input type="text" id="g-speakers" name="speakers" value="{{.Speakers}}" placeholder="tuỳ chọn: tên người nói có sẵn, cách nhau dấu phẩy (app vẫn tự học thêm)">
+      <label for="g-glossary">Thuật ngữ</label>
+      <textarea id="g-glossary" name="glossary" rows="18" class="mono" placeholder="# Nhân vật&#10;Michael De Santa&#10;# Tổ chức&#10;FIB,Cục Điều tra Liên bang">{{.Glossary}}</textarea>
+      <span></span>
+      <p class="muted" style="margin:0">Dòng “# Tên nhóm” mở một nhóm. Mỗi dòng một thuật ngữ: “thuật ngữ,bản dịch”; không có dấu phẩy = giữ nguyên tên gốc.</p>
+      <span></span>
+      <div><button class="ok" type="submit" name="action" value="save">{{if .OrigID}}Lưu{{else}}Thêm game{{end}}</button> <a class="btn" href="/admin?tab=games">Huỷ</a></div>
+    </form>
+  </div>
+  {{end}}
+  <div class="card">
+    <form method="post" action="/admin/games" enctype="multipart/form-data" class="importf">
+      <strong>Nhập file JSON</strong>
+      <input type="file" name="files" accept=".json,application/json" multiple>
+      <button type="submit" name="action" value="import">Nhập</button>
+      <span class="muted">Mỗi file một game hoặc nhiều game (định dạng như glossaries/*.json). Game trùng id được thay.</span>
+    </form>
+  </div>
+  {{range .Games}}
+  <div class="card" id="g-{{.ID}}">
+    <div class="row game">
+      <div>
+        <div class="name">{{.Name}}<span class="badge b-approved">{{.StyleLabel}}</span></div>
+        <div class="muted">{{.ID}}{{if .Aliases}} · {{join .Aliases ", "}}{{end}}</div>
+        {{if .Description}}<div class="muted">{{.Description}}</div>{{end}}
+      </div>
+      <div class="muted">{{.TermCount}} thuật ngữ{{if .Note}} · có ghi chú AI{{end}}{{if not .ShowsSpeakerNames}} · không hiện tên người nói{{end}}<br>Sửa: {{date (unix .Updated)}}</div>
+      <div class="actions">
+        <a class="btn" href="/admin?tab=games&amp;edit={{.ID}}#form">Sửa</a>
+        <a class="btn" href="/admin/games/export?id={{.ID}}">JSON</a>
+        <form method="post" action="/admin/games" class="inline"><input type="hidden" name="id" value="{{.ID}}"><button class="bad" name="action" value="delete" data-confirm="Xoá game mẫu “{{.Name}}”?">Xoá</button></form>
+      </div>
+    </div>
+  </div>
+  {{else}}
+  <div class="empty">Chưa có game mẫu nào. Bấm “Thêm game” hoặc nhập file JSON.</div>
   {{end}}
 {{else}}
   <header>

@@ -204,6 +204,24 @@ final class GeminiBackend: TranslationBackend {
             Thor: You'll pay for that. → Thor: Ngươi sẽ phải trả giá.
 
             """
+        case .eastern:
+            return """
+            Setting: feudal Japan or ancient China (samurai, ronin, warlords, ninja, monks, yokai, Chinese myth). Write like the \
+            Vietnamese dub of a historical martial-arts drama (phim cổ trang, kiếm hiệp): dignified, concise, no modern slang. \
+            Pronouns: a retainer or soldier speaking to his lord says "thuộc hạ" or "tôi" and calls him "chúa công" \
+            ("my lord" = "thưa chúa công"); "Lord X" = "lãnh chúa X"; "-sama"/"-dono" after a name = "X đại nhân"; \
+            lords, warlords, demons, gods and enemies speaking down say "ta" and "ngươi"; friendly equals say "tôi" and "anh"/"cô", \
+            sworn brothers "huynh" and "đệ"; a master and a disciple say "sư phụ" and "con"/"đồ nhi"; a monk calls himself "bần tăng", \
+            an old man "lão". "Sensei" = "sư phụ". Keep Japanese and Chinese names, ranks and places as written. \
+            Never use "tớ", "cậu", "bạn", "tụi" or modern slang. \
+            \(common)Examples of the style:
+            Jin: I will not abandon you, uncle. → Jin: Cháu sẽ không bỏ mặc chú đâu, chú à.
+            Samurai: My lord, the Mongols have reached the gate. → Samurai: Thưa chúa công, quân Mông Cổ đã tới cổng thành.
+            Khotun Khan: You fight bravely, samurai. → Khotun Khan: Ngươi chiến đấu dũng cảm lắm, samurai.
+            Monk: I am only a humble monk. → Monk: Bần tăng chỉ là kẻ tu hành.
+            Erlang: You still have far to go, monkey. → Erlang: Ngươi còn phải đi xa lắm, con khỉ.
+
+            """
         }
     }
 

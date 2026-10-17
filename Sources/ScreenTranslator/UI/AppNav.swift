@@ -176,9 +176,9 @@ final class AppNav: ObservableObject {
     }
 
     /// Thêm các game mẫu đã chọn (kèm thuật ngữ đóng kèm app) rồi chuyển sang game đầu tiên.
-    func addSampleGames(_ games: [GameGlossaries.Game], source: ProfileSource) {
+    func addSampleGames(_ games: [GameCatalog.Game], source: ProfileSource) {
         let settings = AppSettings.shared
-        let created = games.map { Profile(name: $0.name, source: source, glossary: $0.entries) }
+        let created = games.map { $0.makeProfile(source: source) }
         guard let first = created.first else { return }
         settings.profiles.append(contentsOf: created)
         Log.info("Thêm \(created.count) game mẫu: \(created.map(\.name).joined(separator: ", "))")

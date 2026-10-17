@@ -20,10 +20,10 @@ public static class AIShareClient
     static AppSettings S => AppSettings.shared;
     static readonly HttpClient http = new() { Timeout = TimeSpan.FromSeconds(15) };
 
-    /// Bản build có server (hoặc đang test với --share-server).
-    public static bool Available => S.forceShareServer != null || RuntimeConfig.Enabled;
+    /// Bản build có server (hoặc đang test với --server).
+    public static bool Available => ServerURL != null;
 
-    static string? ServerURL => S.forceShareServer ?? (RuntimeConfig.Enabled ? RuntimeConfig.BaseURL : null);
+    static string? ServerURL => RuntimeConfig.Server;
 
     /// Địa chỉ gốc mà backend của nhà cung cấp gọi tới (thay cho api.openai.com…).
     public static string ProxyBase(string provider) => (ServerURL ?? "") + "/v1/ai/" + provider;

@@ -35,7 +35,7 @@ app: build
 	@[ -f Resources/AppIcon.icns ] && cp Resources/AppIcon.icns $(APP)/Contents/Resources/AppIcon.icns || true
 	# Thuật ngữ game đóng kèm: tạo sẵn profile cho các game thông dụng ở lần chạy đầu.
 	mkdir -p $(APP)/Contents/Resources/glossaries
-	cp glossaries/*.csv $(APP)/Contents/Resources/glossaries/
+	cp glossaries/*.json $(APP)/Contents/Resources/glossaries/
 	# Hướng dẫn sử dụng (mở bằng nút Hướng dẫn trong app).
 	mkdir -p $(APP)/Contents/Resources/guide
 	cp Resources/guide/*.html $(APP)/Contents/Resources/guide/
@@ -50,15 +50,18 @@ app: build
 	@echo "Built $(APP) (signed with: $(SIGN_IDENTITY))"
 
 # Build rồi cài vào /Applications. Chép sang bản tạm rồi mới thay, để không bao giờ để lại một app cài dở.
-# App đang mở vẫn chạy bản cũ cho tới khi thoát và mở lại.
+# Subly đang chạy thì KHÔNG thay: macOS chặn mạng LAN của tiến trình có bundle vừa bị thay (PS5 rớt và không kết nối
+# lại được cho tới khi mở lại app). Khi đó chỉ để sẵn bản mới ở Subly.app.new; thoát app rồi chạy lại `make install`.
 install: app
 	rm -rf "$(INSTALL_DIR)/ScreenTranslator.app"
 	rm -rf "$(INSTALLED).new"
 	ditto $(APP) "$(INSTALLED).new"
-	rm -rf "$(INSTALLED)"
-	mv "$(INSTALLED).new" "$(INSTALLED)"
-	@echo "Đã cài $(INSTALLED)"
-	@if pgrep -x Subly >/dev/null; then echo "App đang chạy bản cũ: thoát (⌘Q) rồi mở lại để dùng bản mới."; fi
+	@if pgrep -x Subly >/dev/null; then \
+		echo "Subly đang chạy: CHƯA cài (thay app lúc đang chạy làm PS5 mất kết nối)."; \
+		echo "Bản mới để sẵn ở $(INSTALLED).new. Thoát Subly (⌘Q) rồi chạy lại: make install"; \
+	else \
+		rm -rf "$(INSTALLED)" && mv "$(INSTALLED).new" "$(INSTALLED)" && echo "Đã cài $(INSTALLED)"; \
+	fi
 
 run: install
 	open "$(INSTALLED)"

@@ -11,6 +11,8 @@ public static class RuntimeConfig
     /// Địa chỉ gốc của server (không có "/" cuối).
     public static string BaseURL => System.Text.Encoding.UTF8.GetString(Decode(RuntimeConfigValues.a));
     public static string Endpoint => BaseURL + "/v1/session";
+    /// Server cho AI share và game mẫu: cờ --server khi test, không thì server nhúng sẵn; null = bản không có server.
+    public static string? Server => AppSettings.shared.forceServer ?? (Enabled ? BaseURL : null);
     public static byte[] Verifier => Decode(RuntimeConfigValues.b);
 
     static byte[] Decode(byte[] v)

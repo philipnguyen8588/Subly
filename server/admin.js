@@ -16,3 +16,9 @@ function syncProvider() {
 }
 document.addEventListener('change', (e) => { if (e.target.id === 'provider') syncProvider(); });
 syncProvider();
+
+// Nút xoá có data-confirm: hỏi lại trước khi gửi.
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-confirm]');
+  if (b && !confirm(b.dataset.confirm)) e.preventDefault();
+});

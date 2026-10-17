@@ -57,19 +57,20 @@ struct NewProfileSheet: View {
     @ObservedObject var settings = AppSettings.shared
     @State private var name = ""
     @State private var source: ProfileSource = .external
-    @State private var samples: [GameGlossaries.Game] = []
+    @ObservedObject private var catalog = GameCatalog.shared
+    private var samples: [GameCatalog.Game] { catalog.games }
     @State private var picked: Set<String> = []      // tên game mẫu đã tick
     @FocusState private var focused: Bool
 
     private var query: String { name.trimmingCharacters(in: .whitespaces) }
-    private var filtered: [GameGlossaries.Game] {
-        query.isEmpty ? samples : samples.filter { $0.name.localizedStandardContains(query) }
+    private var filtered: [GameCatalog.Game] {
+        query.isEmpty ? samples : samples.filter { $0.matches(query) }
     }
-    private func isAdded(_ g: GameGlossaries.Game) -> Bool {
+    private func isAdded(_ g: GameCatalog.Game) -> Bool {
         settings.profiles.contains { $0.name.lowercased() == g.name.lowercased() }
     }
     /// Tên gõ vào trùng đúng một game mẫu chưa có → thêm game mẫu đó (kèm thuật ngữ) thay vì tạo game trống.
-    private var exactSample: GameGlossaries.Game? {
+    private var exactSample: GameCatalog.Game? {
         samples.first { $0.name.compare(query, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame && !isAdded($0) }
     }
     private var actionTitle: String {
@@ -122,7 +123,7 @@ struct NewProfileSheet: View {
         .frame(width: 540)
         .onAppear {
             focused = true
-            if samples.isEmpty { samples = GameGlossaries.bundled().sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending } }
+            Task { await catalog.refresh() }
         }
     }
 
@@ -172,7 +173,7 @@ struct NewProfileSheet: View {
 
 /// Một dòng game mẫu: ô tick, tên game, số thuật ngữ. Game đã có trong danh sách thì mờ và không chọn được.
 struct SampleGameRow: View {
-    let game: GameGlossaries.Game
+    let game: GameCatalog.Game
     let added: Bool
     let checked: Bool
     let toggle: () -> Void
@@ -427,12 +428,12 @@ struct TranslationStyleBox: View {
                 Text("Phong cách dịch").font(.headline)
                 Picker("", selection: $settings.translationStyle) {
                     ForEach(TranslationStyle.allCases) { s in
-                        Text(s == .auto ? "\(s.label) (đang là: \(TranslationStyle.guess(settings.activeProfile.name).label))" : s.label).tag(s)
+                        Text(s == .auto ? "\(s.label) (đang là: \(TranslationStyle.resolveAuto(settings.activeProfile.name).label))" : s.label).tag(s)
                     }
                 }
                 .labelsHidden().fixedSize()
             }
-            Text("Quyết định giọng văn và cách xưng hô khi dịch: hiện đại (tôi – cậu, tao – mày), kỳ ảo trung cổ (tôi – ngài, ta – ngươi, Sir → ngài), thần thoại (ta – ngươi, cha – con).")
+            Text("Quyết định giọng văn và cách xưng hô khi dịch: hiện đại (tôi – cậu, tao – mày), kỳ ảo trung cổ (tôi – ngài, ta – ngươi, Sir → ngài), thần thoại (ta – ngươi, cha – con), cổ trang Á Đông (chúa công – thuộc hạ, sư phụ – đồ nhi, bần tăng).")
                 .font(.caption).foregroundStyle(.secondary)
             Text("Ghi chú cho AI dịch (tuỳ chọn)").font(.callout.weight(.medium))
             TextEditor(text: $settings.translationNote)

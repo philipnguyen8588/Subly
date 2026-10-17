@@ -17,13 +17,10 @@ enum AIShareClient {
         }
     }
 
-    /// Bản build có server (hoặc đang test với --share-server).
-    static var available: Bool { AppSettings.shared.forceShareServer != nil || RuntimeConfig.enabled }
+    /// Bản build có server (hoặc đang test với --server).
+    static var available: Bool { serverURL != nil }
 
-    private static var serverURL: String? {
-        if let s = AppSettings.shared.forceShareServer { return s }
-        return RuntimeConfig.enabled ? RuntimeConfig.baseURL : nil
-    }
+    private static var serverURL: String? { RuntimeConfig.server }
 
     /// Địa chỉ gốc mà backend của nhà cung cấp gọi tới (thay cho api.openai.com…).
     static func proxyBase(_ provider: String) -> String { (serverURL ?? "") + "/v1/ai/" + provider }

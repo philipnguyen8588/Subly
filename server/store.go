@@ -67,6 +67,10 @@ func openStore(path string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Game mẫu (xem games.go).
+	if _, err := db.Exec(gamesTable); err != nil {
+		return nil, err
+	}
 	return &Store{db: db}, nil
 }
 

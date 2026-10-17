@@ -189,9 +189,9 @@ public sealed class AppSettings : INotifyPropertyChanged
         get => activeProfile.translationNote;
         set { var p = activeProfile; p.translationNote = value; activeProfile = p; OnPropertyChanged(nameof(translationNote)); }
     }
-    /// Phong cách thật sự dùng: "Tự động" thì đoán theo tên game.
+    /// Phong cách thật sự dùng: "Tự động" thì theo game mẫu cùng tên, không có thì đoán theo tên game.
     public TranslationStyle effectiveTranslationStyle =>
-        translationStyle == TranslationStyle.auto ? TranslationStyles.Guess(activeProfile.name) : translationStyle;
+        translationStyle == TranslationStyle.auto ? TranslationStyles.ResolveAuto(activeProfile.name) : translationStyle;
     /// Thuật ngữ riêng của game đang chọn (tab Thuật ngữ ở cửa sổ chính).
     public List<GlossaryEntry> glossary
     {
@@ -243,9 +243,9 @@ public sealed class AppSettings : INotifyPropertyChanged
         {
             // Lần đầu cài: tạo sẵn một profile cho mỗi game thông dụng (thuật ngữ đóng kèm app).
             var created = new List<Profile>();
-            foreach (var g in GameGlossaries.Bundled())
+            foreach (var g in GameCatalog.Bundled())
                 if (!created.Any(p => p.name.Equals(g.name, StringComparison.OrdinalIgnoreCase)))
-                    created.Add(new Profile { name = g.name, glossary = g.entries });
+                    created.Add(g.MakeProfile());
             if (created.Count == 0) created.Add(new Profile { name = "Mặc định" });
             Log.Info($"Tạo {created.Count} profile lần đầu: {string.Join(", ", created.Select(p => p.name))}");
             profiles = created;
@@ -415,8 +415,8 @@ public sealed class AppSettings : INotifyPropertyChanged
         get => SecretStore.Get("ai-share-token") ?? "";
         set { SecretStore.Set(value, "ai-share-token"); OnPropertyChanged(nameof(aiShareToken)); Changed?.Invoke(nameof(aiShareToken)); }
     }
-    /// Cờ runtime (không lưu): --share-server <url> trỏ AI share tới server khác (test với server chạy trên máy).
-    public string? forceShareServer;
+    /// Cờ runtime (không lưu): --server <url> dùng server khác cho AI share và game mẫu (test với server chạy trên máy).
+    public string? forceServer;
 
     /// Model riêng cho từng việc, chọn ở Cài đặt → Dịch. Khoá "<việc>.<nhà cung cấp>" (ví dụ "summary.anthropic");
     /// không có hoặc trống = dùng model mặc định của nhà cung cấp đó ở Cài đặt → AI.

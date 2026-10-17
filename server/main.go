@@ -3,6 +3,7 @@
 //
 //	subly-server keygen   tạo khoá ký (nếu chưa có) và in public key để nhúng vào app
 //	subly-server pubkey   in public key
+//	subly-server import-games <thư mục>   nạp các file game mẫu *.json (game cùng id thì được thay)
 //	subly-server          chạy server
 package main
 
@@ -93,8 +94,22 @@ func main() {
 			}
 			fmt.Println(base64.RawURLEncoding.EncodeToString(key.Public().(ed25519.PublicKey)))
 			return
+		case "import-games":
+			if len(os.Args) < 3 {
+				log.Fatal("dùng: subly-server import-games <thư mục chứa *.json>")
+			}
+			st, err := openStore(filepath.Join(dataDir, "devices.db"))
+			if err != nil {
+				log.Fatal(err)
+			}
+			n, err := importGamesDir(st, os.Args[2])
+			if err != nil {
+				log.Fatalf("đã nạp %d game, lỗi: %v", n, err)
+			}
+			fmt.Printf("đã nạp %d game\n", n)
+			return
 		default:
-			log.Fatalf("lệnh không rõ: %s (dùng: keygen | pubkey)", os.Args[1])
+			log.Fatalf("lệnh không rõ: %s (dùng: keygen | pubkey | import-games)", os.Args[1])
 		}
 	}
 
@@ -145,6 +160,9 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("/admin/device", a.handleDeviceAction)
 	mux.HandleFunc("/admin/share", a.handleShareAction)
 	mux.HandleFunc("/admin/app.js", serveAdminJS)
+	mux.HandleFunc("/admin/games", a.handleGameAction)
+	mux.HandleFunc("/admin/games/export", a.handleGameExport)
+	mux.HandleFunc("/v1/games", a.handleGames)
 	mux.HandleFunc("/v1/share/info", a.handleShareInfo)
 	mux.HandleFunc("/v1/ai/", a.handleAIProxy)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })

@@ -302,13 +302,13 @@ public sealed class AppNav : INotifyPropertyChanged
         tab = Tab.source;
     }
 
-    /// Thêm các game mẫu đã chọn (kèm thuật ngữ đóng kèm app) rồi chuyển sang game đầu tiên.
-    public void AddSampleGames(IList<GameGlossaries.Game> games, ProfileSource source)
+    /// Thêm các game mẫu đã chọn (kèm thuật ngữ, phong cách dịch, ghi chú AI…) rồi chuyển sang game đầu tiên.
+    public void AddSampleGames(IList<GameCatalog.Game> games, ProfileSource source)
     {
         if (games.Count == 0) return;
         var settings = AppSettings.shared;
         var ps = settings.profiles;
-        var created = games.Select(g => new Profile { name = g.name, source = source, glossary = g.entries }).ToList();
+        var created = games.Select(g => g.MakeProfile(source)).ToList();
         foreach (var p in created) ps.Add(p);
         settings.profiles = ps;
         Log.Info($"Thêm {created.Count} game mẫu: {string.Join(", ", created.Select(p => p.name))}");

@@ -37,15 +37,23 @@ public enum SummaryEngine { sameAsSubtitle, gemini, openAI, anthropic, custom, s
 
 /// Giọng văn và cách xưng hô khi dịch phụ đề, chọn theo bối cảnh của game.
 [JsonConverter(typeof(JsonStringEnumConverter))]
-public enum TranslationStyle { auto, modern, fantasy, myth }
+public enum TranslationStyle { auto, modern, fantasy, myth, eastern }
 
 public static class TranslationStyles
 {
+    /// Phong cách khi chọn "Tự động": theo game mẫu cùng tên (danh sách trên server / đóng kèm app), không có thì đoán.
+    public static TranslationStyle ResolveAuto(string gameName) =>
+        GameCatalog.Named(gameName)?.translationStyle is TranslationStyle s && s != TranslationStyle.auto ? s : Guess(gameName);
+
     /// Đoán phong cách từ tên game; không nhận ra thì dùng hiện đại.
     public static TranslationStyle Guess(string gameName)
     {
         var n = gameName.ToLowerInvariant();
         if (new[] { "god of war", "ragnar", "assassin's creed odyssey", "hades" }.Any(n.Contains)) return TranslationStyle.myth;
+        if (new[] { "tsushima", "yōtei", "yotei", "wukong", "nioh", "onimusha", "sekiro", "wo long", "ronin", "shadows", "samurai",
+                    "three kingdoms", "jade empire" }.Any(n.Contains)) return TranslationStyle.eastern;
+        // FF VII là bối cảnh đô thị hiện đại, khác các bản Final Fantasy trung cổ.
+        if (new[] { "final fantasy vii", "final fantasy 7", "ff7", "ffvii" }.Any(n.Contains)) return TranslationStyle.modern;
         if (new[] { "final fantasy", "ff16", "ffxvi", "witcher", "elden", "dragon", "skyrim", "baldur", "dark souls", "zelda", "kingdom come", "lord of the rings" }.Any(n.Contains))
             return TranslationStyle.fantasy;
         return TranslationStyle.modern;
@@ -98,6 +106,7 @@ public static class Labels
         TranslationStyle.auto => "Tự động theo tên game",
         TranslationStyle.modern => "Hiện đại / đường phố",
         TranslationStyle.fantasy => "Kỳ ảo trung cổ (hiệp sĩ, lãnh chúa)",
+        TranslationStyle.eastern => "Cổ trang Á Đông (samurai, kiếm hiệp)",
         _ => "Thần thoại sử thi",
     };
     public static string Of(OverlayPosition p) => p switch

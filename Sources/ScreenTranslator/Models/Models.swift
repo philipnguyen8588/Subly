@@ -93,7 +93,7 @@ struct GlossaryEntry: Codable, Identifiable, Equatable {
 
 /// Giọng văn và cách xưng hô khi dịch phụ đề, chọn theo bối cảnh của game.
 enum TranslationStyle: String, Codable, CaseIterable, Identifiable {
-    case auto, modern, fantasy, myth
+    case auto, modern, fantasy, myth, eastern
     var id: String { rawValue }
     var label: String {
         switch self {
@@ -101,12 +101,22 @@ enum TranslationStyle: String, Codable, CaseIterable, Identifiable {
         case .modern: return "Hiện đại / đường phố"
         case .fantasy: return "Kỳ ảo trung cổ (hiệp sĩ, lãnh chúa)"
         case .myth: return "Thần thoại sử thi"
+        case .eastern: return "Cổ trang Á Đông (samurai, kiếm hiệp)"
         }
+    }
+    /// Phong cách khi chọn "Tự động": theo game mẫu cùng tên (danh sách trên server / đóng kèm app), không có thì đoán.
+    @MainActor static func resolveAuto(_ gameName: String) -> TranslationStyle {
+        if let s = GameCatalog.shared.game(named: gameName)?.translationStyle, s != .auto { return s }
+        return guess(gameName)
     }
     /// Đoán phong cách từ tên game; không nhận ra thì dùng hiện đại.
     static func guess(_ gameName: String) -> TranslationStyle {
         let n = gameName.lowercased()
         if ["god of war", "ragnar", "assassin's creed odyssey", "hades"].contains(where: n.contains) { return .myth }
+        if ["tsushima", "yōtei", "yotei", "wukong", "nioh", "onimusha", "sekiro", "wo long", "ronin", "shadows", "samurai",
+            "three kingdoms", "jade empire"].contains(where: n.contains) { return .eastern }
+        // FF VII là bối cảnh đô thị hiện đại, khác các bản Final Fantasy trung cổ.
+        if ["final fantasy vii", "final fantasy 7", "ff7", "ffvii"].contains(where: n.contains) { return .modern }
         if ["final fantasy", "ff16", "ffxvi", "witcher", "elden", "dragon", "skyrim", "baldur", "dark souls", "zelda", "kingdom come", "lord of the rings"].contains(where: n.contains) { return .fantasy }
         return .modern
     }

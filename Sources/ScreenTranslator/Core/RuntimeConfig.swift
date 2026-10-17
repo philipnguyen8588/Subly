@@ -8,6 +8,8 @@ enum RuntimeConfig {
     /// Địa chỉ gốc của server (không có "/" cuối).
     static var baseURL: String { String(decoding: decode(RuntimeConfigValues.a), as: UTF8.self) }
     static var endpoint: String { baseURL + "/v1/session" }
+    /// Server cho AI share và game mẫu: cờ --server khi test, không thì server nhúng sẵn; nil = bản không có server.
+    static var server: String? { AppSettings.shared.forceServer ?? (enabled ? baseURL : nil) }
     static var verifier: Data { Data(decode(RuntimeConfigValues.b)) }
 
     private static func decode(_ v: [UInt8]) -> [UInt8] {

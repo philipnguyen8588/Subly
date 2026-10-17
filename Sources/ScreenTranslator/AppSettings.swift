@@ -167,8 +167,8 @@ final class AppSettings: ObservableObject {
         set { var p = activeProfile; p.translationNote = newValue; activeProfile = p }
     }
     /// Phong cách thật sự dùng: "Tự động" thì đoán theo tên game.
-    var effectiveTranslationStyle: TranslationStyle {
-        translationStyle == .auto ? TranslationStyle.guess(activeProfile.name) : translationStyle
+    @MainActor var effectiveTranslationStyle: TranslationStyle {
+        translationStyle == .auto ? TranslationStyle.resolveAuto(activeProfile.name) : translationStyle
     }
     /// Thuật ngữ riêng của game đang chọn (tab Thuật ngữ ở cửa sổ chính).
     var glossary: [GlossaryEntry] {
@@ -212,9 +212,9 @@ final class AppSettings: ObservableObject {
                 created.append(Profile(name: "Mặc định", regions: old))
                 UserDefaults.standard.removeObject(forKey: "regions")
             }
-            // Lần đầu cài: tạo sẵn một profile cho mỗi game thông dụng (thuật ngữ đóng kèm app).
-            for g in GameGlossaries.bundled() where !created.contains(where: { $0.name.lowercased() == g.name.lowercased() }) {
-                created.append(Profile(name: g.name, glossary: g.entries))
+            // Lần đầu cài: tạo sẵn một profile cho mỗi game mẫu đóng kèm app (thuật ngữ, phong cách dịch…).
+            for g in GameCatalog.bundled() where !created.contains(where: { $0.name.lowercased() == g.name.lowercased() }) {
+                created.append(g.makeProfile())
             }
             if created.isEmpty { created = [Profile(name: "Mặc định")] }
             Log.info("Tạo \(created.count) profile lần đầu: \(created.map(\.name).joined(separator: ", "))")
@@ -391,8 +391,8 @@ final class AppSettings: ObservableObject {
         get { SecretStore.get("ai-share-token") ?? "" }
         set { objectWillChange.send(); SecretStore.set(newValue, name: "ai-share-token") }
     }
-    /// Cờ runtime (không lưu): --share-server <url> trỏ AI share tới server khác (test với server chạy trên máy).
-    var forceShareServer: String? = nil
+    /// Cờ runtime (không lưu): --server <url> dùng server khác cho AI share và game mẫu (test với server chạy trên máy).
+    var forceServer: String? = nil
 
     /// Model riêng cho từng việc, chọn ở Cài đặt → Dịch. Khoá "<việc>.<nhà cung cấp>" (ví dụ "summary.anthropic");
     /// không có hoặc trống = dùng model mặc định của nhà cung cấp đó ở Cài đặt → AI.

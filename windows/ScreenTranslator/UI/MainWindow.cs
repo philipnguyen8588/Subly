@@ -346,13 +346,13 @@ public sealed class ReconnectOverlay : Grid
     }
 }
 
-/// Tạo game mới: chọn một hoặc nhiều game mẫu (kèm thuật ngữ đóng kèm app), hoặc gõ tên để tạo game trống.
+/// Tạo game mới: chọn một hoặc nhiều game mẫu (danh sách trên server, kèm thuật ngữ và phong cách dịch), hoặc gõ tên để tạo game trống.
 /// Ô tên đồng thời là ô tìm trong danh sách game mẫu.
 public sealed class NewProfileDialog : Window
 {
     ProfileSource source = ProfileSource.external;
     readonly HashSet<string> picked = new(StringComparer.OrdinalIgnoreCase);
-    List<GameGlossaries.Game> samples = new();
+    List<GameCatalog.Game> samples = new();
     readonly TextBox name = new();
     readonly StackPanel sampleRows = Ui.V(2);
     readonly TextBlock countLabel = Ui.Text("", 11, true, Ui.Secondary, wrap: false);
@@ -371,11 +371,11 @@ public sealed class NewProfileDialog : Window
         return sb.ToString().Normalize(System.Text.NormalizationForm.FormC).ToLowerInvariant();
     }
 
-    bool IsAdded(GameGlossaries.Game g) =>
+    bool IsAdded(GameCatalog.Game g) =>
         AppSettings.shared.profiles.Any(p => p.name.Equals(g.name, StringComparison.OrdinalIgnoreCase));
 
     /// Tên gõ vào trùng đúng một game mẫu chưa có → thêm game mẫu đó (kèm thuật ngữ) thay vì tạo game trống.
-    GameGlossaries.Game? ExactSample()
+    GameCatalog.Game? ExactSample()
     {
         var q = Query;
         if (q.Length == 0) return null;
@@ -386,7 +386,7 @@ public sealed class NewProfileDialog : Window
     string ActionTitle()
     {
         if (picked.Count > 0) return $"Thêm {picked.Count} game";
-        if (ExactSample() is GameGlossaries.Game g) return $"Thêm “{g.name}”";
+        if (ExactSample() is GameCatalog.Game g) return $"Thêm “{g.name}”";
         var q = Query;
         return q.Length == 0 ? "Tạo game trống" : $"Tạo “{q}”";
     }
@@ -460,17 +460,23 @@ public sealed class NewProfileDialog : Window
         Content = body;
         Loaded += (_, _) =>
         {
-            samples = GameGlossaries.Bundled().OrderBy(g => g.name, StringComparer.CurrentCultureIgnoreCase).ToList();
+            samples = GameCatalog.Games;
             RefreshSamples();
             RefreshAction();
             name.Focus();
+            // Lấy danh sách mới nhất trên server (thêm / sửa game mẫu ở trang quản trị), có thay đổi thì vẽ lại.
+            _ = Dispatcher.InvokeAsync(async () =>
+            {
+                await GameCatalog.Refresh();
+                if (!ReferenceEquals(samples, GameCatalog.Games)) { samples = GameCatalog.Games; RefreshSamples(); RefreshAction(); }
+            });
         };
     }
 
     void RefreshSamples()
     {
         var q = Fold(Query);
-        var filtered = q.Length == 0 ? samples : samples.Where(g => Fold(g.name).Contains(q)).ToList();
+        var filtered = q.Length == 0 ? samples : samples.Where(g => Fold(g.name).Contains(q) || g.aliases.Any(a => Fold(a).Contains(q))).ToList();
         countLabel.Text = $"{filtered.Count}";
         clearPicked.Content = picked.Count > 0
             ? Ui.Btn($"Bỏ chọn ({picked.Count})", () => { picked.Clear(); RefreshSamples(); RefreshAction(); }, kind: Ui.Kind.ghost)
@@ -494,7 +500,7 @@ public sealed class NewProfileDialog : Window
         }
     }
 
-    UIElement SampleRow(GameGlossaries.Game g)
+    UIElement SampleRow(GameCatalog.Game g)
     {
         bool added = IsAdded(g);
         bool chk = picked.Contains(g.name);
@@ -535,9 +541,9 @@ public sealed class NewProfileDialog : Window
         {
             nav.AddSampleGames(samples.Where(g => picked.Contains(g.name) && !IsAdded(g)).ToList(), source);
         }
-        else if (ExactSample() is GameGlossaries.Game g)
+        else if (ExactSample() is GameCatalog.Game g)
         {
-            nav.AddSampleGames(new List<GameGlossaries.Game> { g }, source);
+            nav.AddSampleGames(new List<GameCatalog.Game> { g }, source);
         }
         else
         {
@@ -719,14 +725,14 @@ public sealed class GlossaryTab : DockPanel
     public static UIElement TranslationStyleBox()
     {
         var s = AppSettings.shared;
-        var guess = Labels.Of(TranslationStyles.Guess(s.activeProfile.name));
+        var guess = Labels.Of(TranslationStyles.ResolveAuto(s.activeProfile.name));
         var picker = Ui.Picker("", Enum.GetValues<TranslationStyle>().Select(x => (x, x == TranslationStyle.auto ? $"{Labels.Of(x)} (đang là: {guess})" : Labels.Of(x))),
             () => s.translationStyle, v => s.translationStyle = v, 320);
         var note = new TextBox { Text = s.translationNote, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Height = 140, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         note.TextChanged += (_, _) => { if (note.Text != s.translationNote) s.translationNote = note.Text; };
         return Ui.Card(Ui.V(8,
             Ui.H(10, Ui.Text("Phong cách dịch", 14, true, wrap: false), picker),
-            Ui.Caption("Quyết định giọng văn và cách xưng hô khi dịch: hiện đại (tôi – cậu, tao – mày), kỳ ảo trung cổ (tôi – ngài, ta – ngươi, Sir → ngài), thần thoại (ta – ngươi, cha – con)."),
+            Ui.Caption("Quyết định giọng văn và cách xưng hô khi dịch: hiện đại (tôi – cậu, tao – mày), kỳ ảo trung cổ (tôi – ngài, ta – ngươi, Sir → ngài), thần thoại (ta – ngươi, cha – con), cổ trang Á Đông (chúa công – thuộc hạ, sư phụ – đồ nhi, bần tăng)."),
             Ui.Text("Ghi chú cho AI dịch (tuỳ chọn)", weight: FontWeights.Medium),
             note,
             Ui.Caption("Ví dụ: “Clive và Jill xưng anh – em”, “Cid gọi Clive là cậu”. Gửi kèm mỗi câu dịch, nên viết ngắn.")), 12);
