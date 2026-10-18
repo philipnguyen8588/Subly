@@ -4,8 +4,8 @@
   "aliases": [],
   "style": "fantasy",
   "description": "",
-  "note": "",
-  "showsSpeakerNames": true,
+  "note": "Xưng hô (A → B: x/y = A xưng x, gọi B là y; ↔ = cả hai chiều):\nMelina, NPC thân thiện → Tarnished: tôi/ngài\nRanni, á thần, kẻ thù → Tarnished: ta/ngươi\nBlaidd, Iji, Seluvis → Ranni: tôi/tiểu thư Ranni",
+  "showsSpeakerNames": false,
   "speakerAbove": false,
   "speakers": [],
   "glossary": [

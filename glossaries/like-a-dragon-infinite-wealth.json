@@ -4,9 +4,9 @@
   "aliases": [],
   "style": "modern",
   "description": "",
-  "note": "",
+  "note": "Xưng hô (A → B: x/y = A xưng x, gọi B là y; ↔ = cả hai chiều):\nIchiban → Kiryu: tôi/anh; Kiryu → Ichiban: tôi/cậu\nIchiban, Nanba → nhau: tôi/cậu\nIchiban → Adachi: tôi/ông; Adachi → Ichiban: tôi/cậu\nSaeko, Tomizawa, Chitose → Ichiban: tôi/anh; Ichiban → Saeko, Chitose: tôi/cô; → Tomizawa: tôi/cậu\nIchiban, Zhao, Han → nhau: tôi/anh\nIchiban ↔ Akane: con/mẹ\nKẻ thù: tao/mày",
   "showsSpeakerNames": true,
-  "speakerAbove": false,
+  "speakerAbove": true,
   "speakers": [],
   "glossary": [
     {"group": "Nhân vật", "entries": [

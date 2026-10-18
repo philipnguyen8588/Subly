@@ -446,6 +446,57 @@ struct TranslationStyleBox: View {
     }
 }
 
+/// Nút "Cập nhật từ game mẫu" (đầu tab Thiết lập game): tải cấu hình mới nhất của game mẫu cùng tên trên server
+/// (phong cách dịch, ghi chú cho AI, thuật ngữ…) và gộp vào game đang chọn sau khi người dùng đồng ý.
+struct SampleUpdateButton: View {
+    @ObservedObject var settings = AppSettings.shared
+    @State private var updating = false
+    @State private var updateResult = ""
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if !updateResult.isEmpty {
+                Text(updateResult).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
+                    .frame(maxWidth: 320, alignment: .trailing).help(updateResult)
+            }
+            Button { updateFromSample() } label: {
+                Label(updating ? "Đang tải…" : "Cập nhật từ game mẫu", systemImage: "arrow.down.circle")
+            }
+            .appButton().disabled(updating)
+            .help("Tải cấu hình mới nhất của game mẫu cùng tên trên server: phong cách dịch, ghi chú cho AI, thuật ngữ")
+        }
+    }
+
+    /// Lấy danh sách game mẫu mới nhất trên server, tìm game mẫu cùng tên với game đang chọn, hỏi lại rồi gộp vào.
+    private func updateFromSample() {
+        updating = true; updateResult = ""
+        Task {
+            defer { updating = false }
+            let catalog = GameCatalog.shared
+            await catalog.refresh()
+            let current = settings.activeProfile
+            guard let sample = catalog.game(named: current.name) else {
+                updateResult = "Không có game mẫu nào tên “\(current.name)” (đổi tên game cho trùng tên game mẫu để cập nhật được)."
+                return
+            }
+            let (merged, changes) = sample.merged(into: current)
+            guard !changes.isEmpty else { updateResult = "Đã giống game mẫu “\(sample.name)”, không có gì mới."; return }
+            let a = NSAlert()
+            a.messageText = "Cập nhật “\(current.name)” theo game mẫu?"
+            a.informativeText = changes.map { "• " + $0 }.joined(separator: "\n")
+                + "\n\nThuật ngữ và tên nhân vật bạn tự thêm vẫn được giữ."
+            a.addButton(withTitle: "Cập nhật")
+            a.addButton(withTitle: "Huỷ")
+            guard a.runModal() == .alertFirstButtonReturn else { return }
+            // Game đang chọn có thể đã đổi trong lúc hỏi: chỉ ghi khi vẫn là game đó.
+            guard settings.activeProfile.id == current.id else { return }
+            settings.activeProfile = merged
+            updateResult = "Đã cập nhật: " + changes.joined(separator: "; ")
+            Log.info("Cập nhật game “\(current.name)” từ game mẫu: \(changes.joined(separator: "; "))")
+        }
+    }
+}
+
 // MARK: - Thiết lập game → Tên người nói
 
 struct SpeakersTab: View {

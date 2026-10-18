@@ -4,8 +4,8 @@
   "aliases": ["GTA V", "GTA 5"],
   "style": "modern",
   "description": "Phạm vi: cốt truyện chính (story mode) của GTA V; không gồm nội dung riêng của GTA Online",
-  "note": "",
-  "showsSpeakerNames": true,
+  "note": "Xưng hô (A → B: x/y = A xưng x, gọi B là y; ↔ = cả hai chiều):\nMichael, Trevor → nhau: tao/mày\nMichael → Franklin: tôi/nhóc; Trevor → Franklin: tao/nhóc; Franklin → họ: tôi/ông\nMichael ↔ Amanda: anh/em\nMichael ↔ Jimmy, Tracey: bố/con\nFranklin, Lamar → nhau: tao/mày\nLester, Michael → nhau: tôi/anh\nKẻ thù: tao/mày",
+  "showsSpeakerNames": false,
   "speakerAbove": false,
   "speakers": [],
   "glossary": [

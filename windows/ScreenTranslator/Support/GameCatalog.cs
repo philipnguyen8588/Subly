@@ -63,6 +63,45 @@ public static class GameCatalog
             }
         }
 
+        /// Gộp phần mới của game mẫu vào một game đã tạo: phong cách dịch, ghi chú cho AI, cài đặt tên người nói lấy theo
+        /// game mẫu; thuật ngữ mới được thêm, thuật ngữ trùng lấy bản dịch của game mẫu; thuật ngữ và tên nhân vật người dùng
+        /// tự thêm vẫn giữ. Trả về game sau khi gộp và danh sách thay đổi (rỗng = đã giống game mẫu).
+        public (Profile profile, List<string> changes) MergedInto(Profile old)
+        {
+            var p = old.Clone();
+            var changes = new List<string>();
+            if (translationStyle != TranslationStyle.auto && p.translationStyle != translationStyle)
+            {
+                changes.Add($"Phong cách dịch: {Labels.Of(p.translationStyle)} → {Labels.Of(translationStyle)}");
+                p.translationStyle = translationStyle;
+            }
+            var newNote = note.Trim();
+            if (newNote.Length > 0 && p.translationNote.Trim() != newNote)
+            {
+                changes.Add(p.translationNote.Trim().Length == 0 ? "Thêm ghi chú cho AI dịch (quan hệ và xưng hô giữa các nhân vật)"
+                                                                 : "Thay ghi chú cho AI dịch bằng bản mới (ghi chú bạn tự viết sẽ mất)");
+                p.translationNote = newNote;
+            }
+            if (p.showsSpeakerNames != showsSpeakerNames || p.speakerAbove != speakerAbove)
+            {
+                changes.Add("Cài đặt tên người nói theo game mẫu");
+                p.showsSpeakerNames = showsSpeakerNames;
+                p.speakerAbove = speakerAbove;
+            }
+            var newSpeakers = speakers.Where(s => !p.speakers.Any(x => x.Equals(s, StringComparison.OrdinalIgnoreCase))).ToList();
+            if (newSpeakers.Count > 0) { changes.Add($"Thêm {newSpeakers.Count} tên nhân vật"); p.speakers.AddRange(newSpeakers); }
+            int added = 0, changed = 0;
+            foreach (var e in entries)
+            {
+                var cur = p.glossary.FirstOrDefault(x => x.term.Equals(e.term, StringComparison.OrdinalIgnoreCase));
+                if (cur == null) { p.glossary.Add(e); added++; }
+                else if (cur.translation != e.translation || cur.keepAsIs != e.keepAsIs) { cur.translation = e.translation; cur.keepAsIs = e.keepAsIs; changed++; }
+            }
+            if (added > 0) changes.Add($"Thêm {added} thuật ngữ");
+            if (changed > 0) changes.Add($"Cập nhật bản dịch của {changed} thuật ngữ");
+            return (p, changes);
+        }
+
         /// Game mới tạo từ game mẫu: lấy luôn thuật ngữ, phong cách dịch, ghi chú cho AI và cài đặt tên người nói.
         public Profile MakeProfile(ProfileSource source = ProfileSource.external) => new()
         {

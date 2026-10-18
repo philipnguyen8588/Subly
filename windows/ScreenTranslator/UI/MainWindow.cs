@@ -564,7 +564,14 @@ public sealed class GameSetupView : DockPanel
     public GameSetupView()
     {
         LastChildFill = true;
-        var bar = new Border { Height = 52, Padding = new Thickness(14, 0, 14, 0), BorderBrush = Ui.Res("CardStroke"), BorderThickness = new Thickness(0, 0, 0, 1), Child = seg };
+        var update = Ui.Btn(Ui.IconLabel("\uE896", "Cập nhật từ game mẫu"), UpdateFromSample,
+            tip: "Tải cấu hình mới nhất của game mẫu cùng tên trên server: phong cách dịch, ghi chú cho AI, thuật ngữ");
+        update.VerticalAlignment = VerticalAlignment.Center;
+        var barRow = new DockPanel();
+        DockPanel.SetDock(update, Dock.Right);
+        barRow.Children.Add(update);
+        barRow.Children.Add(seg);
+        var bar = new Border { Height = 52, Padding = new Thickness(14, 0, 14, 0), BorderBrush = Ui.Res("CardStroke"), BorderThickness = new Thickness(0, 0, 0, 1), Child = barRow };
         seg.VerticalAlignment = VerticalAlignment.Center;
         SetDock(bar, Dock.Top);
         Children.Add(bar);
@@ -603,6 +610,36 @@ public sealed class GameSetupView : DockPanel
             "speakers" => speakers ??= new SpeakersTab(),
             _ => glossary ??= new GlossaryTab(),
         };
+    }
+
+    /// Lấy danh sách game mẫu mới nhất trên server, tìm game mẫu cùng tên với game đang chọn, hỏi lại rồi gộp vào.
+    async void UpdateFromSample()
+    {
+        var s = AppSettings.shared;
+        await GameCatalog.Refresh();
+        var current = s.activeProfile;
+        if (GameCatalog.Named(current.name) is not GameCatalog.Game sample)
+        {
+            MessageBox.Show($"Không có game mẫu nào tên “{current.name}”. Đổi tên game cho trùng tên game mẫu để cập nhật được.",
+                "Cập nhật từ game mẫu", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        var (merged, changes) = sample.MergedInto(current);
+        if (changes.Count == 0)
+        {
+            MessageBox.Show($"Đã giống game mẫu “{sample.name}”, không có gì mới.", "Cập nhật từ game mẫu",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        var ok = MessageBox.Show(string.Join("\n", changes.Select(c => "• " + c)) + "\n\nThuật ngữ và tên nhân vật bạn tự thêm vẫn được giữ.",
+            $"Cập nhật “{current.name}” theo game mẫu?", MessageBoxButton.OKCancel, MessageBoxImage.Question);
+        // Game đang chọn có thể đã đổi trong lúc hỏi: chỉ ghi khi vẫn là game đó.
+        if (ok != MessageBoxResult.OK || s.activeProfile.id != current.id) return;
+        s.activeProfile = merged;
+        Log.Info($"Cập nhật game “{current.name}” từ game mẫu: {string.Join("; ", changes)}");
+        // Vẽ lại các mục để thấy thuật ngữ / tên người nói mới.
+        speakers = null; glossary = null;
+        Show(s.Get("gameSetupPart", "glossary"));
     }
 }
 

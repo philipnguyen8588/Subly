@@ -4,8 +4,8 @@
   "aliases": [],
   "style": "eastern",
   "description": "",
-  "note": "",
-  "showsSpeakerNames": true,
+  "note": "Xưng hô (A → B: x/y = A xưng x, gọi B là y; ↔ = cả hai chiều):\nLão Hầu, yêu quái, kẻ thù → Thiên Mệnh Nhân: ta/ngươi\nBát Giới → Thiên Mệnh Nhân: lão Trư/ngươi\nBát Giới → Ngộ Không: đệ/sư huynh\nNgưu Ma Vương ↔ Ngộ Không: đại ca/hiền đệ\nThần, Phật → người dưới: ta/ngươi; người dưới → họ: đệ tử/ngài",
+  "showsSpeakerNames": false,
   "speakerAbove": false,
   "speakers": [],
   "glossary": [

@@ -1,10 +1,10 @@
 {
   "id": "final-fantasy-16",
   "name": "Final Fantasy XVI",
-  "aliases": [],
+  "aliases": ["Final Fantasy 16"],
   "style": "fantasy",
   "description": "",
-  "note": "",
+  "note": "Xưng hô (A → B: x/y = A xưng x, gọi B là y; ↔ = cả hai chiều):\nClive ↔ Joshua: anh/em\nClive ↔ Jill: anh/em\nClive ↔ Byron: cháu/chú\nCid → Clive: tôi/cậu; Clive → Cid: tôi/anh\nCid ↔ Mid: cha/con\nGav, Otto, Tarja → Clive: tôi/cậu\nBenedikta, Hugo, Barnabas, kẻ thù → Clive: ta/ngươi",
   "showsSpeakerNames": true,
   "speakerAbove": false,
   "speakers": [],

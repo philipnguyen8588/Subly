@@ -4,9 +4,9 @@
   "aliases": [],
   "style": "modern",
   "description": "",
-  "note": "",
+  "note": "Xưng hô (A → B: x/y = A xưng x, gọi B là y; ↔ = cả hai chiều):\nCloud, Tifa → nhau: tớ/cậu\nCloud → Aerith: tôi/cô; Aerith → Cloud: tôi/anh\nBarret → Cloud: tôi/cậu (gắt: tao/mày); Cloud → Barret: tôi/ông\nYuffie → mọi người: em/anh, chị\nCait Sith, Red XIII → Cloud: tôi/cậu\nSephiroth → Cloud: ta/ngươi\nTurks, lính Shinra → nhóm Cloud: tao/mày",
   "showsSpeakerNames": true,
-  "speakerAbove": false,
+  "speakerAbove": true,
   "speakers": [],
   "glossary": [
     {"group": "Nhân vật", "entries": [

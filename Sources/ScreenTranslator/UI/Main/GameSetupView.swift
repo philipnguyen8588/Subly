@@ -21,6 +21,7 @@ struct GameSetupView: View {
                 }
                 .pickerStyle(.segmented).labelsHidden().fixedSize().controlSize(.large)
                 Spacer()
+                SampleUpdateButton()
             }
             .padding(.horizontal, 14).frame(height: 52)
             Divider()

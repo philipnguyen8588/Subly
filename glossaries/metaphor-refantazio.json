@@ -4,9 +4,9 @@
   "aliases": [],
   "style": "fantasy",
   "description": "",
-  "note": "",
+  "note": "Xưng hô (A → B: x/y = A xưng x, gọi B là y; ↔ = cả hai chiều):\nĐồng đội → nhân vật chính: tôi/cậu (hoặc Đội trưởng)\nNhân vật chính → Gallica: tôi/cô; → Strohl: tôi/anh; → Hulkenberg: tôi/chị; → Heismay: tôi/ông\nThường dân → quý tộc, giáo sĩ: tôi/ngài; → Hoàng tử: tôi/điện hạ\nLouis, kẻ thù → nhân vật chính: ta/ngươi",
   "showsSpeakerNames": true,
-  "speakerAbove": false,
+  "speakerAbove": true,
   "speakers": [],
   "glossary": [
     {"group": "Nhân vật đồng hành", "entries": [

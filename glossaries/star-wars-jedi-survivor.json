@@ -4,8 +4,8 @@
   "aliases": [],
   "style": "modern",
   "description": "",
-  "note": "",
-  "showsSpeakerNames": true,
+  "note": "Xưng hô (A → B: x/y = A xưng x, gọi B là y; ↔ = cả hai chiều):\nCere ↔ Cal: chị/em\nGreez → Cal: tôi/cậu (\"kid\" → nhóc); Cal → Greez: tôi/anh\nCal ↔ Merrin: anh/em\nBode → Cal: tôi/cậu; Cal → Bode: tôi/anh\nBode ↔ Kata: bố/con\nCal, Dagan, Rayvis, Vader, kẻ thù → nhau: ta/ngươi",
+  "showsSpeakerNames": false,
   "speakerAbove": false,
   "speakers": [],
   "glossary": [

@@ -66,6 +66,50 @@ final class GameCatalog: ObservableObject {
             return p
         }
 
+        /// Gộp phần mới của game mẫu vào một game đã tạo: phong cách dịch, ghi chú cho AI, cài đặt tên người nói lấy theo
+        /// game mẫu; thuật ngữ mới được thêm, thuật ngữ trùng lấy bản dịch của game mẫu; thuật ngữ và tên nhân vật người dùng
+        /// tự thêm vẫn giữ. Trả về game sau khi gộp và danh sách thay đổi (rỗng = đã giống game mẫu).
+        func merged(into old: Profile) -> (profile: Profile, changes: [String]) {
+            var p = old
+            var changes: [String] = []
+            if translationStyle != .auto, p.translationStyle != translationStyle {
+                changes.append("Phong cách dịch: \(p.translationStyle.label) → \(translationStyle.label)")
+                p.translationStyle = translationStyle
+            }
+            let newNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !newNote.isEmpty, p.translationNote.trimmingCharacters(in: .whitespacesAndNewlines) != newNote {
+                changes.append(p.translationNote.isEmpty ? "Thêm ghi chú cho AI dịch (quan hệ và xưng hô giữa các nhân vật)"
+                                                         : "Thay ghi chú cho AI dịch bằng bản mới (ghi chú bạn tự viết sẽ mất)")
+                p.translationNote = newNote
+            }
+            if p.showsSpeakerNames != showsSpeakerNames || p.speakerAbove != speakerAbove {
+                changes.append("Cài đặt tên người nói theo game mẫu")
+                p.showsSpeakerNames = showsSpeakerNames
+                p.speakerAbove = speakerAbove
+            }
+            let newSpeakers = speakers.filter { s in !p.speakers.contains { $0.lowercased() == s.lowercased() } }
+            if !newSpeakers.isEmpty {
+                changes.append("Thêm \(newSpeakers.count) tên nhân vật")
+                p.speakers += newSpeakers
+            }
+            var added = 0, changed = 0
+            for e in entries {
+                if let i = p.glossary.firstIndex(where: { $0.term.lowercased() == e.term.lowercased() }) {
+                    if p.glossary[i].translation != e.translation || p.glossary[i].keepAsIs != e.keepAsIs {
+                        p.glossary[i].translation = e.translation
+                        p.glossary[i].keepAsIs = e.keepAsIs
+                        changed += 1
+                    }
+                } else {
+                    p.glossary.append(e)
+                    added += 1
+                }
+            }
+            if added > 0 { changes.append("Thêm \(added) thuật ngữ") }
+            if changed > 0 { changes.append("Cập nhật bản dịch của \(changed) thuật ngữ") }
+            return (p, changes)
+        }
+
         func matches(_ query: String) -> Bool {
             ([name] + aliases).contains { $0.localizedStandardContains(query) }
         }

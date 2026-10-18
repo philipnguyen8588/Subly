@@ -4,9 +4,9 @@
   "aliases": ["Way of the Sword", "Onimusha"],
   "style": "eastern",
   "description": "Trạng thái game và nguồn: đã phát hành 04/09/2026 trên PS5 - Xbox Series X|S - PC - Switch 2; dữ liệu từ Capcom - Wikipedia - danh sách nhiệm vụ và boss của các trang hướng dẫn uy tín (KeenGamer - AllThings.How)",
-  "note": "",
+  "note": "Xưng hô (A → B: x/y = A xưng x, gọi B là y; ↔ = cả hai chiều):\nMusashi tự xưng ta\nTakamura → Musashi: ta/ngươi; Musashi → Takamura: ta/lão (kính trọng: sư phụ)\nOkuni → Musashi: muội/huynh; Musashi → Okuni: ta/cô\nMusashi, Oni trong găng tay, Ganryu, Seijuro, kẻ thù → nhau: ta/ngươi",
   "showsSpeakerNames": true,
-  "speakerAbove": false,
+  "speakerAbove": true,
   "speakers": [],
   "glossary": [
     {"group": "Tên game", "entries": [
