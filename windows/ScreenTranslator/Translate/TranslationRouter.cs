@@ -82,6 +82,9 @@ public sealed class TranslationRouter : INotifyPropertyChanged
         openai.subtitlePrompt = () => gemini.subtitleSystemPrompt;
         openai.analysisPrompt = () => gemini.analysisSystemPrompt;
         anthropic.subtitlePrompt = () => gemini.subtitleSystemPrompt;
+        openai.lineHint = t => gemini.LineHint(t);
+        anthropic.lineHint = t => gemini.LineHint(t);
+        custom.lineHint = t => gemini.LineHint(t);
         anthropic.analysisPrompt = () => gemini.analysisSystemPrompt;
         custom.subtitlePrompt = () => gemini.subtitleSystemPrompt;
         custom.analysisPrompt = () => gemini.analysisSystemPrompt;
@@ -143,11 +146,13 @@ public sealed class TranslationRouter : INotifyPropertyChanged
         {
             case OpenAIBackend o:
                 o.subtitlePrompt = () => gemini.subtitleSystemPrompt;
+                o.lineHint = t => gemini.LineHint(t);
                 o.analysisPrompt = () => gemini.analysisSystemPrompt;
                 o.timeout = (info.provider == "custom" ? settings.customTimeout : settings.openAITimeout) + 1;
                 break;
             case AnthropicBackend a:
                 a.subtitlePrompt = () => gemini.subtitleSystemPrompt;
+                a.lineHint = t => gemini.LineHint(t);
                 a.analysisPrompt = () => gemini.analysisSystemPrompt;
                 a.timeout = settings.anthropicTimeout + 1;
                 break;

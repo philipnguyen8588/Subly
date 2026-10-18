@@ -92,6 +92,10 @@ final class TranslationRouter: ObservableObject {
         openai.subtitlePrompt = { [gemini] in gemini.subtitleSystemPrompt }
         openai.analysisPrompt = { [gemini] in gemini.analysisSystemPrompt }
         anthropic.subtitlePrompt = { [gemini] in gemini.subtitleSystemPrompt }
+        ai.lineHint = { [gemini] in gemini.lineHint($0) }
+        openai.lineHint = { [gemini] in gemini.lineHint($0) }
+        anthropic.lineHint = { [gemini] in gemini.lineHint($0) }
+        custom.lineHint = { [gemini] in gemini.lineHint($0) }
         anthropic.analysisPrompt = { [gemini] in gemini.analysisSystemPrompt }
         custom.subtitlePrompt = { [gemini] in gemini.subtitleSystemPrompt }
         custom.analysisPrompt = { [gemini] in gemini.analysisSystemPrompt }
@@ -156,10 +160,12 @@ final class TranslationRouter: ObservableObject {
         switch shared {
         case let o as OpenAIBackend:
             o.subtitlePrompt = { [gemini] in gemini.subtitleSystemPrompt }
+            o.lineHint = { [gemini] in gemini.lineHint($0) }
             o.analysisPrompt = { [gemini] in gemini.analysisSystemPrompt }
             o.timeout = (info.provider == "custom" ? settings.customTimeout : settings.openAITimeout) + 1
         case let a as AnthropicBackend:
             a.subtitlePrompt = { [gemini] in gemini.subtitleSystemPrompt }
+            a.lineHint = { [gemini] in gemini.lineHint($0) }
             a.analysisPrompt = { [gemini] in gemini.analysisSystemPrompt }
             a.timeout = settings.anthropicTimeout + 1
         case let g as GeminiBackend:

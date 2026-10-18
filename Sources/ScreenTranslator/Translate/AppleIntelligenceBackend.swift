@@ -35,6 +35,8 @@ final class AppleIntelligenceBackend: TranslationBackend {
     var timeout: TimeInterval = 3
     /// Router cung cấp system prompt (ngôn ngữ đích, glossary, tên nhân vật) dùng chung với Gemini.
     var instructions: () -> String = { "Translate the English subtitle into natural Vietnamese. Output only the translation." }
+    /// Gợi ý xưng hô đặt ngay trước câu cần dịch (router gán, xem GeminiBackend.lineHint).
+    var lineHint: (String) -> String = { _ in "" }
     var summaryInstructions: () -> String = { "" }
 
     var status: Status {
@@ -67,7 +69,7 @@ final class AppleIntelligenceBackend: TranslationBackend {
             for p in ctx { prompt += "EN: \(p.source)\nTranslated: \(p.target)\n" }
             prompt += "\n"
         }
-        prompt += "Translate this new line:\n" + text
+        prompt += lineHint(text) + "Translate this new line:\n" + text
         let out = try await respond(system: instructions(), prompt: prompt, timeout: timeout)
         // Model nhỏ đôi khi lặp lại nhãn → cắt.
         var cleaned = TextUtils.normalize(out)
