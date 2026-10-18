@@ -71,6 +71,15 @@ func openStore(path string) (*Store, error) {
 	if _, err := db.Exec(gamesTable); err != nil {
 		return nil, err
 	}
+	// Tài khoản và bản sao lưu (xem backup.go).
+	for _, q := range strings.Split(accountTables, ";") {
+		if strings.TrimSpace(q) == "" {
+			continue
+		}
+		if _, err := db.Exec(q); err != nil {
+			return nil, err
+		}
+	}
 	return &Store{db: db}, nil
 }
 

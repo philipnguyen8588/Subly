@@ -12,7 +12,7 @@ using System.Windows.Media.Imaging;
 
 namespace ScreenTranslator;
 
-/// Cửa sổ Cài đặt: 9 mục ở thanh bên (Dịch, AI, Capture & OCR, Voice, Overlay, Thuật ngữ chung, Game, Phím tắt, Điện thoại / Web).
+/// Cửa sổ Cài đặt: 10 mục ở thanh bên (Dịch, AI, Capture & OCR, Voice, Overlay, Thuật ngữ chung, Game, Phím tắt, Điện thoại / Web, Sao lưu).
 public sealed class SettingsWindow : Window
 {
     readonly ListBox sidebar = new() { Width = 200, BorderThickness = new Thickness(0), Background = Brushes.Transparent, Padding = new Thickness(6) };
@@ -21,6 +21,7 @@ public sealed class SettingsWindow : Window
     {
         ("translate", "Dịch", ""), ("ai", "AI", "\uE99A"), ("capture", "Capture & OCR", ""), ("voice", "Voice", ""), ("overlay", "Overlay", ""),
         ("glossary", "Thuật ngữ chung", ""), ("profile", "Game", ""), ("hotkeys", "Phím tắt", ""), ("web", "Điện thoại / Web", ""),
+        ("backup", "Sao lưu", "\uE753"),
     };
     AppSettings S => AppSettings.shared;
 
@@ -47,7 +48,10 @@ public sealed class SettingsWindow : Window
         // Tiến độ tải giọng / trạng thái máy chủ web → vẽ lại trang đang mở.
         VoiceCatalog.shared.PropertyChanged += (_, _) => Dispatcher.BeginInvoke(() => { if (IsVisible && CurrentKey == "voice") ShowPage(); });
         WebServer.shared.PropertyChanged += (_, _) => Dispatcher.BeginInvoke(() => { if (IsVisible && CurrentKey == "web") ShowPage(); });
+        Action onBackup = () => { if (IsVisible && CurrentKey == "backup") ShowPage(); };
+        BackupModel.Changed += onBackup;
         Closing += (_, _) => saveGlossary?.Invoke();
+        Closed += (_, _) => BackupModel.Changed -= onBackup;
     }
 
     Action? saveGlossary;
@@ -66,7 +70,7 @@ public sealed class SettingsWindow : Window
         UIElement body = key switch
         {
             "translate" => Translate(), "ai" => AI(), "capture" => Capture(), "voice" => Voice(), "overlay" => Overlay(),
-            "glossary" => Glossary(), "profile" => Profiles(), "hotkeys" => Hotkeys(), _ => Web(),
+            "glossary" => Glossary(), "profile" => Profiles(), "hotkeys" => Hotkeys(), "backup" => Backup(), _ => Web(),
         };
         if (body is FrameworkElement fe) fe.Margin = new Thickness(20, 16, 20, 16);
         page.Content = key == "glossary" ? body : Ui.Scroll(body);
@@ -758,6 +762,91 @@ public sealed class SettingsWindow : Window
             else v.Children.Add(Ui.Section("Mở trên điện thoại", Ui.Text("Máy tính chưa nối mạng nội bộ nào.", color: Ui.Orange)));
         }
         return v;
+    }
+
+    // MARK: Sao lưu
+
+    string backupUser = "";
+
+    /// Cài đặt → Sao lưu: đăng nhập tài khoản, sao lưu dữ liệu máy này, khôi phục từ bản của máy bất kỳ.
+    UIElement Backup()
+    {
+        var v = Ui.V(14);
+        if (!BackupClient.Available)
+        {
+            v.Children.Add(Ui.Section("Sao lưu", Ui.Text("Bản app này không có server sao lưu.", color: Ui.Secondary)));
+            return v;
+        }
+        var busy = BackupModel.busy;
+        UIElement? busyRow = busy == null ? null : Ui.H(8,
+            BackupModel.progress is double p ? new ProgressBar { Value = p, Maximum = 1, Width = 140, Height = 6 } : new ProgressBar { IsIndeterminate = true, Width = 80, Height = 6 },
+            Ui.Text(busy, color: Ui.Secondary, wrap: false));
+        if (!BackupModel.LoggedIn)
+        {
+            var user = new TextBox { Text = backupUser, Width = 260 };
+            var pass = new PasswordBox { Width = 260 };
+            void DoLogin()
+            {
+                backupUser = user.Text.Trim();
+                if (backupUser.Length == 0 || pass.Password.Length == 0 || BackupModel.busy != null) return;
+                _ = BackupModel.Login(backupUser, pass.Password);
+            }
+            pass.KeyDown += (_, e) => { if (e.Key == Key.Enter) DoLogin(); };
+            var login = Ui.Btn("Đăng nhập", DoLogin, primary: true);
+            login.IsEnabled = busy == null;
+            v.Children.Add(Ui.Section("Tài khoản sao lưu",
+                Ui.H(8, Ui.Text("Tên đăng nhập").Also(t => t.Width = 110), user),
+                Ui.H(8, Ui.Text("Mật khẩu").Also(t => t.Width = 110), pass),
+                Ui.H(10, login, busyRow),
+                Ui.Caption("Sao lưu toàn bộ dữ liệu (cài đặt, game, thuật ngữ, nhân vật, phụ đề đã dịch, cốt truyện, ảnh dịch màn hình, API key, PS5) lên server để đổi máy không phải cài lại từ đầu. Tài khoản do admin cấp."),
+                Ui.SupportText(11.5)));
+        }
+        else
+        {
+            var mine = BackupModel.backups.FirstOrDefault(b => b.machine == BackupModel.ThisMachine);
+            var backupBtn = Ui.Btn(Ui.IconLabel("", "Sao lưu máy này lên server"), () => _ = BackupModel.BackupNow(), primary: true);
+            backupBtn.IsEnabled = busy == null;
+            var logout = Ui.Btn("Đăng xuất", () => _ = BackupModel.Logout());
+            logout.IsEnabled = busy == null;
+            v.Children.Add(Ui.Section("Tài khoản",
+                Ui.Row(Ui.H(8, Ui.Icon("", 15), Ui.Text(S.accountUser, bold: true)), logout),
+                Ui.H(10, backupBtn, busyRow),
+                Ui.Caption(mine != null ? $"Lần sao lưu cuối của máy này: {mine.Date:dd/MM/yyyy HH:mm} · {BackupModel.Size(mine.size)}"
+                    : BackupModel.loaded ? "Máy này chưa sao lưu lần nào." : ""),
+                Ui.Caption("Mỗi máy giữ một bản mới nhất trên server, sao lưu lại sẽ ghi đè. Giọng đọc AI đã tải không nằm trong bản sao lưu (tải lại ở Cài đặt → Voice).")));
+
+            var list = Ui.V(10);
+            if (BackupModel.backups.Count == 0)
+                list.Children.Add(Ui.Text(BackupModel.loaded ? "Chưa có bản sao lưu nào." : "Đang tải danh sách…", color: Ui.Secondary));
+            foreach (var b in BackupModel.backups)
+            {
+                var title = Ui.H(6, Ui.Text(b.name.Length > 0 ? b.name : "(không tên)", bold: true, wrap: false),
+                    b.machine == BackupModel.ThisMachine ? Ui.Chip("máy này", Ui.Tone.ok) : null);
+                var info = Ui.V(2, title, Ui.Caption($"{b.PlatformLabel} · IP {b.ip} · {b.Date:dd/MM/yyyy HH:mm} · {BackupModel.Size(b.size)}"));
+                var restore = Ui.Btn("Khôi phục", () => ConfirmRestore(b));
+                restore.IsEnabled = busy == null;
+                var del = Ui.InlineIconBtn("", () =>
+                {
+                    if (Ui.Confirm($"Xoá bản sao lưu của {b.name} khỏi server? Dữ liệu trên các máy không bị ảnh hưởng.", "Xoá bản sao lưu")) _ = BackupModel.Delete(b);
+                }, "Xoá bản sao lưu này trên server");
+                del.IsEnabled = busy == null;
+                list.Children.Add(Ui.Row(Ui.H(10, Ui.Icon(b.platform == "win" ? "" : "", 20, Ui.Secondary), info), restore, del));
+            }
+            var refresh = Ui.LinkBtn("Tải lại danh sách", () => _ = BackupModel.Refresh());
+            v.Children.Add(Ui.Section("Bản sao lưu trên server", list, refresh,
+                Ui.Caption("Khôi phục sẽ thay toàn bộ dữ liệu trên máy này bằng bản đã chọn (có thể là bản của máy khác, kể cả Mac) rồi khởi động lại app. Dữ liệu cũ được cất ở thư mục before-restore.")));
+            if (!BackupModel.loaded && busy == null) Dispatcher.BeginInvoke(() => _ = BackupModel.Refresh());
+        }
+        if (BackupModel.message is string msg)
+            v.Children.Add(Ui.Text(msg, color: BackupModel.isError ? Ui.Danger : Brushes.Green));
+        return v;
+    }
+
+    void ConfirmRestore(BackupInfo b)
+    {
+        var text = $"Toàn bộ dữ liệu trên máy này sẽ bị thay bằng bản sao lưu của {b.name} ({b.PlatformLabel}, {b.Date:dd/MM/yyyy HH:mm}). App sẽ khởi động lại.";
+        if (b.platform != "win") text += "\n\nBản này từ Mac: phím tắt và giọng đọc của máy này được giữ nguyên, các khung chụp màn hình (ngoài PS5) cần vẽ lại.";
+        if (Ui.Confirm(text, $"Khôi phục từ {b.name}?")) _ = BackupModel.Restore(b, App.Args);
     }
 
     static BitmapSource Qr(string text)

@@ -4,8 +4,7 @@ import Foundation
 /// Không dùng Keychain vì app ký ad-hoc đổi chữ ký mỗi lần build → Keychain hỏi quyền liên tục.
 enum SecretStore {
     private static var dir: URL {
-        let d = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("ScreenTranslator", isDirectory: true)
+        let d = AppPaths.root
         try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true,
                                                  attributes: [.posixPermissions: 0o700])
         return d

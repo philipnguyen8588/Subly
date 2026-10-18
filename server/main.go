@@ -42,6 +42,9 @@ type App struct {
 	shareLimit   *RateLimiter
 	aiClient     *http.Client
 	aiBase       map[string]string // chỉ dùng trong test: thay địa chỉ gốc của nhà cung cấp
+	accountLimit *RateLimiter      // đăng nhập tài khoản sao lưu, theo IP
+	backupDir    string            // $DATA_DIR/backups/<user id>/<máy>.zip
+	backupMax    int64             // dung lượng tối đa một bản sao lưu (byte)
 	now          func() time.Time
 }
 
@@ -125,6 +128,10 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	maxMB, _ := strconv.Atoi(env("BACKUP_MAX_MB", "90"))
+	if maxMB < 1 {
+		maxMB = 90
+	}
 	days, _ := strconv.Atoi(env("TICKET_DAYS", "7"))
 	if days < 1 {
 		days = 7
@@ -133,13 +140,16 @@ func main() {
 		store: store, key: key, ticketTTL: time.Duration(days) * 24 * time.Hour, adminPass: pass,
 		trustProxy: env("TRUST_PROXY", "1") == "1", secureCookie: env("INSECURE_COOKIE", "0") != "1",
 		tgToken: os.Getenv("TELEGRAM_TOKEN"), tgChat: os.Getenv("TELEGRAM_CHAT_ID"),
-		apiLimit:   NewRateLimiter(30, time.Minute),
-		loginLimit: NewRateLimiter(10, 15*time.Minute),
-		sessions:   store.Sessions(sessionTTL),
-		shares:     store.Shares(shareCipher(key)),
-		shareLimit: NewRateLimiter(120, time.Minute),
-		aiClient:   newAIClient(),
-		now:        time.Now,
+		apiLimit:     NewRateLimiter(30, time.Minute),
+		loginLimit:   NewRateLimiter(10, 15*time.Minute),
+		sessions:     store.Sessions(sessionTTL),
+		shares:       store.Shares(shareCipher(key)),
+		shareLimit:   NewRateLimiter(120, time.Minute),
+		aiClient:     newAIClient(),
+		now:          time.Now,
+		accountLimit: NewRateLimiter(20, 15*time.Minute),
+		backupDir:    filepath.Join(dataDir, "backups"),
+		backupMax:    int64(maxMB) << 20,
 	}
 	addr := env("LISTEN", ":8080")
 	srv := &http.Server{
@@ -165,6 +175,13 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("/v1/games", a.handleGames)
 	mux.HandleFunc("/v1/share/info", a.handleShareInfo)
 	mux.HandleFunc("/v1/ai/", a.handleAIProxy)
+	mux.HandleFunc("POST /v1/account/login", a.handleAccountLogin)
+	mux.HandleFunc("POST /v1/account/logout", a.handleAccountLogout)
+	mux.HandleFunc("GET /v1/backups", a.handleBackupList)
+	mux.HandleFunc("PUT /v1/backups/{machine}", a.handleBackupPut)
+	mux.HandleFunc("GET /v1/backups/{machine}", a.handleBackupGet)
+	mux.HandleFunc("DELETE /v1/backups/{machine}", a.handleBackupDelete)
+	mux.HandleFunc("/admin/accounts", a.handleAccountAction)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 	return securityHeaders(mux)
 }

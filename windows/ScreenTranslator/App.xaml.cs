@@ -12,6 +12,7 @@ public partial class App : Application
     static MainWindow? main;
     static SettingsWindow? settingsWindow;
     static string[] args = Array.Empty<string>();
+    public static string[] Args => args;
     // Khoá một bản chạy: giữ mutex suốt đời tiến trình; bản thứ hai thấy mutex đã có thì báo bản đầu hiện cửa sổ rồi thoát.
     static System.Threading.Mutex? singleInstance;
     const string SingleInstanceName = @"Local\Subly.SingleInstance";
@@ -122,6 +123,9 @@ public partial class App : Application
     {
         base.OnStartup(e);
         args = e.Args;
+        // Vừa bấm Khôi phục: chờ bản cũ thoát rồi thay dữ liệu trước khi bất kỳ phần nào đọc cài đặt hay mở DB.
+        BackupArchive.WaitForPreviousInstance(args);
+        BackupArchive.ApplyStagedIfAny();
         if (AlreadyRunning())
         {
             Log.Info("Subly đã chạy → đưa bản đó lên trước và thoát bản này.");
@@ -151,6 +155,7 @@ public partial class App : Application
         ShowMain();
         if (Has("--hidden") && main != null) main.WindowState = WindowState.Minimized;
         if (Has("--open-settings")) ShowSettings();
+        Delay(0.5, () => BackupArchive.AnnounceIfRestored(s.suppressAlerts || Has("--hidden")));
 
         // App luôn mở bình thường; việc kiểm tra máy chạy ngầm và chỉ chặn khi người dùng bấm Bắt đầu / Dịch màn hình.
         // Lần đầu (bản phát hành, chưa có email): hỏi email rồi mới bắt đầu kiểm tra, để máy đăng ký kèm email.
@@ -220,6 +225,9 @@ public partial class App : Application
     //   --quit-after <giây>  (tự thoát, dùng khi kiểm thử tự động)
     //   --story-interval <giây>   bật cốt truyện cho phiên này với chu kỳ ngắn (không lưu)
     //   --story-now <giây>        sau N giây thì cập nhật cốt truyện một lần (như bấm "Cập nhật ngay")
+    //   --data-dir <thư mục>      dùng thư mục dữ liệu riêng (test, không đụng dữ liệu thật)
+    //   --account-login user:pass  đăng nhập tài khoản sao lưu   --backup-now  sao lưu lên server
+    //   --restore-from <mã máy>   tải bản của máy đó về và khôi phục (không hỏi lại)   --machine-id <hex>  giả làm máy khác
     void HandleCommandLine()
     {
         var settings = AppSettings.shared;
@@ -398,6 +406,21 @@ public partial class App : Application
         }
         if (Arg("--story-now") is string sn && double.TryParse(sn, System.Globalization.NumberStyles.Float, inv, out var after))
             Delay(after, StoryTracker.shared.UpdateNow);
+        if (Has("--account-login") || Has("--backup-now") || Has("--restore-from"))
+        {
+            _ = Dispatcher.InvokeAsync(async () =>
+            {
+                if (Arg("--account-login") is string cred && cred.IndexOf(':') is int c && c > 0)
+                    await BackupModel.Login(cred[..c], cred[(c + 1)..]);
+                if (Has("--backup-now")) { var ok = await BackupModel.BackupNow(); Log.Info($"TEST-BACKUP {(ok ? "ok" : "lỗi")}"); }
+                if (Arg("--restore-from") is string rm)
+                {
+                    await BackupModel.Refresh();
+                    if (BackupModel.backups.FirstOrDefault(b => b.machine == rm) is BackupInfo b) await BackupModel.Restore(b, args);
+                    else Log.Warn($"TEST-RESTORE: không có bản của máy {rm}");
+                }
+            });
+        }
         if (Arg("--quit-after") is string qa && double.TryParse(qa, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var sec))
             Delay(sec, Quit);
     }
@@ -437,7 +460,7 @@ public partial class App : Application
             ShotViewer.Close();
         }
         ShowSettings();
-        foreach (var k in new[] { "translate", "ai", "capture", "voice", "overlay", "glossary", "profile", "hotkeys", "web" })
+        foreach (var k in new[] { "translate", "ai", "capture", "voice", "overlay", "glossary", "profile", "hotkeys", "web", "backup" })
         {
             settingsWindow!.Select(k);
             await Task.Delay(500);

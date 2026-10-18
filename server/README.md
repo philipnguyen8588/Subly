@@ -42,10 +42,25 @@ location /v1/ai/ {
 
 Cloudflare (gói miễn phí) vẫn cắt request quá 100 s, nên thực tế giới hạn là 100 s.
 
+Sao lưu dữ liệu app tải lên file zip vài chục MB, nên cần thêm một `location` nữa (mặc định nginx chỉ nhận body 1 MB):
+
+```nginx
+location /v1/backups {
+    client_max_body_size 100m;
+    proxy_request_buffering off;
+    proxy_read_timeout 600s;
+    proxy_send_timeout 600s;
+    # … proxy_pass và proxy_set_header giống location /
+}
+```
+
+Cloudflare gói miễn phí nhận request tối đa 100 MB, nên server mặc định chặn bản sao lưu lớn hơn 90 MB (đổi bằng
+`BACKUP_MAX_MB` trong `.env`).
+
 ## Sao lưu
 
-Toàn bộ dữ liệu nằm trong `data/`: `devices.db` là danh sách máy, `server.key` là khoá ký. Chỉ cần sao lưu thư mục
-này. Mất `server.key` thì mọi vé cũ vô hiệu: phải tạo khoá mới, build lại app với public key mới, và các máy phải tải
+Toàn bộ dữ liệu nằm trong `data/`: `devices.db` là danh sách máy (kèm tài khoản, AI share, game mẫu), `server.key` là
+khoá ký, `backups/<id tài khoản>/<mã máy>.zip` là bản sao lưu dữ liệu app của người dùng. Chỉ cần sao lưu thư mục này. Mất `server.key` thì mọi vé cũ vô hiệu: phải tạo khoá mới, build lại app với public key mới, và các máy phải tải
 bản app mới.
 
 ## Báo qua Telegram (tuỳ chọn)
@@ -87,6 +102,22 @@ Cách hoạt động:
   nginx bằng HTTP thường), hãy chuyển sang **"Full (strict)"** với origin certificate để key và nội dung không đi
   qua mạng ở dạng chữ thường.
 
+## Tài khoản sao lưu
+
+Tab **Tài khoản** trên trang quản trị. Người dùng dùng tài khoản này trong app (Cài đặt → Sao lưu) để đẩy toàn bộ dữ
+liệu app lên server, rồi khôi phục sang máy khác (kể cả Mac ↔ Windows) khi đổi máy.
+
+- **Tạo tài khoản**: tên đăng nhập (3–64 ký tự: chữ thường, số, `. _ @ -`, ví dụ email) và mật khẩu. Để trống mật khẩu
+  thì server tự tạo 12 ký tự và hiện **một lần** trên trang; gửi cho người dùng.
+- **Đổi mật khẩu**: các máy đang đăng nhập phải đăng nhập lại. **Khoá**: tài khoản không đăng nhập, sao lưu hay tải
+  được nữa cho tới khi **Mở khoá**. **Xoá**: xoá luôn mọi bản sao lưu của tài khoản.
+- Mỗi máy giữ đúng một bản (bản mới ghi đè). Trang hiện tên máy, nền tảng, IP, ngày giờ và dung lượng từng bản; có
+  nút xoá từng bản.
+- Bản sao lưu có kèm API key và thông tin PS5 của người dùng, **không mã hoá** (theo yêu cầu). Ai đọc được `data/` trên
+  VPS thì đọc được các key đó.
+- Mật khẩu lưu dạng PBKDF2-SHA256; token đăng nhập (`sbu_…`) chỉ lưu sha256. Đăng nhập sai bị giới hạn 20 lần / 15 phút
+  mỗi IP.
+
 ## Giới hạn cần biết
 
 - Khoá chạy ở phía máy người dùng nên không tuyệt đối: người rành có thể sửa file chạy để bỏ bước kiểm tra. Server
@@ -106,6 +137,18 @@ Trả về `{"c":0,"t":"<vé>"}` khi máy đã duyệt. Mọi trường hợp kh
 phút) đều trả `{"c":1}`.
 
 Vé có dạng `base64url(payload) + "." + base64url(chữ ký)`, với `payload = "v1|h|k|iat|exp"`.
+
+`POST /v1/account/login` với JSON `{username, password, device}` → `{"token":"sbu_…","username":"…"}`; sai trả 401,
+tài khoản bị khoá trả 403. `POST /v1/account/logout` thu hồi token đang gửi. Các API sau gửi `Authorization: Bearer
+sbu_…`, lỗi trả dạng `{"error":"…"}` (401 = phải đăng nhập lại):
+
+- `GET /v1/backups` → `{"username", "backups": [{machine, name, platform, appVersion, ip, size, sha256, created}]}`,
+  mới nhất trước.
+- `PUT /v1/backups/{mã máy}?name=&platform=mac|win&v=` với body là file zip: ghi đè bản của máy đó (413 khi quá lớn).
+- `GET /v1/backups/{mã máy}` tải file zip (header `X-Backup-SHA256`). `DELETE /v1/backups/{mã máy}` xoá.
+
+Định dạng file zip (cùng cho Mac và Windows): `manifest.json`, `settings.json`, `secrets/<tên>.txt`,
+`history.sqlite`, `shots/*.jpg` (xem `BackupArchive.swift` / `BackupArchive.cs`).
 
 `GET /v1/share/info` với `Authorization: Bearer <token>` trả `{"label","provider","models"}` của AI share.
 

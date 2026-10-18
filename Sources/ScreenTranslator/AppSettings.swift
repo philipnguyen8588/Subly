@@ -42,14 +42,14 @@ struct Stored<Value: Codable> {
         cache.lock.lock(); defer { cache.lock.unlock() }
         if ProcessInfo.processInfo.environment["NOCACHE_TMP"] == nil, let v = cache.value { return v }
         let v: Value
-        if let data = UserDefaults.standard.data(forKey: key), let d = try? JSONDecoder().decode(Value.self, from: data) { v = d }
+        if let data = AppPaths.defaults.data(forKey: key), let d = try? JSONDecoder().decode(Value.self, from: data) { v = d }
         else { v = defaultValue }
         cache.value = v
         return v
     }
     private func write(_ v: Value) {
         cache.lock.lock(); cache.value = v; cache.lock.unlock()
-        if let data = try? JSONEncoder().encode(v) { UserDefaults.standard.set(data, forKey: key) }
+        if let data = try? JSONEncoder().encode(v) { AppPaths.defaults.set(data, forKey: key) }
     }
 }
 
@@ -68,53 +68,53 @@ final class AppSettings: ObservableObject {
     private init() {
         migrateIfNeeded()
         // v2.1: tốc độ đọc mặc định 0.5 quá chậm → nâng lên 0.6 một lần cho người đã lưu giá trị cũ.
-        if !UserDefaults.standard.bool(forKey: "voiceRateBumped") {
+        if !AppPaths.defaults.bool(forKey: "voiceRateBumped") {
             if abs(voiceRate - 0.5) < 0.001 { voiceRate = 0.6 }
-            UserDefaults.standard.set(true, forKey: "voiceRateBumped")
+            AppPaths.defaults.set(true, forKey: "voiceRateBumped")
         }
         // v2.2: ngưỡng lọc trùng 0.9 quá chặt với biến thể OCR → 0.8 (một lần).
-        if !UserDefaults.standard.bool(forKey: "dedupLowered") {
+        if !AppPaths.defaults.bool(forKey: "dedupLowered") {
             if dedupSimilarity > 0.85 { dedupSimilarity = 0.8 }
-            UserDefaults.standard.set(true, forKey: "dedupLowered")
+            AppPaths.defaults.set(true, forKey: "dedupLowered")
         }
         // v2.1: nếu đang chọn giọng compact mà máy có giọng Enhanced/Premium → về "Mặc định" (tự chọn giọng tốt nhất).
-        if !UserDefaults.standard.bool(forKey: "voiceEnhancedMigrated") {
+        if !AppPaths.defaults.bool(forKey: "voiceEnhancedMigrated") {
             if voiceIdentifier.contains("compact"),
                let best = Speaker.bestVoice(for: targetLanguage), best.quality != .default {
                 voiceIdentifier = ""
             }
-            UserDefaults.standard.set(true, forKey: "voiceEnhancedMigrated")
+            AppPaths.defaults.set(true, forKey: "voiceEnhancedMigrated")
         }
         // v3.2: giọng "deepman3909" đổi cao độ nhiều giữa các câu (nghe như nhiều người) → chuyển sang Minh Quang nếu đã tải.
-        if !UserDefaults.standard.bool(forKey: "localVoiceStable") {
+        if !AppPaths.defaults.bool(forKey: "localVoiceStable") {
             if localVoiceID == "deepman3909", VoiceCatalog.isInstalled("minhquang") { localVoiceID = "minhquang" }
-            UserDefaults.standard.set(true, forKey: "localVoiceStable")
+            AppPaths.defaults.set(true, forKey: "localVoiceStable")
         }
         // v3.3: đọc hết từng câu theo thứ tự (không ngắt, không bỏ câu), nhanh thêm 10 % khi bị tồn.
-        if !UserDefaults.standard.bool(forKey: "readAllMigrated") {
+        if !AppPaths.defaults.bool(forKey: "readAllMigrated") {
             interruptSpeech = false
             queueMode = .fifo
-            UserDefaults.standard.set(true, forKey: "readAllMigrated")
+            AppPaths.defaults.set(true, forKey: "readAllMigrated")
         }
         // 10/2026: model Gemini 2.x không còn cho tài khoản mới → chuyển sang 3.5 flash lite (một lần).
-        if !UserDefaults.standard.bool(forKey: "gemini3Migrated") {
+        if !AppPaths.defaults.bool(forKey: "gemini3Migrated") {
             if geminiModel.hasPrefix("gemini-2") { geminiModel = "gemini-3.5-flash-lite" }
-            UserDefaults.standard.set(true, forKey: "gemini3Migrated")
+            AppPaths.defaults.set(true, forKey: "gemini3Migrated")
         }
         // v3.1: "Ưu tiên tốc độ" trở thành lựa chọn engine dịch.
-        if !UserDefaults.standard.bool(forKey: "engineMigrated") {
+        if !AppPaths.defaults.bool(forKey: "engineMigrated") {
             if legacyPreferSpeed { translationEngine = .appleTranslation }
-            UserDefaults.standard.set(true, forKey: "engineMigrated")
+            AppPaths.defaults.set(true, forKey: "engineMigrated")
         }
         // Tóm tắt có engine riêng: trước đây đi theo engine "Dịch màn hình" → giữ lựa chọn đó (một lần).
-        if !UserDefaults.standard.bool(forKey: "summaryEngineMigrated") {
+        if !AppPaths.defaults.bool(forKey: "summaryEngineMigrated") {
             switch screenEngine {
             case .gemini: summaryEngine = .gemini
             case .openAI: summaryEngine = .openAI
             case .appleIntelligence: summaryEngine = .appleIntelligence
             case .sameAsSubtitle, .appleTranslation, .anthropic, .custom, .shared: break
             }
-            UserDefaults.standard.set(true, forKey: "summaryEngineMigrated")
+            AppPaths.defaults.set(true, forKey: "summaryEngineMigrated")
         }
     }
 
@@ -207,10 +207,10 @@ final class AppSettings: ObservableObject {
         if profiles.isEmpty {
             var created: [Profile] = []
             // Dữ liệu v1 (key "regions") → giữ thành profile "Mặc định".
-            if let data = UserDefaults.standard.data(forKey: "regions"),
+            if let data = AppPaths.defaults.data(forKey: "regions"),
                let old = try? JSONDecoder().decode([Region].self, from: data) {
                 created.append(Profile(name: "Mặc định", regions: old))
-                UserDefaults.standard.removeObject(forKey: "regions")
+                AppPaths.defaults.removeObject(forKey: "regions")
             }
             // Lần đầu cài: tạo sẵn một profile cho mỗi game mẫu đóng kèm app (thuật ngữ, phong cách dịch…).
             for g in GameCatalog.bundled() where !created.contains(where: { $0.name.lowercased() == g.name.lowercased() }) {
@@ -247,6 +247,8 @@ final class AppSettings: ObservableObject {
     // MARK: Dịch
     /// Email người dùng tự nhập (gửi kèm lên server duyệt máy để chủ app biết máy của ai).
     @Stored("userEmail") var userEmail: String = ""
+    /// Tên đăng nhập tài khoản sao lưu (token nằm trong SecretStore "account-token"). Không đi theo bản sao lưu.
+    @Stored("accountUser") var accountUser: String = ""
     @Stored("targetLanguage") var targetLanguage: String = "vi"
     @Stored("geminiModel") var geminiModel: String = "gemini-3.5-flash-lite"
     @Stored("geminiBaseURL") var geminiBaseURL: String = "https://generativelanguage.googleapis.com/v1beta"

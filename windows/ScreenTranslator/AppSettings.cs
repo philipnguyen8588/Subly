@@ -118,6 +118,9 @@ public sealed class AppSettings : INotifyPropertyChanged
         catch (Exception e) { Log.Error($"Lưu settings lỗi: {e.Message}"); }
     }
 
+    /// Bản sao toàn bộ cài đặt (dùng cho sao lưu).
+    public JsonObject Snapshot() { lock (lk) return (JsonObject)store.DeepClone(); }
+
     /// Báo cho UI cập nhật lại mọi binding (sau khi đổi profile…).
     public void NotifyAll() => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(null));
 
@@ -282,6 +285,8 @@ public sealed class AppSettings : INotifyPropertyChanged
     // MARK: Dịch
     /// Email người dùng tự nhập (gửi kèm lên server duyệt máy để chủ app biết máy của ai).
     public string userEmail { get => Get("userEmail", ""); set => Set("userEmail", value); }
+    /// Tên đăng nhập tài khoản sao lưu (token nằm trong SecretStore "account-token"). Không đi theo bản sao lưu.
+    public string accountUser { get => Get("accountUser", ""); set => Set("accountUser", value); }
     public string targetLanguage { get => Get("targetLanguage", "vi"); set => Set("targetLanguage", value); }
     public string geminiModel { get => Get("geminiModel", "gemini-3.5-flash-lite"); set => Set("geminiModel", value); }
     public string geminiBaseURL { get => Get("geminiBaseURL", "https://generativelanguage.googleapis.com/v1beta"); set => Set("geminiBaseURL", value); }

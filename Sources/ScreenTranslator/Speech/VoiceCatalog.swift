@@ -29,10 +29,7 @@ final class VoiceCatalog: ObservableObject {
     ]
     nonisolated static let defaultVoiceID = "minhquang"
 
-    nonisolated static var dir: URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return base.appendingPathComponent("ScreenTranslator/voices", isDirectory: true)
-    }
+    nonisolated static var dir: URL { AppPaths.voices }
     nonisolated static func modelURL(_ id: String) -> URL { dir.appendingPathComponent("\(id).onnx") }
     nonisolated static var tokensURL: URL { dir.appendingPathComponent("tokens.txt") }
     nonisolated static var espeakURL: URL { dir.appendingPathComponent("espeak-ng-data", isDirectory: true) }

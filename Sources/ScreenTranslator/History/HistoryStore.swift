@@ -173,16 +173,12 @@ final class HistoryStore: ObservableObject {
     private let maxAnalyses = 300
     /// Số ảnh chụp "dịch màn hình" được giữ trên đĩa cho mỗi game.
     static let maxShots = 200
-    nonisolated static let shotsDir: URL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("ScreenTranslator/shots", isDirectory: true)
+    nonisolated static let shotsDir: URL = AppPaths.shots
     nonisolated static func shotURL(_ id: Int64) -> URL { shotsDir.appendingPathComponent("\(id).jpg") }
     private let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
     private init() {
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("ScreenTranslator", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let path = dir.appendingPathComponent("history.sqlite").path
+        let path = AppPaths.file("history.sqlite").path
         if sqlite3_open(path, &db) != SQLITE_OK {
             Log.error("SQLite open failed: \(String(cString: sqlite3_errmsg(db)))")
             sqlite3_close(db); db = nil
@@ -213,9 +209,9 @@ final class HistoryStore: ObservableObject {
         PRAGMA journal_mode=WAL;
         """)
         // Bản cũ lưu ảnh chụp màn hình kèm mỗi lần dịch → xoá một lần cho nhẹ file.
-        if !UserDefaults.standard.bool(forKey: "thumbnailsPurged") {
+        if !AppPaths.defaults.bool(forKey: "thumbnailsPurged") {
             exec("UPDATE analyses SET thumbnail = NULL; VACUUM;")
-            UserDefaults.standard.set(true, forKey: "thumbnailsPurged")
+            AppPaths.defaults.set(true, forKey: "thumbnailsPurged")
         }
         if !columns("story").contains("lore") { exec("ALTER TABLE story ADD COLUMN lore TEXT NOT NULL DEFAULT '[]'") }
         if !columns("history").contains("kind") { exec("ALTER TABLE history ADD COLUMN kind TEXT NOT NULL DEFAULT 'subtitle'") }
@@ -250,6 +246,16 @@ final class HistoryStore: ObservableObject {
         summaries = loadSummaries(profile: active)
         story = loadStory(profile: active)
         storyParts = loadStoryParts(profile: active)
+    }
+
+    /// Chụp DB ra một file mới, nhất quán kể cả phần còn trong WAL (dùng cho sao lưu). Trả về số dòng phụ đề.
+    func snapshot(to url: URL) throws -> Int {
+        try? FileManager.default.removeItem(at: url)
+        let path = url.path.replacingOccurrences(of: "'", with: "''")
+        guard sqlite3_exec(db, "VACUUM INTO '\(path)'", nil, nil, nil) == SQLITE_OK else {
+            throw NSError(domain: "HistoryStore", code: 1, userInfo: [NSLocalizedDescriptionKey: "Không chụp được dữ liệu: \(String(cString: sqlite3_errmsg(db)))"])
+        }
+        return count("SELECT COUNT(*) FROM history")
     }
 
     private func count(_ sql: String) -> Int {
