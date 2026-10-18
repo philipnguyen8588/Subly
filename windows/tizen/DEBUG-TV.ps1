@@ -1,4 +1,4 @@
-# Mở app Subtitle TV trên TV Samsung ở chế độ DEBUG và bật DevTools (Chrome) để soi log.
+﻿# Mở app Subtitle TV trên TV Samsung ở chế độ DEBUG và bật DevTools (Chrome) để soi log.
 #   .\DEBUG-TV.ps1                    mở debug TV mặc định rồi mở Chrome vào DevTools
 #   .\DEBUG-TV.ps1 -Tv 192.168.2.245  chỉ định IP TV
 #   .\DEBUG-TV.ps1 -Normal            mở chạy thường (không debug, không DevTools)
@@ -6,13 +6,14 @@
 # TV phải bật Developer Mode + Host PC IP đúng; nếu TV ở xa thì bật Tailscale trước.
 param(
     [string]$Tv = "192.168.2.245",
-    [string]$Tizen = "C:\tizen-studio",
     [int]$Port = 9222,
     [switch]$Normal,
     [switch]$NoChrome
 )
 $ErrorActionPreference = "Stop"
-$sdb = Join-Path $Tizen "tools\sdb.exe"
+# sdb.exe: cạnh script (bộ Debug-TV) hoặc windows\Vendor\tizen\sdb.exe (không cần Tizen Studio).
+$sdb = @((Join-Path $PSScriptRoot "sdb.exe"), (Join-Path $PSScriptRoot "..\Vendor\tizen\sdb.exe")) | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $sdb) { throw "Khong thay sdb.exe" }
 $appId = "StSubTV001.SubtitleTV"
 $serial = "${Tv}:26101"
 

@@ -19,7 +19,7 @@ $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Security
 $here = $PSScriptRoot
 $sdb = Join-Path $here "sdb.exe"
-if (-not (Test-Path $sdb)) { $sdb = "C:\tizen-studio\tools\sdb.exe" }
+if (-not (Test-Path $sdb)) { $sdb = Join-Path $here "..\Vendor\tizen\sdb.exe" }   # chạy trong repo
 if (-not (Test-Path $sdb)) { throw "Không thấy sdb.exe (để cạnh script này)." }
 $app = Join-Path $here "SubtitleTV"
 if (-not $CertDir) {

@@ -8,8 +8,7 @@
 param(
     [switch]$NoCerts,
     [string[]]$Only,                        # chỉ kèm các bộ chứng chỉ này (tên thư mục trong SamsungCertificate)
-    [string]$Name = "SubtitleTV-Installer",
-    [string]$Tizen = "C:\tizen-studio"
+    [string]$Name = "SubtitleTV-Installer"
 )
 $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Security
@@ -19,7 +18,7 @@ $out = Join-Path $dist $Name
 Remove-Item -Recurse -Force $out -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $out | Out-Null   # thư mục có thể còn (cửa sổ cài đang mở ở đó) → dùng lại
 
-Copy-Item (Join-Path $Tizen "tools\sdb.exe") $out
+Copy-Item (Join-Path $here "..\Vendor\tizen\sdb.exe") $out   # build.ps1 chép sdb.exe vào đây (không cần Tizen Studio)
 Copy-Item (Join-Path $here "ca") $out -Recurse
 foreach ($f in "auto-install.ps1", "samsung-cert.ps1", "sign-wgt.ps1", "TU-DONG-CAI-TV.bat") { Copy-Item (Join-Path $here $f) $out }
 New-Item -ItemType Directory (Join-Path $out "SubtitleTV") | Out-Null
