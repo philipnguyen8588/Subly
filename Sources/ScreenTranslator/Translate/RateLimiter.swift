@@ -18,7 +18,7 @@ actor RateLimiter {
     init(rpm: Int, rpd: Int) {
         self.rpm = rpm; self.rpd = rpd
         dayKey = Self.dayFmt.string(from: Date())
-        dayCount = UserDefaults.standard.integer(forKey: "rpd.\(dayKey)")
+        dayCount = AppPaths.defaults.integer(forKey: "rpd.\(dayKey)")
     }
 
     func configure(rpm: Int, rpd: Int) { self.rpm = rpm; self.rpd = rpd }
@@ -27,7 +27,7 @@ actor RateLimiter {
         let key = Self.dayFmt.string(from: Date())
         if key != dayKey {
             dayKey = key
-            dayCount = UserDefaults.standard.integer(forKey: "rpd.\(key)")
+            dayCount = AppPaths.defaults.integer(forKey: "rpd.\(key)")
         }
     }
 
@@ -46,7 +46,7 @@ actor RateLimiter {
         if dayCount >= rpd { return .day }
         minuteStamps.append(now)
         dayCount += 1
-        UserDefaults.standard.set(dayCount, forKey: "rpd.\(dayKey)")
+        AppPaths.defaults.set(dayCount, forKey: "rpd.\(dayKey)")
         return nil
     }
 

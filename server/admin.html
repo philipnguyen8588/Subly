@@ -56,6 +56,11 @@
   @media (max-width: 760px) { .row.share { grid-template-columns: 1fr; } }
   .token { display:flex; gap:6px; } .token input { flex:1; min-width:0; padding:5px 7px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size:12px; }
   .row.game { grid-template-columns: 2fr 1.2fr auto; }
+  .row.acct { grid-template-columns: 1.2fr 2fr auto; }
+  @media (max-width: 760px) { .row.acct { grid-template-columns: 1fr; } }
+  .bk { display:flex; gap:8px; align-items:center; justify-content:space-between; padding:3px 0; border-top:1px dashed var(--line); }
+  .bk:first-child { border-top:0; }
+  .pw { display:flex; gap:6px; margin-top:6px; } .pw input { flex:1; min-width:0; padding:4px 7px; }
   @media (max-width: 760px) { .row.game { grid-template-columns: 1fr; } }
   .form textarea { width:100%; padding:7px 9px; border:1px solid var(--line); border-radius:7px; background:var(--card); color:var(--text); font:inherit; resize:vertical; }
   .form textarea.mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size:12.5px; }
@@ -81,6 +86,7 @@
     <a href="/admin" class="{{if eq .Tab ""}}on{{end}}">Máy</a>
     <a href="/admin?tab=ai" class="{{if eq .Tab "ai"}}on{{end}}">AI share</a>
     <a href="/admin?tab=games" class="{{if eq .Tab "games"}}on{{end}}">Game mẫu</a>
+    <a href="/admin?tab=accounts" class="{{if eq .Tab "accounts"}}on{{end}}">Tài khoản</a>
   </nav>
 {{if eq .Tab "ai"}}
   <header>
@@ -149,6 +155,59 @@
   </div>
   {{else}}
   <div class="empty">Chưa có AI share nào.</div>
+  {{end}}
+{{else if eq .Tab "accounts"}}
+  <header>
+    <h1>Tài khoản sao lưu</h1>
+    <span class="sp"></span>
+    <form method="post" action="/admin/logout" class="inline"><button type="submit">Đăng xuất</button></form>
+  </header>
+  <p class="muted">Người dùng đăng nhập trong app ở Cài đặt → Sao lưu để sao lưu dữ liệu lên server và khôi phục sang máy khác. Mỗi máy giữ một bản mới nhất, tối đa {{.BackupMaxMB}} MB. Bản sao lưu có kèm API key và thông tin PS5 của người dùng (không mã hoá).</p>
+  {{if .Error}}<p class="err">{{.Error}}</p>{{end}}
+  {{if .Notice}}<p class="info">{{.Notice}}</p>{{end}}
+  <div class="card">
+    <h2>Thêm tài khoản</h2>
+    <form method="post" action="/admin/accounts" class="form">
+      <label for="username">Tên đăng nhập</label>
+      <input type="text" id="username" name="username" placeholder="ví dụ: minh hoặc minh@gmail.com" autocomplete="off">
+      <label for="password">Mật khẩu</label>
+      <input type="text" id="password" name="password" placeholder="để trống = tự tạo mật khẩu ngẫu nhiên" autocomplete="off">
+      <label for="note">Ghi chú</label>
+      <input type="text" id="note" name="note" placeholder="ví dụ: anh Minh nhóm PS5">
+      <span></span>
+      <div><button class="ok" type="submit" name="action" value="create">Tạo tài khoản</button></div>
+    </form>
+  </div>
+  {{range .Accounts}}
+  <div class="card">
+    <div class="row acct">
+      <div>
+        <div class="name">{{.Username}}{{if eq .Status "locked"}}<span class="badge b-revoked">Đã khoá</span>{{end}}</div>
+        <div class="muted">Tạo: {{date .Created}}<br>Đăng nhập cuối: {{if .LastLogin.IsZero}}chưa{{else}}{{ago .LastLogin}}{{end}}</div>
+        <form method="post" action="/admin/accounts" class="note"><input type="hidden" name="id" value="{{.ID}}"><input type="text" name="note" value="{{.Note}}" placeholder="Ghi chú"><button name="action" value="note">Lưu</button></form>
+      </div>
+      <div>
+        {{if .Backups}}
+        <div class="muted">{{len .Backups}} bản · {{size .TotalSize}}</div>
+        {{$uid := .ID}}
+        {{range .Backups}}
+        <div class="bk">
+          <div><b>{{if .Name}}{{.Name}}{{else}}(không tên){{end}}</b> <span class="muted">{{if eq .Platform "win"}}Windows{{else if eq .Platform "mac"}}Mac{{end}} · {{.IP}} · {{date .Created}} · {{size .Size}}{{if .AppVersion}} · v{{.AppVersion}}{{end}}</span></div>
+          <form method="post" action="/admin/accounts" class="inline"><input type="hidden" name="id" value="{{$uid}}"><input type="hidden" name="machine" value="{{.Machine}}"><button class="bad" name="action" value="delbackup" data-confirm="Xoá bản sao lưu của máy “{{.Name}}”?">Xoá</button></form>
+        </div>
+        {{end}}
+        {{else}}<div class="muted">Chưa có bản sao lưu</div>{{end}}
+      </div>
+      <div class="actions">
+        {{if eq .Status "locked"}}<form method="post" action="/admin/accounts" class="inline"><input type="hidden" name="id" value="{{.ID}}"><button class="ok" name="action" value="unlock">Mở khoá</button></form>
+        {{else}}<form method="post" action="/admin/accounts" class="inline"><input type="hidden" name="id" value="{{.ID}}"><button class="bad" name="action" value="lock">Khoá</button></form>{{end}}
+        <form method="post" action="/admin/accounts" class="inline"><input type="hidden" name="id" value="{{.ID}}"><button class="bad" name="action" value="delete" data-confirm="Xoá tài khoản “{{.Username}}” và mọi bản sao lưu của nó?">Xoá</button></form>
+      </div>
+    </div>
+    <form method="post" action="/admin/accounts" class="pw"><input type="hidden" name="id" value="{{.ID}}"><input type="text" name="password" placeholder="Mật khẩu mới (để trống = tự tạo)" autocomplete="off"><button name="action" value="password" data-confirm="Đổi mật khẩu “{{.Username}}”? Các máy đang đăng nhập sẽ phải đăng nhập lại.">Đổi mật khẩu</button></form>
+  </div>
+  {{else}}
+  <div class="empty">Chưa có tài khoản nào.</div>
   {{end}}
 {{else if eq .Tab "games"}}
   <header>

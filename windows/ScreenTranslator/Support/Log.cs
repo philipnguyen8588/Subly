@@ -9,7 +9,9 @@ namespace ScreenTranslator;
 /// Thư mục dữ liệu: %APPDATA%\ScreenTranslator (tương đương ~/Library/Application Support/ScreenTranslator).
 public static class AppPaths
 {
-    public static readonly string Root = Ensure(Path.Combine(
+    /// `--data-dir <thư mục>` (chỉ dùng khi test tự động): dữ liệu (kể cả settings.json) nằm ở thư mục riêng.
+    public static readonly string? TestDir = ArgValue("--data-dir");
+    public static readonly string Root = Ensure(TestDir != null ? Path.GetFullPath(TestDir) : Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ScreenTranslator"));
     public static string Voices => Ensure(Path.Combine(Root, "voices"));
     public static string Shots => Ensure(Path.Combine(Root, "shots"));
@@ -17,6 +19,13 @@ public static class AppPaths
     public static string AppDir => AppContext.BaseDirectory;
 
     static string Ensure(string d) { Directory.CreateDirectory(d); return d; }
+
+    static string? ArgValue(string flag)
+    {
+        var a = Environment.GetCommandLineArgs();
+        int i = Array.IndexOf(a, flag);
+        return i >= 0 && i + 1 < a.Length ? a[i + 1] : null;
+    }
 }
 
 public static class Log

@@ -212,6 +212,20 @@ public sealed class HistoryStore
         };
     }
 
+    /// Chụp DB ra một file mới, nhất quán kể cả phần còn trong WAL (dùng cho sao lưu). Trả về số dòng phụ đề.
+    public int Snapshot(string path)
+    {
+        if (File.Exists(path)) File.Delete(path);
+        lock (lk)
+        {
+            using var cmd = db.CreateCommand();
+            cmd.CommandText = "VACUUM INTO $p";
+            cmd.Parameters.AddWithValue("$p", path);
+            cmd.ExecuteNonQuery();
+        }
+        return Count("SELECT COUNT(*) FROM history");
+    }
+
     /// UUID dạng chữ HOA như Swift (`uuidString`), để file history.sqlite dùng chung được giữa hai bản.
     public static string ProfileKey(Guid id) => id.ToString().ToUpperInvariant();
 

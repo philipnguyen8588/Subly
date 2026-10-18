@@ -39,9 +39,9 @@ struct Ticket {
         let now = Date()
         if now >= exp { return false }
         // Mốc thời gian lớn nhất từng thấy (lưu ở UserDefaults). now lùi quá 10 phút → nghi vặn đồng hồ, coi vé không hợp lệ.
-        let hw = UserDefaults.standard.double(forKey: Self.clockKey)
+        let hw = AppPaths.defaults.double(forKey: Self.clockKey)
         if hw > 0, now.timeIntervalSince1970 < hw - 600 { return false }
-        if now.timeIntervalSince1970 > hw { UserDefaults.standard.set(now.timeIntervalSince1970, forKey: Self.clockKey) }
+        if now.timeIntervalSince1970 > hw { AppPaths.defaults.set(now.timeIntervalSince1970, forKey: Self.clockKey) }
         return true
     }
 }

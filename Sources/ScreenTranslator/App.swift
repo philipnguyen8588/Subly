@@ -6,7 +6,12 @@ struct ScreenTranslatorApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
     /// Chính file chạy này cũng là tiến trình phụ làm OCR (`--ocr-helper`), xem OCRHelper.
-    init() { if OCRHelper.isHelper { OCRHelper.runHelper() } }
+    init() {
+        if OCRHelper.isHelper { OCRHelper.runHelper() }
+        // Vừa bấm Khôi phục: chờ bản cũ thoát rồi thay dữ liệu trước khi bất kỳ phần nào đọc cài đặt hay mở DB.
+        BackupArchive.waitForPreviousInstance()
+        BackupArchive.applyStagedIfAny()
+    }
 
     // Không còn icon trên thanh menu (trước đây cập nhật theo thời gian thực, tốn tài nguyên của MenuBarAgent).
     // App chỉ có cửa sổ chính + icon Dock; scene Settings rỗng chỉ để SwiftUI có một scene và gắn menu lệnh.
@@ -179,6 +184,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registerHotkeys()
         if !CommandLine.arguments.contains("--hidden") { WindowManager.shared.showMain() }
         if CommandLine.arguments.contains("--open-settings") { WindowManager.shared.showSettings() }
+        DispatchQueue.main.async { BackupArchive.announceIfRestored() }
     }
 
     /// Đang chạy mà máy mất quyền (lần kiểm tra ngầm thấy vé không còn hợp lệ): dừng dịch và báo lỗi chung.
@@ -240,6 +246,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     //   --story-interval <giây>   bật cốt truyện cho phiên này với chu kỳ ngắn (không lưu)
     //   --story-now <giây>        sau N giây thì cập nhật cốt truyện một lần (như bấm "Cập nhật ngay")
     //   --quit-after <giây>       tự thoát sau N giây
+    //   --data-dir <thư mục>      dùng thư mục dữ liệu + UserDefaults riêng (test, không đụng dữ liệu thật)
+    //   --account-login user:pass  đăng nhập tài khoản sao lưu   --backup-now  sao lưu lên server
+    //   --restore-from <mã máy>   tải bản của máy đó về và khôi phục (không hỏi lại)   --machine-id <hex>  giả làm máy khác
     @MainActor private func handleCommandLine() {
         let args = CommandLine.arguments
         let settings = AppSettings.shared
@@ -390,6 +399,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(sec))
                 StoryTracker.shared.updateNow()
+            }
+        }
+        if args.contains(where: { ["--account-login", "--backup-now", "--restore-from"].contains($0) }) {
+            Task { @MainActor in
+                let model = BackupModel.shared
+                if let i = args.firstIndex(of: "--account-login"), i + 1 < args.count {
+                    let parts = args[i + 1].split(separator: ":", maxSplits: 1).map(String.init)
+                    if parts.count == 2 { _ = await model.login(username: parts[0], password: parts[1]) }
+                }
+                if args.contains("--backup-now") { let ok = await model.backupNow(); Log.info("TEST-BACKUP \(ok ? "ok" : "lỗi")") }
+                if let i = args.firstIndex(of: "--restore-from"), i + 1 < args.count {
+                    await model.refresh()
+                    if let b = model.backups.first(where: { $0.machine == args[i + 1] }) { await model.restore(b) }
+                    else { Log.warn("TEST-RESTORE: không có bản của máy \(args[i + 1])") }
+                }
             }
         }
         if let i = args.firstIndex(of: "--quit-after"), i + 1 < args.count, let sec = Double(args[i + 1]) {

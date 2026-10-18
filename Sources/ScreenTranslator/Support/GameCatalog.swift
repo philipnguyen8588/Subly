@@ -123,10 +123,7 @@ final class GameCatalog: ObservableObject {
         var games: [Game]
     }
 
-    private static var cacheURL: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("ScreenTranslator/games.json")
-    }
+    private static var cacheURL: URL { AppPaths.file("games.json") }
 
     private init() {
         if let data = try? Data(contentsOf: Self.cacheURL), let c = try? JSONDecoder().decode(Cache.self, from: data), !c.games.isEmpty {

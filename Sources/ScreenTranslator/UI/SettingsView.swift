@@ -10,20 +10,20 @@ struct SettingsView: View {
     private var tab: Tab { nav.settingsTab }
 
     enum Tab: String, CaseIterable, Identifiable {
-        case translate, ai, apple, capture, voice, overlay, glossary, profile, hotkeys, web
+        case translate, ai, apple, capture, voice, overlay, glossary, profile, hotkeys, web, backup
         var id: String { rawValue }
         var title: String {
             switch self {
             case .translate: return "Dịch"; case .ai: return "AI"; case .apple: return "Apple (offline)"; case .capture: return "Capture & OCR"; case .voice: return "Voice"
             case .overlay: return "Overlay"; case .glossary: return "Thuật ngữ chung"; case .profile: return "Game"; case .hotkeys: return "Phím tắt"
-            case .web: return "iPhone / Web"
+            case .web: return "iPhone / Web"; case .backup: return "Sao lưu"
             }
         }
         var icon: String {
             switch self {
             case .translate: return "character.bubble"; case .ai: return "sparkles"; case .apple: return "apple.logo"; case .capture: return "rectangle.dashed"; case .voice: return "speaker.wave.2"
             case .overlay: return "captions.bubble"; case .glossary: return "character.book.closed"; case .profile: return "gamecontroller"; case .hotkeys: return "keyboard"
-            case .web: return "iphone"
+            case .web: return "iphone"; case .backup: return "externaldrive.badge.icloud"
             }
         }
     }
@@ -48,6 +48,7 @@ struct SettingsView: View {
                 case .profile: ProfileSettings(settings: settings).padding()
                 case .hotkeys: HotkeySettings(settings: settings)
                 case .web: WebSettings(settings: settings)
+                case .backup: BackupSettings(settings: settings)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

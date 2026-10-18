@@ -12,12 +12,7 @@ enum Log {
     static func error(_ msg: @autoclosure () -> String) { emit("ERR ", msg()) }
 
     /// File log: ~/Library/Application Support/ScreenTranslator/app.log (cắt bớt khi > 2 MB).
-    static let fileURL: URL = {
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("ScreenTranslator", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("app.log")
-    }()
+    static let fileURL: URL = AppPaths.file("app.log")
     private static let fileQueue = DispatchQueue(label: "log.file")
     private static var handle: FileHandle? = {
         if let size = try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int, size > 2_000_000 {
