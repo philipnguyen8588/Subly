@@ -184,6 +184,7 @@ public sealed class HeaderBar : Border
         overlayBtn.Click += (_, _) => { s.overlayEnabled = overlayBtn.IsChecked == true; if (!s.overlayEnabled) pipeline.overlay.Hide(); };
         storyBtn.Click += (_, _) => s.storyEnabled = storyBtn.IsChecked == true;
         var moon = Ui.IconBtn("", () => DisplayPower.shared.SleepDisplay(), "Tắt màn hình để tiết kiệm điện (app vẫn dịch và đọc). Di chuột hoặc gõ phím để bật lại");
+        var tv = Ui.Btn(Ui.IconLabel("\uE7F4", "Cài app lên TV"), TvInstallWindow.Present, kind: Ui.Kind.tinted, tip: "Cài app Subtitle TV lên TV Samsung: hiện phụ đề dịch đè lên game ngay trên TV");
         var help = Ui.IconBtn("", OpenGuide, "Hướng dẫn sử dụng app");
         var gear = Ui.IconBtn("", App.ShowSettings, "Cài đặt: ngôn ngữ, AI, voice, overlay, thuật ngữ, phím tắt");
         var sep = new Border { Width = 1, Height = 22, Background = Ui.Res("CardStroke"), Margin = new Thickness(2, 0, 2, 0) };
@@ -196,7 +197,7 @@ public sealed class HeaderBar : Border
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var left = Ui.H(12, back, game);
         var center = Ui.H(8, startBtn, analyzeBtn, connectBtn); center.Margin = new Thickness(12, 0, 12, 0);
-        var right = Ui.H(6, voiceBtn, overlayBtn, storyBtn, sep, moon, help, gear);
+        var right = Ui.H(6, voiceBtn, overlayBtn, storyBtn, sep, moon, tv, help, gear);
         left.VerticalAlignment = center.VerticalAlignment = right.VerticalAlignment = VerticalAlignment.Center;
         Grid.SetColumnSpan(left, 2); Grid.SetColumn(center, 2); Grid.SetColumn(right, 3);
         grid.Children.Add(left); grid.Children.Add(center); grid.Children.Add(right);

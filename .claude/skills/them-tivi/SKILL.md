@@ -37,7 +37,16 @@ thì không phải lỗi hết hạn; gần như luôn là DUID chưa có trong 
 | Bộ cài zip xuất ra | `windows\dist\SubtitleTV-Samsung.zip` |
 | app id / package id | `StSubTV001.SubtitleTV` / `StSubTV001` |
 
-## Cách nhanh: script tự động (ưu tiên dùng cách này)
+## Cách nhanh nhất: nút TV trong app Windows (Subly.exe)
+
+Nút **TV** (glyph E7F4) trên header cửa sổ chính và màn Bắt đầu mở `UI\TvInstallWindow.cs` → `TV\TvInstaller.cs`
+(port C# của auto-install.ps1), `TV\WgtSigner.cs` (port sign-wgt.ps1), `TV\SamsungCert.cs` (port samsung-cert.ps1).
+Bản build đóng kèm `tv\sdb.exe` (build.ps1 chép từ Tizen Studio vào `windows\Vendor\tizen`), `tv\SubtitleTV\`, `tv\ca\`.
+Chứng chỉ do app xin lưu ở `%APPDATA%\ScreenTranslator\tv-certs\Subly-Auto`; app cũng dùng bộ ở
+`%USERPROFILE%\SamsungCertificate` (mật khẩu *.pwd = DPAPI). Subly.exe phát hành KHÔNG kèm khoá của chủ app.
+Biến môi trường kiểm thử: `SUBLY_TV_CERT_API` (máy chủ ký giả), `SUBLY_TV_CERT_NOBROWSER`, `SUBLY_TV_NO_SHARED_CERTS`.
+
+## Cách nhanh: script tự động
 
 `windows\tizen\auto-install.ps1 -Tv <IP-TV>` (hoặc bấm đúp `windows\tizen\TU-DONG-CAI-TV.bat`) làm hết bước 4–6,
 **không cần Tizen Studio, không cần Python** (chỉ PowerShell + .NET có sẵn của Windows):
@@ -45,7 +54,8 @@ lấy DUID (sdb.exe) → DUID đã có trong bộ chứng chỉ nào (`certs\` c
 thì dùng → chưa có thì mở trang đăng nhập Samsung (người dùng tự đăng nhập), `samsung-cert.ps1` xin Samsung ký chứng chỉ
 có DUID (gọi thẳng API svdca.samsungqbe.com như Certificate Manager, theo tool MIT Apps2Samsung) vào thư mục
 **`Subly-Auto`** (cộng dồn DUID, tối đa 10, giữ nguyên author) → `sign-wgt.ps1` tự ký .wgt (định dạng giống hệt
-`tizen package`, đã đối chiếu bằng cách xác minh chữ ký thật) → cài + mở app.
+`tizen package`, đã đối chiếu bằng cách xác minh chữ ký thật; 18/10/2026 đã cài thành công lên TV thật S95B
+192.168.8.31 bằng bộ cài standalone) → cài + mở app. Phần đăng nhập Samsung thật (`samsung-cert.ps1`) chưa chạy thật lần nào.
 - Mật khẩu .p12: `password.txt` / `<author|distributor>.password.txt`, hoặc `*.pwd` của Certificate Manager = DPAPI
   (bỏ 4 byte đầu là độ dài, `ProtectedData.Unprotect` CurrentUser; chỉ giải được trên máy đã tạo).
 - **Bộ cài cho máy khác:** `windows\tizen\make-installer.ps1` → `windows\dist\SubtitleTV-Installer\` (+ .zip): sdb.exe,

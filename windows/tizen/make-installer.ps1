@@ -17,7 +17,7 @@ $here = $PSScriptRoot
 $dist = Join-Path $here "..\dist"
 $out = Join-Path $dist $Name
 Remove-Item -Recurse -Force $out -ErrorAction SilentlyContinue
-New-Item -ItemType Directory $out | Out-Null
+New-Item -ItemType Directory -Force $out | Out-Null   # thư mục có thể còn (cửa sổ cài đang mở ở đó) → dùng lại
 
 Copy-Item (Join-Path $Tizen "tools\sdb.exe") $out
 Copy-Item (Join-Path $here "ca") $out -Recurse
@@ -63,7 +63,7 @@ CÀI SUBTITLE TV LÊN TV SAMSUNG (không cần Tizen Studio)
 
 Lỗi cài vì TV đã có app cài bằng chứng chỉ khác: mở PowerShell trong thư mục này, chạy
    powershell -ExecutionPolicy Bypass -File auto-install.ps1 -Tv <IP-TV> -Reinstall
-(gỡ app cũ rồi cài; mất cài đặt đã lưu trong app trên TV).
+(gỡ app cũ rồi cài; mất cài đặt đã lưu trong app trên TV). Script cũng tự hỏi Y/N khi gặp lỗi này.
 
 Thư mục certs\ chứa khoá ký app và mật khẩu: chỉ đưa cho người tin tưởng.
 "@ | Set-Content (Join-Path $out "HUONG-DAN.txt") -Encoding UTF8

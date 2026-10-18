@@ -18,6 +18,10 @@ Push-Location $root
 try {
     Write-Host "== Thư viện giọng AI offline (sherpa-onnx)" -ForegroundColor Cyan
     & (Join-Path $root "Scripts\fetch-sherpa.ps1")
+    Write-Host "== sdb.exe (cài app lên TV Samsung)" -ForegroundColor Cyan
+    $sdbSrc = "C:\tizen-studio\tools\sdb.exe"; $sdbDst = Join-Path $root "Vendor\tizen\sdb.exe"
+    if (Test-Path $sdbSrc) { New-Item -ItemType Directory -Force (Split-Path $sdbDst) | Out-Null; Copy-Item $sdbSrc $sdbDst -Force }
+    elseif (-not (Test-Path $sdbDst)) { Write-Warning "Không thấy $sdbSrc → bản build không cài được app lên TV (nút cài TV báo thiếu sdb.exe)." }
     Write-Host "== Danh sách từ tiếng Anh" -ForegroundColor Cyan
     & (Join-Path $root "Scripts\fetch-words.ps1")
     if (Test-Path (Join-Path $root "ScreenTranslator\Resources\AppIcon.ico")) { } else { & (Join-Path $root "Scripts\make-icon.ps1") }

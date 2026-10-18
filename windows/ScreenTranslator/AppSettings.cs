@@ -370,6 +370,8 @@ public sealed class AppSettings : INotifyPropertyChanged
     // MARK: Web (xem trên điện thoại / máy tính bảng)
     public bool webServerEnabled { get => Get("webServerEnabled", true); set => Set("webServerEnabled", value); }
     public int webServerPort { get => Get("webServerPort", 8787); set => Set("webServerPort", value); }
+    /// IP của TV Samsung lần cài app gần nhất (cửa sổ "Cài app lên TV").
+    public string tvInstallIp { get => Get("tvInstallIp", ""); set => Set("tvInstallIp", value); }
     public bool webServerOn => webServerEnabled && !forceNoWeb;
     public int webPort => forceWebPort ?? webServerPort;
 

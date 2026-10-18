@@ -41,7 +41,7 @@ public sealed class StartView : DockPanel
         var head = new Border
         {
             Height = 56, Padding = new Thickness(16, 0, 16, 0), BorderBrush = Ui.Res("CardStroke"), BorderThickness = new Thickness(0, 0, 0, 1),
-            Child = Ui.Row(Logo(), Ui.IconBtn("", HeaderBar.OpenGuide, "Hướng dẫn sử dụng app"), Ui.IconBtn("", App.ShowSettings, "Cài đặt: dịch, AI, voice, overlay, phím tắt…")),
+            Child = Ui.Row(Logo(), Ui.Btn(Ui.IconLabel("\uE7F4", "Cài app lên TV"), TvInstallWindow.Present, kind: Ui.Kind.tinted, tip: "Cài app Subtitle TV lên TV Samsung: hiện phụ đề dịch đè lên game ngay trên TV"), Ui.IconBtn("", HeaderBar.OpenGuide, "Hướng dẫn sử dụng app"), Ui.IconBtn("", App.ShowSettings, "Cài đặt: dịch, AI, voice, overlay, phím tắt…")),
         };
         SetDock(head, Dock.Top); Children.Add(head);
         SetDock(notice, Dock.Top); Children.Add(notice);

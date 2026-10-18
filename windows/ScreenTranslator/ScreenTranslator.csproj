@@ -59,6 +59,15 @@
     <None Include="Resources\guide\index.html" CopyToOutputDirectory="PreserveNewest" Link="guide\index.html" />
   </ItemGroup>
 
+  <!-- Cài app Subtitle TV lên TV Samsung (nút trên cửa sổ chính): mã nguồn app TV, CA của Samsung để ghép chứng chỉ,
+       và sdb.exe (build.ps1 chép từ Tizen Studio vào Vendor\tizen). Chép vào tv\ cạnh exe; TV\TvInstaller.cs đọc. -->
+  <ItemGroup>
+    <None Include="..\tizen\SubtitleTV\config.xml;..\tizen\SubtitleTV\index.html;..\tizen\SubtitleTV\main.js;..\tizen\SubtitleTV\style.css;..\tizen\SubtitleTV\icon.png"
+          CopyToOutputDirectory="PreserveNewest" Link="tv\SubtitleTV\%(Filename)%(Extension)" />
+    <None Include="..\tizen\ca\*.cer;..\tizen\ca\*.crt" CopyToOutputDirectory="PreserveNewest" Link="tv\ca\%(Filename)%(Extension)" />
+    <None Include="..\Vendor\tizen\sdb.exe" CopyToOutputDirectory="PreserveNewest" Link="tv\sdb.exe" Condition="Exists('..\Vendor\tizen\sdb.exe')" />
+  </ItemGroup>
+
   <!-- Thư viện native: sherpa-onnx (giọng offline) và st_chiaki (PS5). Chưa có thì app vẫn build, tính năng báo "chưa cài". -->
   <ItemGroup>
     <None Include="..\Vendor\sherpa-onnx\lib\*.dll" CopyToOutputDirectory="PreserveNewest" Link="%(Filename)%(Extension)" Condition="Exists('..\Vendor\sherpa-onnx\lib')" />

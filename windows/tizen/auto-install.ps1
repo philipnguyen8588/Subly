@@ -66,40 +66,60 @@ if ($duid -notmatch '^[A-Z0-9]{8,}$') { throw "Không đọc được DUID của
 Write-Host "DUID: $duid"
 
 # ---------- 2. Chứng chỉ ----------
-$use = $null
+# Mọi bộ chứng chỉ có DUID này (một TV có thể nằm trong nhiều bộ). Thử lần lượt: app đã cài trên TV bằng chứng chỉ
+# tác giả nào thì chỉ bộ cùng tác giả mới cài đè được (TV báo "Author certificate not match" với bộ khác).
+$candidates = @()
 if (-not $NewCert -and (Test-Path $CertDir)) {
     foreach ($d in Get-ChildItem $CertDir -Directory) {
         if ((Test-Path (Join-Path $d.FullName "author.p12")) -and (Test-Path (Join-Path $d.FullName "distributor.p12")) -and
-            ((Get-Duids $d.FullName) -contains $duid) -and (Get-Password $d.FullName "author")) { $use = $d.FullName; break }
+            ((Get-Duids $d.FullName) -contains $duid) -and (Get-Password $d.FullName "author")) { $candidates += $d.FullName }
     }
 }
-if ($use) {
-    Write-Host "TV đã có trong chứng chỉ '$(Split-Path $use -Leaf)' → không cần đăng nhập Samsung."
+if ($candidates.Count) {
+    Write-Host "TV đã có trong chứng chỉ: $(($candidates | ForEach-Object { Split-Path $_ -Leaf }) -join ', ') → không cần đăng nhập Samsung."
 } else {
     Write-Host "== Xin chứng chỉ Samsung cho TV này (đăng nhập Samsung Account trên trình duyệt)" -ForegroundColor Cyan
-    $use = Join-Path $CertDir "Subly-Auto"
-    & (Join-Path $here "samsung-cert.ps1") -Out $use -Duid $duid
+    $auto = Join-Path $CertDir "Subly-Auto"
+    & (Join-Path $here "samsung-cert.ps1") -Out $auto -Duid $duid
+    $candidates = @($auto)
 }
 
 # ---------- 3. Ký + cài ----------
-Write-Host "== Ký app bằng chứng chỉ '$(Split-Path $use -Leaf)'" -ForegroundColor Cyan
-$wgt = Join-Path ([IO.Path]::GetTempPath()) "SubtitleTV.wgt"
-& (Join-Path $here "sign-wgt.ps1") -Src $app -Out $wgt -Author (Join-Path $use "author.p12") -Distributor (Join-Path $use "distributor.p12") `
-    -Password (Get-Password $use "author") -DistributorPassword (Get-Password $use "distributor")
-
-if ($Reinstall) {
+$remote = "/home/owner/share/tmp/sdk_tools/tmp/SubtitleTV.wgt"
+function Install-With([string]$certSet) {
+    Write-Host "== Ký app bằng chứng chỉ '$(Split-Path $certSet -Leaf)' và cài lên TV" -ForegroundColor Cyan
+    $wgt = Join-Path ([IO.Path]::GetTempPath()) "SubtitleTV.wgt"
+    & (Join-Path $here "sign-wgt.ps1") -Src $app -Out $wgt -Author (Join-Path $certSet "author.p12") -Distributor (Join-Path $certSet "distributor.p12") `
+        -Password (Get-Password $certSet "author") -DistributorPassword (Get-Password $certSet "distributor")
+    & $sdb -s $serial push $wgt $remote | Out-Null
+    $res = (& $sdb -s $serial shell 0 vd_appinstall $pkgId $remote) -join "`n"
+    Write-Host (($res -split "`n" | Where-Object { $_ -match 'install (failed|completed)' }) -join "`n")
+    return $res
+}
+function Uninstall-Old {
     Write-Host "== Gỡ app cũ ($pkgId)" -ForegroundColor Cyan
     & $sdb -s $serial shell 0 vd_appuninstall $pkgId | Select-Object -Last 1
 }
-Write-Host "== Cài lên TV" -ForegroundColor Cyan
-$remote = "/home/owner/share/tmp/sdk_tools/tmp/SubtitleTV.wgt"
-& $sdb -s $serial push $wgt $remote | Out-Null
-$res = & $sdb -s $serial shell 0 vd_appinstall $pkgId $remote
-$res | Select-Object -Last 2
-if (-not ($res -match "install completed")) {
-    if (-not $Reinstall) { Write-Host "Nếu TV đã có app cài bằng chứng chỉ khác, chạy lại kèm -Reinstall (gỡ app cũ rồi cài)." -ForegroundColor Yellow }
-    throw "Cài lên TV thất bại"
+
+if ($Reinstall) { Uninstall-Old }
+$done = $false; $authorMismatch = $false
+foreach ($cs in $candidates) {
+    $res = Install-With $cs
+    if ($res -match "install completed") { $done = $true; break }
+    if ($res -match "Author certificate not match") { $authorMismatch = $true; continue }   # thử bộ tiếp theo
+    break                                                                                     # lỗi khác: dừng
 }
+if (-not $done -and $authorMismatch -and -not $Reinstall) {
+    Write-Host ""
+    Write-Host "TV đã có Subtitle TV cài bằng chứng chỉ tác giả khác, nên không cài đè được." -ForegroundColor Yellow
+    Write-Host "Gỡ app cũ rồi cài lại thì được, nhưng mất cài đặt đã lưu trong app trên TV (máy tính đã chọn, cỡ chữ…)." -ForegroundColor Yellow
+    $ans = Read-Host "Gỡ app cũ rồi cài lại? (Y/N)"
+    if ($ans -match '^[YyCc]') {
+        Uninstall-Old
+        $done = (Install-With $candidates[0]) -match "install completed"
+    }
+}
+if (-not $done) { throw "Cài lên TV thất bại (xem dòng 'install failed' phía trên)" }
 & $sdb -s $serial shell 0 was_kill $appId | Out-Null
 & $sdb -s $serial shell 0 execute $appId | Out-Null
 Write-Host "Xong: Subtitle TV đã cài và mở trên TV $Tv." -ForegroundColor Green
