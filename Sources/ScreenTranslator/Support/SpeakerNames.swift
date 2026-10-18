@@ -22,7 +22,9 @@ enum SpeakerNames {
     /// Trả về các hàng mới và cờ đã ghép hay chưa.
     static func joinNameAbove(_ rows: [String], speakers: [String]) -> (rows: [String], joined: Bool) {
         guard rows.count >= 2 else { return (rows, false) }
-        let first = rows[0].trimmingCharacters(in: .whitespaces)
+        var first = rows[0].trimmingCharacters(in: .whitespaces)
+        if canonical(first, speakers: speakers) == nil { first = cleanNameRow(first, speakers: speakers) }
+        guard !first.isEmpty else { return (rows, false) }
         let words = first.split(separator: " ")
         // Tên đã học (người dùng tự thêm) được phép dài và có dấu phẩy, ví dụ "Charles, Botanist".
         let known = canonical(first, speakers: speakers) != nil
@@ -39,6 +41,35 @@ enum SpeakerNames {
         let sentence = body.split(separator: " ").count >= 3 || body.rangeOfCharacter(from: CharacterSet(charactersIn: ".,!?…")) != nil
         guard TextUtils.letterCount(body) >= 2, sentence else { return (rows, false) }
         return (["\(first): \(body)"] + rows.dropFirst(2), true)
+    }
+
+    private static let notAlnum = CharacterSet.alphanumerics.inverted
+
+    /// Mẩu rác OCR hay dính vào dòng tên: không có chữ cái ("*", "•", "_"), hoặc 1–2 chữ viết thường ("a", "ii").
+    static func isJunkToken(_ w: Substring) -> Bool {
+        let s = w.trimmingCharacters(in: notAlnum)
+        let letters = TextUtils.letterCount(s)
+        return letters == 0 || (letters <= 2 && !(s.first?.isUppercase ?? false))
+    }
+
+    /// Dòng tên OCR hay dính rác ở hai đầu ("a Clive", "• Sleipnir", "Harbard COO"): bỏ mẩu rác ở hai đầu và ký tự lạ
+    /// bám vào tên; nếu dòng có chứa đúng một tên đã học, phần thừa chỉ là mẩu ngắn (≤ 3 chữ) thì lấy luôn tên đó.
+    static func cleanNameRow(_ row: String, speakers: [String]) -> String {
+        var words = row.split(separator: " ")
+        while let w = words.first, isJunkToken(w) { words.removeFirst() }
+        while let w = words.last, isJunkToken(w) { words.removeLast() }
+        let name = words.joined(separator: " ").trimmingCharacters(in: notAlnum)
+        if let known = canonical(name, speakers: speakers) { return known }
+        let tokens = name.split(separator: " ")
+        for n in stride(from: min(6, tokens.count - 1), through: 1, by: -1) {
+            for start in 0...(tokens.count - n) {
+                let head = tokens[start..<(start + n)].joined(separator: " ")
+                guard let known = speakers.first(where: { $0.lowercased() == head.lowercased() }) else { continue }
+                let rest = tokens[..<start] + tokens[(start + n)...]
+                if rest.allSatisfy({ TextUtils.letterCount($0.trimmingCharacters(in: notAlnum)) <= 3 }) { return known }
+            }
+        }
+        return name
     }
 
     struct Match {
@@ -61,7 +92,8 @@ enum SpeakerNames {
         }
         guard !speakers.isEmpty else { return nil }
         // 2. Tên đã học đứng đầu, sau đó là , . ; - – — hoặc khoảng trắng
-        let tokens = t.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+        var tokens = t.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+        while let w = tokens.first, tokens.count > 1, isJunkToken(Substring(w)) { tokens.removeFirst() }   // "* Harbard …", "a Clive …"
         // Tối đa 6 từ: tên dài người dùng tự thêm ("Guardian of the Flame", "Charles, Botanist").
         // Khớp chính xác trước, sau mới khớp gần đúng: "Guardian of the Flame We must…" không được nuốt chữ "We"
         // (cụm 5 từ đủ giống tên 4 từ).

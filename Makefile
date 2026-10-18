@@ -61,7 +61,7 @@ install: app
 	rm -rf "$(INSTALL_DIR)/ScreenTranslator.app"
 	rm -rf "$(INSTALLED).new"
 	ditto $(APP) "$(INSTALLED).new"
-	@if pgrep -x Subly >/dev/null; then \
+	@if [ -z "$(FORCE)" ] && pgrep -x Subly >/dev/null; then \
 		echo "Subly đang chạy: CHƯA cài (thay app lúc đang chạy làm PS5 mất kết nối)."; \
 		echo "Bản mới để sẵn ở $(INSTALLED).new. Thoát Subly (⌘Q) rồi chạy lại: make install"; \
 	else \

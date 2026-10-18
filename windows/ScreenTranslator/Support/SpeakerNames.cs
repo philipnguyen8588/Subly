@@ -32,6 +32,8 @@ public static class SpeakerNames
     {
         if (rows.Count < 2) return (rows.ToList(), false);
         var first = rows[0].Trim(' ');
+        if (Canonical(first, speakers) == null) first = CleanNameRow(first, speakers);
+        if (first.Length == 0) return (rows.ToList(), false);
         var words = first.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         // Tên đã học (người dùng tự thêm) được phép dài và có dấu phẩy, ví dụ "Charles, Botanist".
         bool known = Canonical(first, speakers) != null;
@@ -45,6 +47,45 @@ public static class SpeakerNames
         bool sentence = body.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length >= 3 || body.IndexOfAny(".,!?…".ToCharArray()) >= 0;
         if (TextUtils.LetterCount(body) < 2 || !sentence) return (rows.ToList(), false);
         return (new[] { $"{first}: {body}" }.Concat(rows.Skip(2)).ToList(), true);
+    }
+
+    static string TrimNonAlnum(string s)
+    {
+        int a = 0, b = s.Length;
+        while (a < b && !char.IsLetterOrDigit(s[a])) a++;
+        while (b > a && !char.IsLetterOrDigit(s[b - 1])) b--;
+        return s[a..b];
+    }
+
+    /// Mẩu rác OCR hay dính vào dòng tên: không có chữ cái ("*", "•", "_"), hoặc 1–2 chữ viết thường ("a", "ii").
+    public static bool IsJunkToken(string w)
+    {
+        var s = TrimNonAlnum(w);
+        int letters = TextUtils.LetterCount(s);
+        return letters == 0 || (letters <= 2 && !char.IsUpper(s[0]));
+    }
+
+    /// Dòng tên OCR hay dính rác ở hai đầu ("a Clive", "• Sleipnir", "Harbard COO"): bỏ mẩu rác ở hai đầu và ký tự lạ
+    /// bám vào tên; nếu dòng có chứa đúng một tên đã học, phần thừa chỉ là mẩu ngắn (≤ 3 chữ) thì lấy luôn tên đó.
+    public static string CleanNameRow(string row, IList<string> speakers)
+    {
+        var words = row.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
+        while (words.Count > 0 && IsJunkToken(words[0])) words.RemoveAt(0);
+        while (words.Count > 0 && IsJunkToken(words[^1])) words.RemoveAt(words.Count - 1);
+        var name = TrimNonAlnum(string.Join(" ", words));
+        var known = Canonical(name, speakers);
+        if (known != null) return known;
+        var tokens = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        for (int n = Math.Min(6, tokens.Length - 1); n >= 1; n--)
+            for (int start = 0; start + n <= tokens.Length; start++)
+            {
+                var head = string.Join(" ", tokens.Skip(start).Take(n));
+                var k = speakers.FirstOrDefault(s => s.ToLowerInvariant() == head.ToLowerInvariant());
+                if (k == null) continue;
+                var rest = tokens.Take(start).Concat(tokens.Skip(start + n));
+                if (rest.All(t => TextUtils.LetterCount(TrimNonAlnum(t)) <= 3)) return k;
+            }
+        return name;
     }
 
     public record Match(string speaker, string rest);
@@ -68,6 +109,9 @@ public static class SpeakerNames
         if (speakers.Count == 0) return null;
         // 2. Tên đã học đứng đầu, sau đó là , . ; - – — hoặc khoảng trắng
         var tokens = t.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        int junk = 0;
+        while (junk < tokens.Length - 1 && IsJunkToken(tokens[junk])) junk++;   // "* Harbard …", "a Clive …"
+        tokens = tokens[junk..];
         // Tối đa 6 từ: tên dài người dùng tự thêm ("Guardian of the Flame", "Charles, Botanist").
         // Khớp chính xác trước, sau mới khớp gần đúng: "Guardian of the Flame We must…" không được nuốt chữ "We"
         // (cụm 5 từ đủ giống tên 4 từ).
