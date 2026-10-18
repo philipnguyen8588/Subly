@@ -133,7 +133,7 @@ final class GeminiBackend: TranslationBackend {
         let source = gameName.isEmpty ? "movies and video games" : "the video game \"\(gameName)\""
         let story = storyContext.isEmpty ? "" : "\nStory so far (background only, never translate it): \(storyContext)\n"
         let trimmedNote = translationNote.trimmingCharacters(in: .whitespacesAndNewlines)
-        let note = trimmedNote.isEmpty ? "" : "Notes from the player for this game (follow them): \(trimmedNote)\n"
+        let note = trimmedNote.isEmpty ? "" : Self.playerNotes(trimmedNote)
         return """
         You write \(targetName) subtitles for \(source). Translate the meaning and the feeling, never word by word, \
         like a professional film subtitler. Turn slang, idioms and swearing into natural spoken \(targetName) of the same strength; \
@@ -145,7 +145,42 @@ final class GeminiBackend: TranslationBackend {
         """
     }
 
-    /// Hướng dẫn riêng cho tiếng Việt: xưng hô là chỗ dịch máy hay sai nhất.
+    /// Ghi chú của người chơi (quan hệ, xưng hô): phải thắng mọi quy tắc xưng hô của phong cách và cả các câu trước
+    /// (Claude từng gọi Joshua là "đệ" dù ghi chú nói "em", rồi các câu sau chép theo câu sai đó).
+    static func playerNotes(_ note: String) -> String {
+        """
+        Notes from the player for this game (relationships and how characters address each other). They override every \
+        pronoun rule above and any pronoun used in the previous lines. Follow them exactly, word for word: if a note says \
+        X calls Y "em", write "em", never a synonym such as "đệ" or "muội".
+        \(note)
+
+        """
+    }
+
+    /// Các dòng ghi chú của người chơi có nhắc tới người đang nói, đặt ngay trước câu cần dịch: model nhỏ (Haiku) bỏ qua
+    /// ghi chú nằm sâu trong lời dặn hệ thống nhưng làm theo khi nó nằm sát câu đang dịch.
+    static func pronounHint(note: String, line: String) -> String {
+        guard let colon = line.firstIndex(of: ":") else { return "" }
+        let speaker = line[..<colon].trimmingCharacters(in: .whitespaces)
+        guard !speaker.isEmpty, speaker.count <= 40 else { return "" }
+        let pattern = "\\b" + NSRegularExpression.escapedPattern(for: speaker) + "\\b"
+        let rows = note.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && $0.range(of: pattern, options: .regularExpression) != nil }
+        guard !rows.isEmpty else { return "" }
+        return "Pronoun rules for \(speaker) from the player's notes (they win over the previous lines and every other rule):\n"
+            + rows.joined(separator: "\n") + "\n\n"
+    }
+
+    /// Gợi ý xưng hô cho một câu (theo ghi chú của game đang chọn).
+    func lineHint(_ text: String) -> String {
+        var hint = Self.pronounHint(note: translationNote, line: text)
+        // Model hay quen tay dùng từ kiếm hiệp cho anh em ruột / người được nhắc tới, kể cả khi lời dặn hệ thống đã cấm.
+        if targetName == "Vietnamese", translationStyle != .eastern {
+            hint += "Never write \"huynh\", \"đệ\", \"tỷ\" or \"muội\": use \"anh\", \"chị\", \"em\" (\"anh ấy\", \"cô ấy\" for someone being talked about).\n\n"
+        }
+        return hint
+    }
+
     /// Hướng dẫn riêng cho tiếng Việt, theo phong cách của game: xưng hô là chỗ dịch máy hay sai nhất.
     static func vietnameseStyle(_ style: TranslationStyle) -> String {
         // Xưng hô theo quan hệ trong gia đình: model hay bỏ qua nếu không nhắc (chú Byron gọi cháu Clive là "ngươi").
@@ -157,7 +192,9 @@ final class GeminiBackend: TranslationBackend {
         """
         let common = family + """
         Greetings, goodbyes, thanks and stock phrases must use what a Vietnamese person would actually say in that moment, \
-        not a literal rendering. Keep the same pronouns as the previous lines between the same people. \
+        not a literal rendering. Keep pronouns consistent between the same two people, but the previous lines may contain \
+        mistakes: if they break the player's notes or these rules, do not copy them. When a line speaks to "you", work out \
+        from the previous lines who is listening and use the pronouns for that speaker and listener. \
         If the input is a cut-off fragment, translate only what is there and add nothing.
 
         """
@@ -165,7 +202,7 @@ final class GeminiBackend: TranslationBackend {
         case .modern, .auto:
             return """
             Pronouns: by default the speaker says "tôi" and calls teammates and friends "cậu" or "anh"/"cô", strangers and officials \
-            "anh"/"cô"/"ông". Use "tao/mày" only when the speaker is openly hostile or insulting. Never use "ngươi". \
+            "anh"/"cô"/"ông". Use "tao/mày" only when the speaker is openly hostile or insulting. Never use "ngươi", "huynh", "đệ", "tỷ", "muội". \
             "jack in" = "kết nối vào". Short Spanish or other foreign phrases are translated by meaning into the same natural Vietnamese, \
             except names and single words like "hermano", "choom" that work as nicknames. \
             \(common)Examples of the style:
@@ -183,7 +220,8 @@ final class GeminiBackend: TranslationBackend {
             Pronouns: a soldier or servant speaking to his lord or commander says "tôi" and calls him "ngài"; comrades-in-arms say "tôi" and "anh"; \
             lords, enemies and anyone speaking down say "ta" and "ngươi"; groups say "chúng tôi" (not including the listener) or \
             "chúng ta" (including the listener). Titles: "Sir X" = "ngài X", "Lady X" = "tiểu thư X", "my lord" = "thưa ngài", \
-            "Your Highness" = "điện hạ". Never use "tớ", "tụi", "bạn" or modern slang. \
+            "Your Highness" = "điện hạ". Never use "tớ", "tụi", "bạn", the martial-arts terms "huynh", "đệ", "tỷ", "muội" \
+            or modern slang. \
             \(common)Examples of the style:
             Soldier: As you command. → Soldier: Tuân lệnh.
             Clive: Thank you, Sir Wade. → Clive: Cảm ơn ngài Wade.
@@ -196,7 +234,7 @@ final class GeminiBackend: TranslationBackend {
             return """
             Setting: an epic of gods, giants and ancient myth. Write in a strong, terse, slightly archaic Vietnamese. \
             Pronouns: gods, giants and enemies speaking to each other or to mortals say "ta" and "ngươi"; a father speaking to his son \
-            says "ta" and "con", the son says "con" and "cha"; companions say "tôi" and "anh"/"ông". Never use "tớ", "tụi", "bạn" or \
+            says "ta" and "con", the son says "con" and "cha"; companions say "tôi" and "anh"/"ông". Never use "tớ", "tụi", "bạn", "huynh", "đệ", "tỷ", "muội" or \
             modern slang. \
             \(common)Examples of the style:
             Kratos: Boy. → Kratos: Con.
@@ -373,7 +411,7 @@ final class GeminiBackend: TranslationBackend {
             for p in context { input += "EN: \(p.source)\nTranslated: \(p.target)\n" }
             input += "\n"
         }
-        input += "Translate this new line:\n" + text
+        input += lineHint(text) + "Translate this new line:\n" + text
         let gen: [String: Any] = ["temperature": 0.2, "max_output_tokens": 256]
         let raw = try await sendWithFallback(system: subtitleSystemPrompt, input: input, generation: gen,
                                              timeout: timeout, maxAttempts: 2, preferred: preferred)

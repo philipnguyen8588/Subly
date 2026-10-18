@@ -148,7 +148,7 @@ public sealed class GeminiBackend : ITranslationBackend, ICloudChatBackend
             var source = gameName.Length == 0 ? "movies and video games" : $"the video game \"{gameName}\"";
             var story = storyContext.Length == 0 ? "" : $"\nStory so far (background only, never translate it): {storyContext}\n";
             var trimmedNote = translationNote.Trim();
-            var note = trimmedNote.Length == 0 ? "" : $"Notes from the player for this game (follow them): {trimmedNote}\n";
+            var note = trimmedNote.Length == 0 ? "" : PlayerNotes(trimmedNote);
             return $"You write {targetName} subtitles for {source}. Translate the meaning and the feeling, never word by word, " +
                    $"like a professional film subtitler. Turn slang, idioms and swearing into natural spoken {targetName} of the same strength; " +
                    "never translate them literally. Keep lines short and spoken, like real people talking. " +
@@ -157,6 +157,38 @@ public sealed class GeminiBackend : ITranslationBackend, ICloudChatBackend
                    "(for example \"Jackie: \"), start the output with that same name and colon; if it does not, do not add any name.\n" +
                    (targetName == "Vietnamese" ? VietnameseStyle(translationStyle) : "") + note + story + glossaryBlock;
         }
+    }
+
+    /// Ghi chú của người chơi (quan hệ, xưng hô): phải thắng mọi quy tắc xưng hô của phong cách và cả các câu trước
+    /// (Claude từng gọi Joshua là "đệ" dù ghi chú nói "em", rồi các câu sau chép theo câu sai đó).
+    static string PlayerNotes(string note) =>
+        "Notes from the player for this game (relationships and how characters address each other). They override every " +
+        "pronoun rule above and any pronoun used in the previous lines. Follow them exactly, word for word: if a note says " +
+        "X calls Y \"em\", write \"em\", never a synonym such as \"đệ\" or \"muội\".\n" + note + "\n";
+
+    /// Các dòng ghi chú của người chơi có nhắc tới người đang nói, đặt ngay trước câu cần dịch: model nhỏ (Haiku) bỏ qua
+    /// ghi chú nằm sâu trong lời dặn hệ thống nhưng làm theo khi nó nằm sát câu đang dịch.
+    public static string PronounHint(string note, string line)
+    {
+        int colon = line.IndexOf(':');
+        if (colon <= 0) return "";
+        var speaker = line[..colon].Trim();
+        if (speaker.Length == 0 || speaker.Length > 40) return "";
+        var re = new Regex(@"\b" + Regex.Escape(speaker) + @"\b");
+        var rows = note.Split('\n').Select(r => r.Trim()).Where(r => r.Length > 0 && re.IsMatch(r)).ToList();
+        if (rows.Count == 0) return "";
+        return $"Pronoun rules for {speaker} from the player's notes (they win over the previous lines and every other rule):\n" +
+               string.Join("\n", rows) + "\n\n";
+    }
+
+    /// Gợi ý xưng hô cho một câu (theo ghi chú của game đang chọn).
+    public string LineHint(string text)
+    {
+        var hint = PronounHint(translationNote, text);
+        // Model hay quen tay dùng từ kiếm hiệp cho anh em ruột / người được nhắc tới, kể cả khi lời dặn hệ thống đã cấm.
+        if (targetName == "Vietnamese" && translationStyle != TranslationStyle.eastern)
+            hint += "Never write \"huynh\", \"đệ\", \"tỷ\" or \"muội\": use \"anh\", \"chị\", \"em\" (\"anh ấy\", \"cô ấy\" for someone being talked about).\n\n";
+        return hint;
     }
 
     /// Hướng dẫn riêng cho tiếng Việt, theo phong cách của game: xưng hô là chỗ dịch máy hay sai nhất.
@@ -169,7 +201,9 @@ public sealed class GeminiBackend : ITranslationBackend, ICloudChatBackend
             "Decide the relationship from the conversation and the story context.\n";
         const string common = family +
             "Greetings, goodbyes, thanks and stock phrases must use what a Vietnamese person would actually say in that moment, " +
-            "not a literal rendering. Keep the same pronouns as the previous lines between the same people. " +
+            "not a literal rendering. Keep pronouns consistent between the same two people, but the previous lines may contain " +
+            "mistakes: if they break the player's notes or these rules, do not copy them. When a line speaks to \"you\", work out " +
+            "from the previous lines who is listening and use the pronouns for that speaker and listener. " +
             "If the input is a cut-off fragment, translate only what is there and add nothing.\n";
         return style switch
         {
@@ -179,7 +213,8 @@ public sealed class GeminiBackend : ITranslationBackend, ICloudChatBackend
                 "Pronouns: a soldier or servant speaking to his lord or commander says \"tôi\" and calls him \"ngài\"; comrades-in-arms say \"tôi\" and \"anh\"; " +
                 "lords, enemies and anyone speaking down say \"ta\" and \"ngươi\"; groups say \"chúng tôi\" (not including the listener) or " +
                 "\"chúng ta\" (including the listener). Titles: \"Sir X\" = \"ngài X\", \"Lady X\" = \"tiểu thư X\", \"my lord\" = \"thưa ngài\", " +
-                "\"Your Highness\" = \"điện hạ\". Never use \"tớ\", \"tụi\", \"bạn\" or modern slang. " +
+                "\"Your Highness\" = \"điện hạ\". Never use \"tớ\", \"tụi\", \"bạn\", the martial-arts terms \"huynh\", \"đệ\", \"tỷ\", \"muội\" " +
+                "or modern slang. " +
                 common + "Examples of the style:\n" +
                 "Soldier: As you command. → Soldier: Tuân lệnh.\n" +
                 "Clive: Thank you, Sir Wade. → Clive: Cảm ơn ngài Wade.\n" +
@@ -189,7 +224,7 @@ public sealed class GeminiBackend : ITranslationBackend, ICloudChatBackend
             TranslationStyle.myth =>
                 "Setting: an epic of gods, giants and ancient myth. Write in a strong, terse, slightly archaic Vietnamese. " +
                 "Pronouns: gods, giants and enemies speaking to each other or to mortals say \"ta\" and \"ngươi\"; a father speaking to his son " +
-                "says \"ta\" and \"con\", the son says \"con\" and \"cha\"; companions say \"tôi\" and \"anh\"/\"ông\". Never use \"tớ\", \"tụi\", \"bạn\" or " +
+                "says \"ta\" and \"con\", the son says \"con\" and \"cha\"; companions say \"tôi\" and \"anh\"/\"ông\". Never use \"tớ\", \"tụi\", \"bạn\", \"huynh\", \"đệ\", \"tỷ\", \"muội\" or " +
                 "modern slang. " +
                 common + "Examples of the style:\n" +
                 "Kratos: Boy. → Kratos: Con.\n" +
@@ -212,7 +247,7 @@ public sealed class GeminiBackend : ITranslationBackend, ICloudChatBackend
                 "Erlang: You still have far to go, monkey. → Erlang: Ngươi còn phải đi xa lắm, con khỉ.\n",
             _ =>
                 "Pronouns: by default the speaker says \"tôi\" and calls teammates and friends \"cậu\" or \"anh\"/\"cô\", strangers and officials " +
-                "\"anh\"/\"cô\"/\"ông\". Use \"tao/mày\" only when the speaker is openly hostile or insulting. Never use \"ngươi\". " +
+                "\"anh\"/\"cô\"/\"ông\". Use \"tao/mày\" only when the speaker is openly hostile or insulting. Never use \"ngươi\", \"huynh\", \"đệ\", \"tỷ\", \"muội\". " +
                 "\"jack in\" = \"kết nối vào\". Short Spanish or other foreign phrases are translated by meaning into the same natural Vietnamese, " +
                 "except names and single words like \"hermano\", \"choom\" that work as nicknames. " +
                 common + "Examples of the style:\n" +
@@ -369,7 +404,7 @@ public sealed class GeminiBackend : ITranslationBackend, ICloudChatBackend
             foreach (var p in context) input += $"EN: {p.source}\nTranslated: {p.target}\n";
             input += "\n";
         }
-        input += "Translate this new line:\n" + text;
+        input += LineHint(text) + "Translate this new line:\n" + text;
         var gen = new JsonObject { ["temperature"] = 0.2, ["max_output_tokens"] = 256 };
         var raw = await SendWithFallback(subtitleSystemPrompt, input, gen, timeout, 2, ct, modelOverride);
         var cleaned = Clean(raw);
