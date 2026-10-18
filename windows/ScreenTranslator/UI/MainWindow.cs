@@ -30,7 +30,9 @@ public sealed class MainWindow : Window
         Title = "Subly";
         Width = 1000; Height = 700; MinWidth = 920; MinHeight = 560;
         Background = Ui.Res("WindowBg");
-        Icon = new BitmapImage(new Uri("pack://application:,,,/Resources/AppIcon.ico"));
+        // BitmapFrame (không phải BitmapImage): giữ bộ giải mã .ico để WPF chọn đúng cỡ cho taskbar / Alt-Tab.
+        // BitmapImage chỉ lấy khung 16×16 đầu tiên → icon taskbar bé xíu giữa khung trống.
+        Icon = BitmapFrame.Create(new Uri("pack://application:,,,/Resources/AppIcon.ico"));
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         if (AppSettings.shared.mainWindowFrame is double[] f && f.Length == 4 && f[2] >= MinWidth && f[3] >= MinHeight
             && SystemParameters.VirtualScreenWidth > 0 && f[0] > SystemParameters.VirtualScreenLeft - 50 && f[1] > SystemParameters.VirtualScreenTop - 50
@@ -74,14 +76,14 @@ public sealed class MainWindow : Window
         HistoryStore.shared.Changed += () => Dispatcher.BeginInvoke(BuildTabBar);
         ShowScreen();
 
-        // Đóng cửa sổ thì app vẫn chạy nền (biểu tượng ở khay hệ thống); chọn Thoát ở menu khay để tắt hẳn.
+        // Đóng cửa sổ chính = tắt hẳn app (không chạy nền ở khay hệ thống). Thoát sau khi cửa sổ đóng xong
+        // (gọi Shutdown ngay trong Closing sẽ đóng lồng cửa sổ đang đóng).
         Closing += (_, e) =>
         {
             SaveFrame();
             if (reallyClose) return;
-            e.Cancel = true;
-            Hide();
-            App.NotifyHidden();
+            reallyClose = true;
+            Dispatcher.BeginInvoke(new Action(App.Quit));
         };
         PreviewKeyDown += (_, e) =>
         {

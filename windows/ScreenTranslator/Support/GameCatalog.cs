@@ -184,6 +184,7 @@ public static class GameCatalog
         try
         {
             using var req = new HttpRequestMessage(HttpMethod.Get, server + "/v1/games");
+            _ = Games;   // nạp cache trước (lấy ETag đã lưu); lúc mở app Refresh chạy trước mọi chỗ đọc Games
             string? tag;
             lock (lk) tag = etag;
             if (tag != null) req.Headers.TryAddWithoutValidation("If-None-Match", tag);

@@ -29,7 +29,7 @@ public sealed class SettingsWindow : Window
         Title = "Cài đặt";
         Width = 860; Height = 640; MinWidth = 760; MinHeight = 560;
         Background = Ui.Res("WindowBg");
-        Icon = new BitmapImage(new Uri("pack://application:,,,/Resources/AppIcon.ico"));
+        Icon = BitmapFrame.Create(new Uri("pack://application:,,,/Resources/AppIcon.ico"));   // giữ đủ các cỡ của .ico (xem MainWindow)
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         foreach (var (_, title, glyph) in tabs)
             sidebar.Items.Add(new ListBoxItem { Content = Ui.H(10, Ui.Icon(glyph, 14), Ui.Text(title, wrap: false)), Padding = new Thickness(10, 7, 10, 7) });

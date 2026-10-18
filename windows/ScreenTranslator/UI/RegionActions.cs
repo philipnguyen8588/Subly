@@ -269,7 +269,7 @@ public sealed class AppNav : INotifyPropertyChanged
         LeaveToStart();
     }
 
-    /// Phím tắt / menu khay Bắt đầu-Dừng: ở màn Bắt đầu thì đi qua bước kiểm tra và kết nối như bấm nút Bắt đầu.
+    /// Phím tắt Bắt đầu-Dừng: ở màn Bắt đầu thì đi qua bước kiểm tra và kết nối như bấm nút Bắt đầu.
     public void ToggleTranslation()
     {
         if (screen == Screen.start) { App.ShowMain(); Enter(); return; }

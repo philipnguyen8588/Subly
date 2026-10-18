@@ -58,7 +58,7 @@ chủ app nhận ra máy. Máy đã duyệt nhận vé ký Ed25519 hạn 7 ngày
 4. **Tab Màn hình** → *Chọn vùng game*: kéo chuột quanh toàn bộ khu vực hình của game. App chụp một tấm để bạn *Vẽ khung phụ đề* (có sẵn ở dải dưới).
 5. **Bắt đầu** (Ctrl+Alt+S). Hiểu cả màn hình: **Ctrl+Alt+T**.
 
-Đóng cửa sổ thì app vẫn chạy nền: biểu tượng ở khay hệ thống (góc phải taskbar) để mở lại hoặc *Thoát*.
+Đóng cửa sổ chính là tắt hẳn app (không chạy nền ở khay hệ thống). `--hidden` mở app thu nhỏ xuống taskbar.
 
 ## Khác bản macOS
 
@@ -77,7 +77,7 @@ chủ app nhận ra máy. Máy đã duyệt nhận vé ký Ed25519 hạn 7 ngày
 | `pmset displaysleepnow` | `SC_MONITORPOWER` + giữ máy thức |
 | Toạ độ CoreGraphics (point) | Pixel vật lý toàn cục (app chạy Per-Monitor DPI v2) |
 | Nhập khoá từ chiaki-ng (CFPreferences) | Registry `HKCU\Software\Chiaki\Chiaki` hoặc `%APPDATA%\Chiaki\Chiaki.ini` |
-| Icon Dock | Biểu tượng khay hệ thống |
+| Icon Dock | Icon trên taskbar (không dùng khay hệ thống) |
 
 Không port: `--show-frames` / khung kéo-thả trên màn hình (`RegionFrameEditor`), vốn chỉ dùng để debug ở bản macOS.
 

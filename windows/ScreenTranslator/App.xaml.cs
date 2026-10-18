@@ -11,8 +11,6 @@ public partial class App : Application
 {
     static MainWindow? main;
     static SettingsWindow? settingsWindow;
-    static System.Windows.Forms.NotifyIcon? tray;
-    static bool hiddenNoticeShown;
     static string[] args = Array.Empty<string>();
     // Khoá một bản chạy: giữ mutex suốt đời tiến trình; bản thứ hai thấy mutex đã có thì báo bản đầu hiện cửa sổ rồi thoát.
     static System.Threading.Mutex? singleInstance;
@@ -75,7 +73,11 @@ public partial class App : Application
 
     public static void ShowMain()
     {
-        main ??= new MainWindow();
+        if (main == null)
+        {
+            main = new MainWindow();
+            main.Closed += (_, _) => main = null;
+        }
         if (!main.IsVisible) main.Show();
         if (main.WindowState == WindowState.Minimized) main.WindowState = WindowState.Normal;
         main.Activate();
@@ -103,19 +105,12 @@ public partial class App : Application
         settingsWindow.Activate();
     }
 
-    public static void NotifyHidden()
-    {
-        if (hiddenNoticeShown || tray == null) return;
-        hiddenNoticeShown = true;
-        tray.ShowBalloonTip(3000, "Subly vẫn chạy nền", "Bấm biểu tượng ở khay hệ thống để mở lại. Chọn Thoát trong menu để tắt hẳn.", System.Windows.Forms.ToolTipIcon.Info);
-    }
-
+    /// Tắt hẳn app (đóng cửa sổ chính cũng gọi tới đây; app không chạy nền ở khay hệ thống).
     public static void Quit()
     {
         Log.Info("Thoát app");
         Pipeline.shared.Stop();
         AppSettings.shared.SaveNow();
-        if (tray != null) { tray.Visible = false; tray.Dispose(); tray = null; }
         if (main != null) { main.reallyClose = true; main.Close(); }
         Log.Flush();
         Current.Shutdown();
@@ -145,7 +140,6 @@ public partial class App : Application
 
         var s = AppSettings.shared;
         Log.Info($"Subly (Windows) launched. Profile '{s.activeProfile.name}', regions: {s.regions.Count}");
-        SetupTray();
         HandleCommandLine();
         StoryTracker.shared.Begin();
         WebServer.shared.Apply();
@@ -153,7 +147,9 @@ public partial class App : Application
         RegionActions.FillMissingWindowOffsets();
         PS5Coordinator.Install();
         RegisterHotkeys();
-        if (!Has("--hidden")) ShowMain();
+        // --hidden: mở thu nhỏ xuống taskbar (không còn khay hệ thống để ẩn vào).
+        ShowMain();
+        if (Has("--hidden") && main != null) main.WindowState = WindowState.Minimized;
         if (Has("--open-settings")) ShowSettings();
 
         // App luôn mở bình thường; việc kiểm tra máy chạy ngầm và chỉ chặn khi người dùng bấm Bắt đầu / Dịch màn hình.
@@ -176,30 +172,6 @@ public partial class App : Application
     {
         int i = Array.IndexOf(args, flag);
         return i >= 0 && i + 1 < args.Length ? args[i + 1] : null;
-    }
-
-    void SetupTray()
-    {
-        try
-        {
-            var iconStream = GetResourceStream(new Uri("pack://application:,,,/Resources/AppIcon.ico"))?.Stream;
-            tray = new System.Windows.Forms.NotifyIcon
-            {
-                Icon = iconStream != null ? new System.Drawing.Icon(iconStream) : System.Drawing.SystemIcons.Application,
-                Text = "Subly", Visible = true,
-            };
-            var menu = new System.Windows.Forms.ContextMenuStrip();
-            menu.Items.Add("Mở cửa sổ chính", null, (_, _) => RunOnUI(ShowMain));
-            menu.Items.Add("Bắt đầu / Dừng dịch", null, (_, _) => RunOnUI(AppNav.shared.ToggleTranslation));
-            menu.Items.Add("Dịch màn hình", null, (_, _) => RunOnUI(Pipeline.shared.AnalyzeScreen));
-            menu.Items.Add("Tắt màn hình", null, (_, _) => RunOnUI(() => DisplayPower.shared.SleepDisplay()));
-            menu.Items.Add("Cài đặt…", null, (_, _) => RunOnUI(ShowSettings));
-            menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
-            menu.Items.Add("Thoát", null, (_, _) => RunOnUI(Quit));
-            tray.ContextMenuStrip = menu;
-            tray.MouseClick += (_, ev) => { if (ev.Button == System.Windows.Forms.MouseButtons.Left) RunOnUI(ShowMain); };
-        }
-        catch (Exception ex) { Log.Warn($"Không tạo được biểu tượng khay: {ex.Message}"); }
     }
 
     // MARK: phím tắt
