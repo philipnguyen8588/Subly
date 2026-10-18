@@ -289,7 +289,15 @@
     <li>Trên điện thoại/trình duyệt, mở địa chỉ hiện trong cài đặt (ví dụ <code>http://192.168.x.x:8787</code>).</li>
     <li>Muốn nghe giọng đọc phát trên TV: bật “Phát giọng đọc trên TV / điện thoại”.</li>
   </ol>
-  <p class="muted" style="font-size:13.5px">Với TV Samsung, có app “Subtitle TV” cài qua Tizen để vẽ phụ đề đè lên hình game — xem hướng dẫn cài TV riêng.</p>
+  <p class="muted" style="font-size:13.5px">Với TV Samsung, có app “Subtitle TV” cài để vẽ phụ đề đè lên hình game.</p>
+  <p><b>Cài app lên TV Samsung ngay từ Subly:</b> bấm nút <b>Cài app lên TV</b> trên thanh trên cùng (màn Bắt đầu hoặc màn dịch).</p>
+  <ol>
+    <li>Trên TV: mở Apps, bấm <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <kbd>4</kbd> <kbd>5</kbd> trên remote, bật <b>Developer mode</b>, ô <b>Host PC IP</b> nhập IP máy Mac (hiện sẵn trong cửa sổ cài). Tắt TV rồi mở lại.</li>
+    <li>Nhập IP của TV (Cài đặt → Chung → Mạng → Trạng thái mạng), bấm <b>Cài lên TV</b>.</li>
+    <li>TV mới lần đầu: trình duyệt mở trang đăng nhập <b>Samsung Account</b> — đăng nhập để Samsung cấp chứng chỉ cho TV đó (chỉ cần một lần).</li>
+    <li>Cài xong, trên TV: Back → Máy tính → “Dò máy trong mạng”.</li>
+  </ol>
+  <p class="muted" style="font-size:13.5px">TV đã có app cài bằng chứng chỉ khác (vd. cài từ máy Windows): Subly hỏi gỡ app cũ rồi cài lại (mất cài đặt đã lưu trong app trên TV). Muốn cài đè không mất gì: chép thư mục chứng chỉ từ máy Windows (<code>%APPDATA%\ScreenTranslator\tv-certs\Subly-Auto</code>, có <code>password.txt</code>) sang <code>~/SamsungCertificate/</code> trên Mac.</p>
 
   <!-- ============ ENGINE ============ -->
   <h2 id="engines">Chọn engine dịch</h2>

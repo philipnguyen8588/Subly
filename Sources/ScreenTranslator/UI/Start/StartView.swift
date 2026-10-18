@@ -31,6 +31,9 @@ struct StartHeader: View {
         HStack(spacing: 10) {
             AppLogo()
             Spacer()
+            Button { WindowManager.shared.showTvInstall() } label: { Label("Cài app lên TV", systemImage: "tv") }
+                .appButton(.tinted)
+                .help("Cài app Subtitle TV lên TV Samsung: hiện phụ đề dịch đè lên game ngay trên TV")
             Button { HeaderBar.openGuide() } label: { Image(systemName: "questionmark") }
                 .appIconButton().help("Hướng dẫn sử dụng app")
             Button { WindowManager.shared.showSettings() } label: { Image(systemName: "gearshape") }

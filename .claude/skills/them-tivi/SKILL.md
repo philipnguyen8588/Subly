@@ -49,6 +49,17 @@ Subly.exe phát hành KHÔNG kèm khoá của chủ app. Biến môi trường k
 `SUBLY_TV_CERT_NOBROWSER`, `SUBLY_TV_NO_SHARED_CERTS` (bỏ qua SamsungCertificate để thử luồng TV mới).
 Đã cài thật lên S95B 192.168.8.31 bằng bản phát hành (18/10/2026).
 
+## Cách 1b — nút trong app Mac (Subly.app)
+Cùng luồng với Cách 1, port Swift trong `Sources/ScreenTranslator/TV/`: `SdbClient.swift` (tự nói giao thức sdb qua
+TCP 26101 — sdb macOS của Samsung chỉ có x86_64, không chạy trên Apple Silicon thiếu Rosetta, nên KHÔNG đóng kèm sdb),
+`WgtSigner.swift`, `SamsungCert.swift`, `TvKeys.swift` (.p12 đọc/ghi qua `/usr/bin/openssl` LibreSSL), `TvInstaller.swift`;
+UI `UI/TvInstallView.swift` (nút trên header màn Bắt đầu + icon TV ở màn dịch; cờ test `--tv-install`). Makefile chép
+`windows/tizen/SubtitleTV/*` và `windows/tizen/ca/*` vào `Subly.app/Contents/Resources/tv/`.
+Chứng chỉ: `~/Library/Application Support/ScreenTranslator/tv-certs/<tên>` (app xin) và `~/SamsungCertificate/<tên>`
+(chép từ máy Windows sang được, cần `password.txt`; `*.pwd` DPAPI không giải được trên Mac). Cùng biến môi trường test.
+Đã kiểm offline (18/10/2026): xin chứng chỉ với máy chủ ký giả, CSR/SAN đúng, .wgt ký xong tự xác minh lại OK.
+Chưa chạy thật với TV (TV chỉ nhận kết nối từ IP trong ô Host PC IP).
+
 ## Cách 2 — script tự động (máy không có Subly)
 `windows\tizen\auto-install.ps1 -Tv <IP-TV>` (hoặc `TU-DONG-CAI-TV.bat`), cùng logic như Cách 1. Bộ cài cho máy khác:
 `windows\tizen\make-installer.ps1` → `windows\dist\SubtitleTV-Installer\` (+ .zip): sdb.exe, app, script, CA, các bộ

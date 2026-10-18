@@ -39,6 +39,11 @@ app: build
 	# Hướng dẫn sử dụng (mở bằng nút Hướng dẫn trong app).
 	mkdir -p $(APP)/Contents/Resources/guide
 	cp Resources/guide/*.html $(APP)/Contents/Resources/guide/
+	# Cài app Subtitle TV lên TV Samsung (nút "Cài app lên TV"): mã nguồn app TV + CA của Samsung để ghép chứng chỉ.
+	mkdir -p $(APP)/Contents/Resources/tv/SubtitleTV $(APP)/Contents/Resources/tv/ca
+	cp windows/tizen/SubtitleTV/config.xml windows/tizen/SubtitleTV/index.html windows/tizen/SubtitleTV/main.js \
+		windows/tizen/SubtitleTV/style.css windows/tizen/SubtitleTV/icon.png $(APP)/Contents/Resources/tv/SubtitleTV/
+	cp windows/tizen/ca/*.cer windows/tizen/ca/*.crt $(APP)/Contents/Resources/tv/ca/
 	mkdir -p $(APP)/Contents/Frameworks
 	cp Vendor/sherpa-onnx/lib/libsherpa-onnx-c-api.dylib Vendor/sherpa-onnx/lib/libonnxruntime.dylib $(APP)/Contents/Frameworks/
 	# Bỏ bảng ký hiệu khỏi file chạy (khó đọc hơn khi dịch ngược). Ký là bước cuối cùng.

@@ -339,6 +339,8 @@ final class AppSettings: ObservableObject {
     // MARK: Web (xem trên iPhone / iPad)
     @Stored("webServerEnabled") var webServerEnabled: Bool = true
     @Stored("webServerPort") var webServerPort: Int = 8787
+    /// IP của TV Samsung lần cài app gần nhất (cửa sổ "Cài app lên TV").
+    @Stored("tvInstallIp") var tvInstallIp: String = ""
     /// Cờ runtime (không lưu): --no-web tắt máy chủ web, --web-port N đổi cổng khi test.
     var forceNoWeb = false
     var forceWebPort: Int? = nil

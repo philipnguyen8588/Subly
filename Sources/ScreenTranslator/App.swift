@@ -39,6 +39,7 @@ final class WindowManager {
     static let shared = WindowManager()
     private var main: NSWindow?
     private var settings: NSWindow?
+    private var tvInstall: NSWindow?
     private var translationHost: NSWindow?
 
     private var startupError: NSWindow?
@@ -122,6 +123,24 @@ final class WindowManager {
             main = w
         }
         main?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// Cửa sổ "Cài app lên TV Samsung". Đóng thì bỏ hẳn (huỷ lượt cài đang chạy), mở lại là cửa sổ mới.
+    func showTvInstall() {
+        if tvInstall == nil {
+            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 520),
+                             styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+            w.title = "Cài app lên TV Samsung"
+            w.isReleasedWhenClosed = false
+            w.contentView = NSHostingView(rootView: TvInstallView())
+            w.center()
+            NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: w, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.tvInstall?.contentView = nil; self?.tvInstall = nil }
+            }
+            tvInstall = w
+        }
+        tvInstall?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
@@ -383,6 +402,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         // --show-shot: mở modal ảnh "dịch màn hình" mới nhất còn lưu (kiểm tra giao diện).
         if args.contains("--show-shot"), let a = HistoryStore.shared.analyses.first(where: \.hasImage) { ShotViewer.shared.show(a.id) }
+        if args.contains("--tv-install") { DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { WindowManager.shared.showTvInstall() } }
         if args.contains("--show-frames") { RegionEditor.shared.showAll(settings.regions) }
         if args.contains("--autostart") { AppNav.shared.screen = .main; Task { @MainActor in await Pipeline.shared.start() } }
         if args.contains("--analyze-once") {

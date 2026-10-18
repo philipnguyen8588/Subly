@@ -263,6 +263,9 @@ struct HeaderBar: View {
                 Button { DisplayPower.shared.sleepDisplay() } label: { Image(systemName: "moon.fill") }
                     .appIconButton()
                     .help("Tắt màn hình để tiết kiệm điện (app vẫn dịch và đọc). Di chuột hoặc gõ phím để bật lại")
+                Button { WindowManager.shared.showTvInstall() } label: { Image(systemName: "tv") }
+                    .appIconButton()
+                    .help("Cài app Subtitle TV lên TV Samsung: hiện phụ đề dịch đè lên game ngay trên TV")
                 Button { Self.openGuide() } label: { Image(systemName: "questionmark") }
                     .appIconButton()
                     .help("Hướng dẫn sử dụng app")
