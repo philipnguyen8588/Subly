@@ -16,6 +16,7 @@ final class VisionOCR {
         var maxPerRow = 0             // nhiều mảnh trên một hàng = cột menu
         var heightRatio = 1.0         // chiều cao mảnh lớn nhất / nhỏ nhất = cỡ chữ lẫn lộn
         var lineHeights: [Double] = []   // chiều cao chữ của từng hàng trong `lines` (tỉ lệ theo chiều cao ảnh)
+        var faint: [String] = []         // mảnh chữ bị bỏ vì quá mờ (để ghi log)
     }
 
     var languages: [String] = ["en-US"]
@@ -32,6 +33,9 @@ final class VisionOCR {
     /// Bỏ hàng có chữ thấp hơn mức này (tỉ lệ theo chiều cao ảnh). RegionWorker đặt theo cỡ chữ phụ đề đã học
     /// để loại chữ nhỏ trong cảnh game (đồng hồ "mph" trên bảng điều khiển xe…). Chỉ áp dụng cho `recognize`.
     var minRowHeight: CGFloat = 0
+    /// Bỏ mảnh chữ mờ: độ chênh sáng trong khung chữ (xem `contrast`) dưới mức này. Đo trên ảnh thật: phụ đề, tên người nói,
+    /// nút bấm 100–215; chữ mờ trong cảnh (đồng hồ tốc độ xe, chữ in nhỏ trên màn hình game) 13–52. Chỉ áp dụng cho `recognize`.
+    static let minContrast = 70
 
     /// Mọi lượt nhận dạng chữ trong app chạy lần lượt, không song song: đã gặp Vision treo hẳn (chờ Neural Engine mãi)
     /// khi OCR phụ đề và "Dịch màn hình" chạy cùng lúc.
@@ -44,7 +48,8 @@ final class VisionOCR {
     /// Cho phụ đề (frame từ SCStream).
     func recognize(_ pb: CVPixelBuffer) -> Result? {
         let t0 = CFAbsoluteTimeGetCurrent()
-        guard let r = run(VNImageRequestHandler(cvPixelBuffer: pb, orientation: .up, options: [:]), level: level, centerOnly: centerOnly, minRowHeight: minRowHeight) else { return nil }
+        guard let r = run(VNImageRequestHandler(cvPixelBuffer: pb, orientation: .up, options: [:]), level: level, centerOnly: centerOnly,
+                          minRowHeight: minRowHeight, contrastOf: pb) else { return nil }
         var out = r
         out.ms = (CFAbsoluteTimeGetCurrent() - t0) * 1000
         return out
@@ -194,7 +199,38 @@ final class VisionOCR {
         return rows.indices.map { i in rows[i].indices.filter { keep[i][$0] }.flatMap { rows[i][$0] } }.filter { !$0.isEmpty }
     }
 
-    private func run(_ handler: VNImageRequestHandler, level: VNRequestTextRecognitionLevel, centerOnly: Bool = false, minRowHeight: CGFloat = 0) -> Result? {
+    /// Độ chênh sáng giữa nét chữ và nền trong khung chữ: độ sáng p98 − p2 (0–255). Phụ đề có nét sáng trên nền / viền tối nên
+    /// chênh lớn; chữ mờ hoà vào cảnh thì nhỏ. `box` theo toạ độ Vision (chuẩn hoá, gốc dưới-trái). nil nếu không đo được.
+    static func contrast(_ pb: CVPixelBuffer, box: CGRect) -> Int? {
+        guard CVPixelBufferGetPixelFormatType(pb) == kCVPixelFormatType_32BGRA else { return nil }
+        CVPixelBufferLockBaseAddress(pb, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(pb, .readOnly) }
+        guard let base = CVPixelBufferGetBaseAddress(pb)?.assumingMemoryBound(to: UInt8.self) else { return nil }
+        let w = CVPixelBufferGetWidth(pb), h = CVPixelBufferGetHeight(pb), bpr = CVPixelBufferGetBytesPerRow(pb)
+        let x0 = max(0, Int(box.minX * CGFloat(w))), x1 = min(w, Int(box.maxX * CGFloat(w)))
+        let y0 = max(0, Int((1 - box.maxY) * CGFloat(h))), y1 = min(h, Int((1 - box.minY) * CGFloat(h)))
+        guard x1 > x0, y1 > y0 else { return nil }
+        let step = max(1, Int((Double((x1 - x0) * (y1 - y0)) / 20_000).squareRoot()))   // tối đa ~20k điểm
+        var hist = [Int](repeating: 0, count: 256), n = 0
+        for y in stride(from: y0, to: y1, by: step) {
+            let row = base + y * bpr
+            for x in stride(from: x0, to: x1, by: step) {
+                let p = row + x * 4     // B G R A
+                hist[(114 * Int(p[0]) + 587 * Int(p[1]) + 299 * Int(p[2])) / 1000] += 1
+                n += 1
+            }
+        }
+        func pct(_ q: Double) -> Int {
+            let target = Int(Double(n) * q)
+            var acc = 0
+            for (v, c) in hist.enumerated() { acc += c; if acc > target { return v } }
+            return 255
+        }
+        return pct(0.98) - pct(0.02)
+    }
+
+    private func run(_ handler: VNImageRequestHandler, level: VNRequestTextRecognitionLevel, centerOnly: Bool = false, minRowHeight: CGFloat = 0,
+                     contrastOf pb: CVPixelBuffer? = nil) -> Result? {
         let req = VNRecognizeTextRequest()
         req.recognitionLevel = level
         req.recognitionLanguages = languages
@@ -204,14 +240,16 @@ final class VisionOCR {
             Log.error("OCR failed: \(error.localizedDescription)")
             return nil
         }
+        var faint: [String] = []
         let all = (req.results ?? []).compactMap { o -> (String, Float, CGRect)? in
             guard let c = o.topCandidates(1).first else { return nil }
             if level == .accurate, c.confidence < minConfidence { return nil }
             let cleaned = TextUtils.stripJunkTokens(c.string)
             guard !cleaned.isEmpty else { return nil }
+            if let pb, let k = Self.contrast(pb, box: o.boundingBox), k < Self.minContrast { faint.append("\(cleaned) (\(k))"); return nil }
             return (cleaned, c.confidence, o.boundingBox)
         }
-        guard !all.isEmpty else { return Result(text: "", lines: [], confidence: 0, level: level, ms: 0) }
+        guard !all.isEmpty else { var r = Result(text: "", lines: [], confidence: 0, level: level, ms: 0); r.faint = faint; return r }
 
         // Gom theo dòng: Vision dùng gốc dưới-trái → midY lớn = dòng trên.
         let sorted = all.sorted { $0.2.midY > $1.2.midY }
@@ -237,6 +275,7 @@ final class VisionOCR {
         var r = Result(text: lines.joined(separator: " "), lines: lines, confidence: conf, level: level, ms: 0)
         r.lineHeights = rowsText.map(\.1)
         r.observations = obs.count
+        r.faint = faint
         r.rows = groups.count
         r.maxPerRow = groups.map(\.count).max() ?? 0
         if let lo = heights.min(), let hi = heights.max(), lo > 0 { r.heightRatio = Double(hi / lo) }

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -24,6 +25,7 @@ public sealed class RegionWorker
     volatile bool stopped;
     bool restarting;                // chỉ đọc/ghi trên gateQueue
     string lastText = "";
+    string lastFaint = "";
     /// Các câu đã nhận còn đang được nhớ (để lọc trùng). `missingSince`: lần OCR đầu tiên không còn thấy câu này
     /// (null = vẫn đang trên màn hình). Màn hình đứng yên thì không OCR nên không ai đánh dấu → câu vẫn được nhớ.
     readonly List<(string text, DateTime? missingSince)> recent = new();
@@ -255,12 +257,20 @@ public sealed class RegionWorker
     void DoOCR(Frame pb)
     {
         if (stopped) return;
-        ocr.minRowHeight = (subtitleHeight ?? 0) * 0.6;
+        // Tên ở dòng trên chữ nhỏ hơn câu thoại ("Jill" của FF16 chỉ cao ~57 % hàng câu) → hạ ngưỡng, kẻo mất tên.
+        ocr.minRowHeight = (subtitleHeight ?? 0) * (namesAbove() ? 0.4 : 0.6);
         var r = ocr.Recognize(pb).GetAwaiter().GetResult();
         if (r == null) return;
         double lag = Math.Min(2.5, (DateTime.UtcNow - lastLookAt).TotalSeconds);
         lastLookAt = DateTime.UtcNow;
         onOCR?.Invoke();
+        // Chữ mờ đã bị bỏ (đồng hồ tốc độ xe…): ghi log khi nội dung đổi, để chỉnh ngưỡng WinOcr.MinContrast sau này.
+        var faintKey = string.Join(" ", r.faint.Select(x => Regex.Replace(x, @" \(\d+\)$", "")));
+        if (!TextUtils.SameLine(faintKey, lastFaint, dedup))
+        {
+            lastFaint = faintKey;
+            if (faintKey.Length > 0) { var fl = string.Join(" ⏎ ", r.faint); Log.Info($"MỜ[{region.name}] bỏ (độ tương phản < {WinOcr.MinContrast}): {fl[..Math.Min(160, fl.Length)]}"); }
+        }
         // Game hiện tên ở dòng riêng phía trên: ghép "Tên" + câu bên dưới thành "Tên: câu".
         IList<string> rows = r.lines;
         bool nameJoined = false;

@@ -23,6 +23,7 @@ public class OcrResult
     public int maxPerRow;             // nhiều mảnh trên một hàng = cột menu
     public double heightRatio = 1.0;  // chiều cao mảnh lớn nhất / nhỏ nhất = cỡ chữ lẫn lộn
     public List<double> lineHeights = new();   // chiều cao chữ của từng hàng trong `lines` (tỉ lệ theo chiều cao ảnh)
+    public List<string> faint = new();         // mảnh chữ bị bỏ vì quá mờ (để ghi log)
 }
 
 /// Một khối chữ kèm vị trí (chuẩn hoá 0...1, gốc trên-trái) để vẽ bản dịch đè lên đúng chỗ.
@@ -47,6 +48,34 @@ public sealed class WinOcr
     public const double centerBandLo = 0.40, centerBandHi = 0.60;
     /// Bỏ hàng có chữ thấp hơn mức này (tỉ lệ theo chiều cao ảnh).
     public double minRowHeight;
+    /// Bỏ mảnh chữ mờ: độ chênh sáng trong khung chữ (xem `Contrast`) dưới mức này. Đo trên ảnh thật: phụ đề, tên người nói,
+    /// nút bấm 100–215; chữ mờ trong cảnh (đồng hồ tốc độ xe, chữ in nhỏ trên màn hình game) 13–52. Chỉ áp dụng cho `Recognize`.
+    public const int MinContrast = 70;
+
+    /// Độ chênh sáng giữa nét chữ và nền trong khung chữ: độ sáng p98 − p2 (0–255). Phụ đề có nét sáng trên nền / viền tối nên
+    /// chênh lớn; chữ mờ hoà vào cảnh thì nhỏ. `box` chuẩn hoá, gốc trên-trái. null nếu không đo được.
+    public static int? Contrast(Frame f, RectD box)
+    {
+        int x0 = Math.Max(0, (int)(box.MinX * f.Width)), x1 = Math.Min(f.Width, (int)(box.MaxX * f.Width));
+        int y0 = Math.Max(0, (int)(box.MinY * f.Height)), y1 = Math.Min(f.Height, (int)(box.MaxY * f.Height));
+        if (x1 <= x0 || y1 <= y0) return null;
+        int step = Math.Max(1, (int)Math.Sqrt((x1 - x0) * (double)(y1 - y0) / 20_000));   // tối đa ~20k điểm
+        var hist = new int[256]; int n = 0;
+        for (int y = y0; y < y1; y += step)
+            for (int x = x0; x < x1; x += step)
+            {
+                int i = y * f.Stride + x * 4;     // B G R A
+                hist[(114 * f.Data[i] + 587 * f.Data[i + 1] + 299 * f.Data[i + 2]) / 1000]++;
+                n++;
+            }
+        int Pct(double q)
+        {
+            int target = (int)(n * q), acc = 0;
+            for (int v = 0; v < 256; v++) { acc += hist[v]; if (acc > target) return v; }
+            return 255;
+        }
+        return Pct(0.98) - Pct(0.02);
+    }
 
     static OcrEngine? engine;
     static readonly SemaphoreSlim gate = new(1, 1);
@@ -146,7 +175,16 @@ public sealed class WinOcr
         var sw = Stopwatch.StartNew();
         var raw = await RunRaw(f);
         if (raw == null) return null;
+        var faint = new List<string>();
+        raw = raw.Where(o =>
+        {
+            var k = Contrast(f, o.box);
+            if (k == null || k >= MinContrast) return true;
+            faint.Add($"{o.text} ({k})");
+            return false;
+        }).ToList();
         var r = Build(raw, centerOnly, minRowHeight);
+        r.faint = faint;
         r.ms = sw.Elapsed.TotalMilliseconds;
         return r;
     }

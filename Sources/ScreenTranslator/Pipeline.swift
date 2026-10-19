@@ -19,6 +19,7 @@ final class RegionWorker {
     private var stopped = false                   // chỉ đọc/ghi trên gateQueue
     private var restarting = false                // chỉ đọc/ghi trên gateQueue
     private var lastText = ""
+    private var lastFaint = ""
     /// Các câu đã nhận còn đang được nhớ (để lọc trùng). `missingSince`: lần OCR đầu tiên không còn thấy câu này
     /// (nil = vẫn đang trên màn hình). Màn hình đứng yên thì không OCR nên không ai đánh dấu → câu vẫn được nhớ.
     private var recent: [(text: String, missingSince: Date?)] = []
@@ -222,13 +223,20 @@ final class RegionWorker {
                     if !stopped, stableTimer == nil, pendingPB != nil { flushPending() }
                 }
             }
-            ocr.minRowHeight = CGFloat((subtitleHeight ?? 0) * 0.6)
+            // Tên ở dòng trên chữ nhỏ hơn câu thoại ("Jill" của FF16 chỉ cao ~57 % hàng câu) → hạ ngưỡng, kẻo mất tên.
+            ocr.minRowHeight = CGFloat((subtitleHeight ?? 0) * (namesAbove() ? 0.4 : 0.6))
             // OCR trong tiến trình phụ: Vision treo thì tiến trình phụ bị tắt và mở lại, app vẫn chạy tiếp.
             guard let r = helper.recognize(pb, accurate: ocr.level == .accurate, minTextHeight: ocr.minTextHeight,
                                            centerOnly: ocr.centerOnly, minRowHeight: ocr.minRowHeight) else { return }
             let lag = min(2.5, Date().timeIntervalSince(lastLookAt))
             lastLookAt = Date()
             onOCR?()
+            // Chữ mờ đã bị bỏ (đồng hồ tốc độ xe…): ghi log khi nội dung đổi, để chỉnh ngưỡng VisionOCR.minContrast sau này.
+            let faintKey = r.faint.map { $0.replacingOccurrences(of: #" \(\d+\)$"#, with: "", options: .regularExpression) }.joined(separator: " ")
+            if !TextUtils.sameLine(faintKey, lastFaint, threshold: dedup) {
+                lastFaint = faintKey
+                if !faintKey.isEmpty { Log.info("MỜ[\(region.name)] bỏ (độ tương phản < \(VisionOCR.minContrast)): \(r.faint.joined(separator: " ⏎ ").prefix(160))") }
+            }
             // Game hiện tên ở dòng riêng phía trên: ghép "Tên" + câu bên dưới thành "Tên: câu".
             var rows = r.lines
             var nameJoined = false

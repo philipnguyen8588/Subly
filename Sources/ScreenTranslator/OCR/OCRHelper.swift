@@ -21,16 +21,19 @@ enum OCRHelper {
         var ok: Bool
         var text = "", lines: [String] = [], confidence: Float = 0, accurate = true, ms = 0.0
         var observations = 0, rows = 0, maxPerRow = 0, heightRatio = 1.0, lineHeights: [Double] = []
+        var faint: [String]?        // optional: tiến trình phụ bản cũ (chưa mở lại app sau khi cài) không gửi trường này
 
         init(_ r: VisionOCR.Result) {
             ok = true; text = r.text; lines = r.lines; confidence = r.confidence; accurate = r.level == .accurate; ms = r.ms
             observations = r.observations; rows = r.rows; maxPerRow = r.maxPerRow; heightRatio = r.heightRatio; lineHeights = r.lineHeights
+            faint = r.faint
         }
         init(failed: Void) { ok = false }
 
         var result: VisionOCR.Result {
             var r = VisionOCR.Result(text: text, lines: lines, confidence: confidence, level: accurate ? .accurate : .fast, ms: ms)
             r.observations = observations; r.rows = rows; r.maxPerRow = maxPerRow; r.heightRatio = heightRatio; r.lineHeights = lineHeights
+            r.faint = faint ?? []
             return r
         }
     }
