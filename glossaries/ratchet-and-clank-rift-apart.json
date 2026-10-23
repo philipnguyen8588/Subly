@@ -104,7 +104,8 @@
       {"term": "Dimensional Map", "translation": "Bản đồ Đa chiều"},
       {"term": "Dimensional Cataclysm", "translation": "Thảm họa Đa chiều"},
       {"term": "dimensional anomalies", "translation": "dị thường không gian"},
-      {"term": "dimensional rift", "translation": "khe nứt không gian"}
+      {"term": "dimensional rift", "translation": "khe nứt không gian"},
+      {"term": "rift", "translation": "khe nứt"}
     ]}
   ]
 }
