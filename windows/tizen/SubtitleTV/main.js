@@ -115,6 +115,7 @@
     speakerColor: 'line', // line = tô cả câu theo màu nhân vật | name = chỉ tên | off
     voice: true,         // phát giọng đọc máy tính gửi sang (bật "Phát giọng đọc trên TV" trong app máy tính)
     voiceVolume: 100,    // %
+    subWidth: 0,         // 0 = tự động (câu dài tách 2 dòng dài bằng nhau) | 30–95 = bề ngang tối đa cố định, % chiều rộng màn hình
   };
   var cfg = load();
   function load() {
@@ -397,10 +398,12 @@
     }
     el.style.maxWidth = Math.ceil(hi) + 'px';
   }
+  /// Bề ngang tối đa của phụ đề khi chọn cố định (% của 1920 px), không quá vùng vẽ được của kiểu hiển thị.
+  function subWidthPx() { return Math.min(overlay() ? 1788 : 1800, Math.round(1920 * cfg.subWidth / 100)); }
   /// Đang chỉnh vị trí / cỡ chữ mà chưa có câu nào: hiện câu mẫu vài giây để thấy kết quả.
   function previewSub() {
     if (rt.last) showSubtitle(rt.last);
-    else showSubtitle({ translated: 'Kratos: Phụ đề mẫu — vị trí và cỡ chữ', source: 'Kratos: Sample subtitle' }, true);
+    else showSubtitle({ translated: 'Kratos: Phụ đề mẫu — một câu dài để xem vị trí, cỡ chữ và chỗ xuống dòng của phụ đề trên màn hình TV', source: 'Kratos: A long sample subtitle to check position, size and line breaks' }, true);
   }
   /// Hết giờ giữ câu cuối: xoá chữ, quên người nói, thu dải nếu đang dịch bình thường (đang dừng / lỗi thì giữ dải để thấy icon).
   function expireSubtitle() {
@@ -429,10 +432,15 @@
       t.style.fontSize = (46 * cfg.fontScale).toFixed(1) + 'px';
       if (pv) pv.style.fontSize = (29 * cfg.fontScale).toFixed(1) + 'px';
       if (sc) sc.style.fontSize = (27 * cfg.fontScale).toFixed(1) + 'px';
-      // Câu vừa (tới ~60 ký tự) giữ một dòng; câu dài hơn mới tách 2 dòng dài gần bằng nhau.
-      balanceLines(t, 34 * parseFloat(t.style.fontSize));
-      if (pv) balanceLines(pv, 52 * parseFloat(pv.style.fontSize));
-      if (sc) balanceLines(sc, 55 * parseFloat(sc.style.fontSize));
+      if (cfg.subWidth) {
+        // Bề ngang cố định: chữ chạy hết dòng, vượt quá mới xuống dòng (không cân dòng, không co chữ).
+        [t, pv, sc].forEach(function (el) { if (el) el.style.maxWidth = subWidthPx() + 'px'; });
+      } else {
+        // Câu vừa (tới ~60 ký tự) giữ một dòng; câu dài hơn mới tách 2 dòng dài gần bằng nhau.
+        balanceLines(t, 34 * parseFloat(t.style.fontSize));
+        if (pv) balanceLines(pv, 52 * parseFloat(pv.style.fontSize));
+        if (sc) balanceLines(sc, 55 * parseFloat(sc.style.fontSize));
+      }
       clearTimeout(hideTimer);
       if (preview) hideTimer = setTimeout(function () { if (rt.last) showSubtitle(rt.last); else sub.innerHTML = ''; }, 2500);
       else if (cfg.keepLast > 0) hideTimer = setTimeout(expireSubtitle, cfg.keepLast * 1000);
@@ -441,6 +449,7 @@
     sub.innerHTML = inner;
     var tr = sub.querySelector('.tr'), src = sub.querySelector('.src'), pv = sub.querySelector('.prev');
     var pad = cfg.band >= 60 ? 14 : 2;
+    if (cfg.subWidth) [tr, src, pv].forEach(function (el) { if (el) el.style.maxWidth = subWidthPx() + 'px'; });
     var size = Math.max(12, Math.min(52, (cfg.band - pad) / ((withSrc ? 1.75 : 1.18) + (pv ? 0.75 : 0))) * cfg.fontScale);
     for (var tries = 0; tries < 30; tries++) {
       tr.style.fontSize = size + 'px';
@@ -1015,6 +1024,14 @@
       { label: 'Cỡ chữ', val: '×' + cfg.fontScale.toFixed(1), sub: 'Khi đang xem: ▲ ▼',
         lr: function (d) { cfg.fontScale = Math.round(Math.max(0.5, Math.min(1.6, cfg.fontScale + d * 0.1)) * 10) / 10; save(); } },
     ]).concat([
+      { label: 'Độ rộng phụ đề', val: cfg.subWidth ? 'Cố định ' + cfg.subWidth + '% màn hình' : 'Tự động',
+        sub: cfg.subWidth ? 'Chữ chạy hết ' + subWidthPx() + ' px rồi mới xuống dòng (◀ ▶ đổi, dưới 30% là Tự động)'
+          : 'Câu ngắn một dòng, câu dài tách 2 dòng dài bằng nhau (rộng tới ~81% màn hình)',
+        lr: function (d) {
+          var opts = [0]; for (var p = 30; p <= 95; p += 5) opts.push(p);
+          var i = opts.indexOf(cfg.subWidth); if (i < 0) i = 0;
+          cfg.subWidth = opts[(i + d + opts.length) % opts.length]; save(); previewSub();
+        } },
       { label: 'Giọng đọc trên TV', val: onOff(cfg.voice), sub: 'Cần bật "Phát giọng đọc trên TV / điện thoại" trong Cài đặt → Voice của app máy tính',
         lr: function () { cfg.voice = !cfg.voice; if (!cfg.voice) stopVoice(); save(); }, ok: function () { cfg.voice = !cfg.voice; if (!cfg.voice) stopVoice(); save(); } },
       { label: 'Âm lượng giọng đọc', val: cfg.voiceVolume + '%', sub: 'So với tiếng game (âm lượng chung vẫn chỉnh bằng nút + − trên remote)',
