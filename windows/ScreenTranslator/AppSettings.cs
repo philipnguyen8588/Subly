@@ -277,7 +277,7 @@ public sealed class AppSettings : INotifyPropertyChanged
     public bool skipInterjections { get => Get("skipInterjections", true); set => Set("skipInterjections", value); }
     /// Chỉ nhận chữ canh giữa khung phụ đề (bỏ nút bấm ở mép).
     public bool centerOnlySubtitles { get => Get("centerOnlySubtitles", true); set => Set("centerOnlySubtitles", value); }
-    /// Bỏ câu 1–2 từ và câu toàn từ cơ bản (người chơi tự hiểu).
+    /// Bỏ câu ngắn toàn từ cơ bản / tên nhân vật (người chơi tự hiểu).
     public bool skipSimpleLines { get => Get("skipSimpleLines", true); set => Set("skipSimpleLines", value); }
     /// Bỏ qua chữ giao diện (menu/cài đặt), chỉ đọc khi giống phụ đề.
     public bool skipUIText { get => Get("skipUIText", true); set => Set("skipUIText", value); }

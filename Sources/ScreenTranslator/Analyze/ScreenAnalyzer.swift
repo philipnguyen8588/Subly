@@ -2,7 +2,7 @@ import Foundation
 import AppKit
 import Combine
 
-/// Dịch thủ công: chụp vùng manual → OCR accurate → dịch + tóm tắt → lưu.
+/// Dịch thủ công: chụp vùng manual → OCR accurate → dịch từng khối chữ → lưu.
 @MainActor
 final class ScreenAnalyzer: ObservableObject {
     @Published private(set) var isRunning = false
@@ -78,14 +78,14 @@ final class ScreenAnalyzer: ObservableObject {
         }
         if lines.count > 80 { lines = Array(lines.prefix(80)) }
 
-        // 2. Dịch + tóm tắt
+        // 2. Dịch
         progress = "Đang dịch \(lines.count) dòng…"
         guard let out = await router.analyze(lines: lines) else {
             lastError = "Không dịch được (\(router.state.label))"
             return nil
         }
         let pairs = zip(lines, out.translations).enumerated().map { AnalysisLine(id: $0.offset + 1, source: $0.element.0, target: $0.element.1) }
-        let summary = out.summary.isEmpty ? "(Apple Translation không tóm tắt; xem bản dịch từng dòng)" : out.summary
+        let summary = out.summary
         let ms = Int(Date().timeIntervalSince(t0) * 1000)
         // Vị trí từng khối chữ trên ảnh của vùng đầu tiên, để vẽ bản dịch đè đúng chỗ.
         let items: [ShotItem] = (placed?.blocks ?? []).enumerated().compactMap { i, b in
@@ -97,10 +97,7 @@ final class ScreenAnalyzer: ObservableObject {
                                                 summary: summary, lines: pairs, backend: out.backend, ms: ms,
                                                 profile: settings.activeProfile.id.uuidString)
         if present, a.hasImage { ShotViewer.shared.show(a.id) }
-        Log.info("Analyze done [\(out.backend.rawValue)] \(ms)ms: \(summary.prefix(80))")
-        if settings.analyzeSpeakSummary, settings.voiceOn, !out.summary.isEmpty {
-            speaker.speak(out.summary)
-        }
+        Log.info("Analyze done [\(out.backend.rawValue)] \(ms)ms: \(a.headline.prefix(80))")
         return a
     }
 

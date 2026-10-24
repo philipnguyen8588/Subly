@@ -53,6 +53,18 @@ enum SubtitleClassifier {
             score += 1; reasons.append("không dấu câu")
         }
 
+        // Thanh nút bấm ("HOLD TO RESET TO DEFAULT ⓧ RESET ALL TO DEFAULT ⓞ BACK"): toàn từ lệnh menu, không dấu câu.
+        // Chữ in hoa nên tín hiệu Hoa Đầu Chữ ở trên không bắt được.
+        if text.rangeOfCharacter(from: CharacterSet(charactersIn: ".,!?…")) == nil {
+            let words = tokens.filter { menuWords.contains($0.lowercased().trimmingCharacters(in: .punctuationCharacters)) }.count
+            // Biểu tượng nút PS (✕ ○ □ △) bị OCR thành ký hiệu đứng riêng: "©", "®", "×", "•", "&", "@"…
+            let glyphs = tokens.filter { t in t.count <= 2 && !t.contains { $0.isLetter || $0.isNumber } }.count
+            let commands = words >= 2 ? words + glyphs : words
+            if commands >= 3, Double(commands) / Double(tokens.count) >= 0.4 {
+                score += 2; reasons.append("nút bấm (\(commands)/\(tokens.count) từ lệnh)")
+            }
+        }
+
         // Bố cục.
         if maxPerRow >= 3 { score += 2; reasons.append("cột (\(maxPerRow) mảnh/hàng)") }
         if rows >= 4 { score += 1; reasons.append("\(rows) hàng") }
@@ -82,6 +94,16 @@ enum SubtitleClassifier {
         if tokens.count > 45 { score += 1; reasons.append("\(tokens.count) từ") }
         return Verdict(score: score, reasons: reasons)
     }
+
+    /// Từ lệnh hay gặp trên thanh nút bấm / menu cài đặt của game.
+    private static let menuWords: Set<String> = [
+        "back", "confirm", "cancel", "select", "reset", "default", "defaults", "hold", "press", "skip", "exit",
+        "close", "options", "menu", "settings", "quit", "toggle", "adjust", "apply", "save", "load", "delete",
+        "zoom", "inventory", "equip", "unequip", "details", "sort", "filter", "navigate", "scroll", "accept",
+        "retry", "resume", "restart", "controls", "previous", "prev", "tab", "rotate", "customize", "upgrade",
+        "buy", "sell", "preview", "purchase", "craft", "compare", "inspect", "discard", "claim", "redeem",
+        "dismantle", "untrack", "unmark", "waypoint", "legend",
+    ]
 
     /// 0.3, 20K, 1.2K, MB, GB, 50%, +, -, 10:30, v1.2
     private static func isNumericToken(_ raw: String) -> Bool {

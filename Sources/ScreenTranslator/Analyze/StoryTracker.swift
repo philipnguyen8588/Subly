@@ -267,9 +267,10 @@ final class StoryTracker: ObservableObject {
     /// Bốn khối gửi model: cốt truyện đã có, nhân vật đã biết (chi tiết chỉ với người có mặt trong câu mới),
     /// tên các mục bách khoa đã có, câu mới.
     static func buildInput(story: GameStory?, entries: [TranslationEntry],
-                           screens: [(id: Int64, timestamp: Date, summary: String)]) -> (input: String, focus: String) {
+                           screens: [(id: Int64, timestamp: Date, text: String)]) -> (input: String, focus: String) {
         var items: [(Date, String)] = entries.map { ($0.timestamp, $0.source) }
-        items += screens.map { ($0.timestamp, "[Screen] " + String(TextUtils.normalize($0.summary).prefix(600))) }
+        // Chữ gốc trên màn hình (nhật ký, codex, nhiệm vụ…), giống câu phụ đề cũng dùng bản gốc.
+        items += screens.map { ($0.timestamp, "[Screen] " + String(TextUtils.normalize($0.text).prefix(1500))) }
         items.sort { $0.0 < $1.0 }
         var lines: [String] = []
         var prev: Date?

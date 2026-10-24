@@ -121,6 +121,10 @@ enum SubtitleSplitter {
         "go", "come", "on", "in", "out", "up", "down", "let's", "wait", "stop", "look", "run", "move", "help", "see", "know", "got",
         "get", "do", "did", "don't", "not", "can", "can't", "will", "too", "very", "again", "more", "one", "two", "three",
         "man", "boss", "sir", "ma'am", "damn", "shit", "fuck", "hell", "god", "wow", "huh", "hmm", "mm", "uh", "um", "ah",
+        "am", "are", "was", "be", "you're", "your", "for", "then", "just", "back", "way", "away", "ready", "never",
+        "always", "enough", "together", "behind", "wake", "alive", "safe", "wrong", "understood", "quick", "quickly",
+        "brother", "sister", "father", "mother", "course", "said", "say", "keep", "try", "goodbye", "hurry", "listen",
+        "almost", "thing", "something", "nothing", "everything", "everyone", "everybody", "happened", "happening",
     ]
 
     /// Từ điển tiếng Anh của hệ điều hành (nạp khi cần lần đầu), để phân biệt câu ngắn thật với chữ OCR vô nghĩa ("imph", "impr").
@@ -145,16 +149,22 @@ enum SubtitleSplitter {
         }
     }
 
-    /// Câu quá đơn giản, không cần dịch hay đọc (mục tiêu là hiểu nội dung game, không phải đọc hết):
-    /// sau khi bỏ tên người nói còn tối đa 2 từ ("V: No.", "Mechanic: What?", "Kill him."), hoặc tối đa 5 từ mà toàn từ cơ bản
-    /// ("Okay, let's go.", "What? No, no, no.").
-    static func isSimple(_ text: String) -> Bool {
+    /// Câu quá đơn giản, không cần dịch hay đọc (mục tiêu là hiểu nội dung game, không phải đọc hết): sau khi bỏ tên
+    /// người nói còn tối đa 5 từ, toàn từ cơ bản hoặc tên nhân vật đã học ("V: No.", "Okay, let's go.", "Clive: Barnabas!").
+    /// Câu ngắn có từ khó hơn vẫn dịch ("More mutts?!", "Sic 'em!", "It's exhausting!"). Mẩu 1–2 từ không có từ
+    /// tiếng Anh thật nào (OCR đọc bậy: "imph") cũng tính là đơn giản để bị bỏ hẳn.
+    static func isSimple(_ text: String, names: [String] = []) -> Bool {
         let t = TextUtils.stripSpeaker(text.trimmingCharacters(in: .whitespaces))
         let words = t.lowercased().replacingOccurrences(of: "’", with: "'")
             .split { !($0.isLetter || $0.isNumber || $0 == "'") }.map(String.init).filter { !$0.isEmpty }
-        if words.count <= 2 { return true }
-        return words.count <= 5 && words.allSatisfy(basicWords.contains)
+        if words.count <= 2, !hasEnglishWord(text) { return true }
+        guard words.count <= 5 else { return false }
+        let known = Set(names.flatMap { $0.lowercased().split { !$0.isLetter }.map(String.init) })
+        return words.allSatisfy { basicWords.contains($0) || known.contains($0) || known.contains(possessiveStem($0)) }
     }
+
+    /// "clive's" → "clive".
+    private static func possessiveStem(_ w: String) -> String { w.hasSuffix("'s") ? String(w.dropLast(2)) : w }
 
     /// Mẩu chữ lạc đứng một mình, không phải lời thoại: tối đa 2 từ, không có tên người nói, không có dấu câu
     /// ("mph", "impr", "ON mph" của đồng hồ xe; "Quick", "BACK" của nút bấm). Lời thoại ngắn thật luôn có dấu câu

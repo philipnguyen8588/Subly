@@ -301,13 +301,13 @@ final class TranslationRouter: ObservableObject {
 
     // MARK: subtitle
 
-    /// Bối cảnh cốt truyện = tóm tắt "Dịch màn hình" gần nhất có nội dung của game đang chơi (bỏ tóm tắt menu, vốn chỉ
-    /// một câu ngắn), hoặc đoạn diễn biến mới nhất của mục Cốt truyện nếu đang bật và mới hơn.
+    /// Bối cảnh cốt truyện = chữ gốc của lần "Dịch màn hình" gần nhất có nội dung của game đang chơi (bỏ màn hình menu,
+    /// chữ quá ngắn), hoặc đoạn diễn biến mới nhất của mục Cốt truyện nếu đang bật và mới hơn.
     /// Gọi trước mỗi câu vì lần dịch màn hình mới không làm đổi cài đặt.
     private func refreshStory() {
         let store = HistoryStore.shared
-        let screen = store.analyses.first { $0.summary.count >= 80 && !$0.summary.hasPrefix("(") }
-        var story = screen?.summary ?? ""
+        let screen = store.analyses.first { $0.sourceText.count >= HistoryStore.storyScreenMinChars }
+        var story = screen?.sourceText ?? ""
         if settings.storyOn, let part = store.storyParts.first, part.timestamp > (screen?.timestamp ?? .distantPast) {
             story = part.summary
         }
@@ -672,13 +672,9 @@ final class TranslationRouter: ObservableObject {
                 await handleGeminiError(error)
             }
         }
-        // Không dùng / không được Gemini: Apple Intelligence viết tóm tắt (nếu dùng được). Dòng chữ: chọn Apple Intelligence
-        // thì dịch bằng nó (có ngữ cảnh), còn lại dịch bằng Apple Translation cho nhanh.
-        var summary = ""
-        if ai.isAvailable {
-            do { summary = try await ai.summarize(lines: lines, timeout: settings.analyzeTimeout) }
-            catch { Log.warn("Apple Intelligence tóm tắt lỗi: \(error.localizedDescription)") }
-        }
+        // Không dùng / không được Gemini: chọn Apple Intelligence thì dịch bằng nó (có ngữ cảnh), còn lại dịch bằng
+        // Apple Translation cho nhanh. Dịch màn hình không còn viết tóm tắt.
+        let summary = ""
         if settings.effectiveScreenEngine == .appleIntelligence, ai.isAvailable,
            let out = try? await ai.translateBatch(lines, timeout: settings.analyzeTimeout) {
             return AnalysisOutput(summary: summary, translations: out, backend: .appleAI,
@@ -694,7 +690,7 @@ final class TranslationRouter: ObservableObject {
         }
         do {
             let out = try await apple.translateBatch(lines)
-            return AnalysisOutput(summary: summary, translations: out, backend: summary.isEmpty ? .apple : .appleAI,
+            return AnalysisOutput(summary: summary, translations: out, backend: .apple,
                                   ms: Int(Date().timeIntervalSince(t0) * 1000))
         } catch {
             Log.error("Apple batch failed: \(error.localizedDescription)")

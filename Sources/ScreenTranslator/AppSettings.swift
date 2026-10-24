@@ -241,7 +241,7 @@ final class AppSettings: ObservableObject {
     @Stored("adaptiveCapture") var adaptiveCapture: Bool = true   // nghỉ soi sau mỗi câu, dài theo độ dài câu
     @Stored("skipInterjections") var skipInterjections: Bool = true   // bỏ câu chỉ có từ cảm thán (hmm, haha, huh…)
     @Stored("centerOnlySubtitles") var centerOnlySubtitles: Bool = true   // chỉ nhận chữ canh giữa khung phụ đề (bỏ nút bấm ở mép)
-    @Stored("skipSimpleLines") var skipSimpleLines: Bool = true   // bỏ câu 1–2 từ và câu toàn từ cơ bản (người chơi tự hiểu)
+    @Stored("skipSimpleLines") var skipSimpleLines: Bool = true   // bỏ câu ngắn toàn từ cơ bản / tên nhân vật (người chơi tự hiểu)
     @Stored("skipUIText") var skipUIText: Bool = true   // bỏ qua chữ giao diện (menu/cài đặt), chỉ đọc khi giống phụ đề
 
     // MARK: Dịch

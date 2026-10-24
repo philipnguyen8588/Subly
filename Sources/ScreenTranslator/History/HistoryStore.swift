@@ -435,6 +435,14 @@ final class HistoryStore: ObservableObject {
         analyses.removeAll()
     }
 
+    /// Xoá một số lần dịch màn hình (kèm ảnh chụp).
+    func deleteAnalyses(_ ids: Set<Int64>) {
+        guard !ids.isEmpty else { return }
+        for id in ids { try? FileManager.default.removeItem(at: Self.shotURL(id)) }
+        exec("DELETE FROM analyses WHERE id IN (\(ids.map(String.init).joined(separator: ",")));")
+        analyses.removeAll { ids.contains($0.id) }
+    }
+
     // MARK: summaries
     private func loadSummaries(profile: String) -> [StorySummary] {
         var stmt: OpaquePointer?
@@ -535,13 +543,18 @@ final class HistoryStore: ObservableObject {
         return out
     }
 
-    /// Tóm tắt của các lần "Dịch màn hình" có nội dung (bỏ tóm tắt menu) sau con trỏ, cũ trước.
-    func storyAnalyses(profile: String, after: Int64) -> [(id: Int64, timestamp: Date, summary: String)] {
+    /// Màn hình có ít hơn ngần này ký tự chữ gốc (menu, nhãn ngắn) không được đưa vào cốt truyện.
+    static let storyScreenMinChars = 80
+    /// Biểu thức SQL ghép chữ gốc (tiếng Anh) các khối của một lần dịch màn hình, mỗi khối một dòng.
+    private static let sourceSQL = "(SELECT group_concat(json_extract(value, '$.source'), char(10)) FROM json_each(analyses.lines))"
+
+    /// Chữ gốc của các lần "Dịch màn hình" có nội dung (bỏ màn hình menu) sau con trỏ, cũ trước.
+    func storyAnalyses(profile: String, after: Int64) -> [(id: Int64, timestamp: Date, text: String)] {
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, "SELECT id, ts, summary FROM analyses WHERE profile = ? AND id > ? AND length(summary) >= 80 AND summary NOT LIKE '(%' ORDER BY id ASC LIMIT 20", -1, &stmt, nil) == SQLITE_OK else { return [] }
+        guard sqlite3_prepare_v2(db, "SELECT id, ts, src FROM (SELECT id, ts, \(Self.sourceSQL) AS src FROM analyses WHERE profile = ? AND id > ?) WHERE length(src) >= \(Self.storyScreenMinChars) ORDER BY id ASC LIMIT 20", -1, &stmt, nil) == SQLITE_OK else { return [] }
         sqlite3_bind_text(stmt, 1, profile, -1, transient)
         sqlite3_bind_int64(stmt, 2, after)
-        var out: [(id: Int64, timestamp: Date, summary: String)] = []
+        var out: [(id: Int64, timestamp: Date, text: String)] = []
         while sqlite3_step(stmt) == SQLITE_ROW {
             out.append((sqlite3_column_int64(stmt, 0), Date(timeIntervalSince1970: sqlite3_column_double(stmt, 1)), text(stmt, 2)))
         }
@@ -610,7 +623,7 @@ final class HistoryStore: ObservableObject {
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, """
             SELECT (SELECT COUNT(*) FROM history WHERE profile = ?1 AND id > ?2 AND kind = 'subtitle' AND backend != 'skipped'),
-                   (SELECT COUNT(*) FROM analyses WHERE profile = ?1 AND id > ?3 AND length(summary) >= 80 AND summary NOT LIKE '(%')
+                   (SELECT COUNT(*) FROM analyses WHERE profile = ?1 AND id > ?3 AND length(\(Self.sourceSQL)) >= \(Self.storyScreenMinChars))
             """, -1, &stmt, nil) == SQLITE_OK else { return (0, 0) }
         defer { sqlite3_finalize(stmt) }
         sqlite3_bind_text(stmt, 1, profile, -1, transient)

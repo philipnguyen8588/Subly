@@ -737,6 +737,9 @@ for (const b of $('chips').children) b.onclick = () => {
 // ---- Dịch màn hình: danh sách ảnh đã chụp (mới nhất trước), mục cũ chỉ còn chữ
 let scans = [];
 const shots = () => scans.filter(a => a.image);
+// Dòng đại diện của một lần dịch màn hình: tóm tắt (lần dịch cũ) hoặc bản dịch các khối chữ.
+function headline(a) { return a.summary || a.lines.map(l => l.target).filter(Boolean).join(' '); }
+
 async function loadScans() {
   try { scans = await (await fetch('/api/analyses')).json(); } catch { return; }
   const grid = $('shots'), texts = $('texts');
@@ -744,7 +747,7 @@ async function loadScans() {
   for (const a of shots()) {
     const b = document.createElement('button'); b.className = 'shot';
     const img = document.createElement('img'); img.loading = 'lazy'; img.alt = ''; img.src = `/api/shot/${a.id}.jpg?thumb=1`;
-    const p = document.createElement('p'); p.textContent = a.summary;
+    const p = document.createElement('p'); p.textContent = headline(a);
     const t = document.createElement('time'); t.textContent = dayTime(a.at) + ' · ' + a.items.length + ' khối chữ';
     b.append(img, p, t);
     b.onclick = () => openViewer(a.id);
@@ -763,7 +766,7 @@ async function loadScans() {
     const d = document.createElement('details');
     const s = document.createElement('summary');
     const t = document.createElement('time'); t.textContent = dayTime(a.at) + ' · ' + a.lines.length + ' dòng';
-    const p = document.createElement('p'); p.textContent = a.summary;
+    const p = document.createElement('p'); p.textContent = headline(a);
     s.append(t, p);
     const pairs = document.createElement('div'); pairs.className = 'pairs';
     for (const l of a.lines) pairs.append(row({ at: a.at, translated: l.target, source: l.source }));

@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 
 enum MainTab: String, CaseIterable, Identifiable {
-    case source, story, subtitles, screens, search, game
+    case source, story, subtitles, screens, search, game, skipped
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -12,6 +12,7 @@ enum MainTab: String, CaseIterable, Identifiable {
         case .story: return "Cốt truyện"
         case .search: return "Tìm kiếm"
         case .game: return "Thiết lập game"
+        case .skipped: return "Bị bỏ qua"
         }
     }
     var icon: String {
@@ -22,6 +23,7 @@ enum MainTab: String, CaseIterable, Identifiable {
         case .story: return "text.book.closed"
         case .search: return "magnifyingglass"
         case .game: return "slider.horizontal.3"
+        case .skipped: return "eye.slash"
         }
     }
     /// Tab nhật ký (có ô tìm, xuất, xoá ở bên phải thanh tab).

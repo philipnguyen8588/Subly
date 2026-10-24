@@ -279,7 +279,6 @@ final class GeminiBackend: TranslationBackend {
         You are helping a player understand a video game screen. The user gives you numbered lines of English text \
         extracted by OCR from one screenshot (UI labels, dialog, quest text, stats). OCR may contain small errors; infer the intent.
         Return JSON with:
-        - "summary": in \(targetName). \(Self.summaryGuide)
         - "lines": an array of {"i": line number, "t": \(targetName) translation}. Translate every line; keep names, numbers, keys and game terms as-is unless the glossary says otherwise.
         \(glossaryBlock)
         """
@@ -343,7 +342,7 @@ final class GeminiBackend: TranslationBackend {
         You keep a running story record for a player of \(source). The user sends four blocks: STORY SO FAR (the record you wrote \
         earlier; may be empty), KNOWN CHARACTERS (may be empty), KNOWN LORE (names of codex entries already recorded; may be empty) \
         and NEW LINES: subtitle lines in the order they appeared since the last update. A line may start with the speaker's name \
-        and a colon. Lines starting with "[Screen]" are summaries of journal, quest or codex screens the player opened. \
+        and a colon. Lines starting with "[Screen]" are the original text of journal, quest or codex screens the player opened. \
         "[…later…]" marks a break in play time. OCR may contain small errors; infer the intent.
         A "[Screen]" line is reference material, not an event. When it describes who a character is, or explains a place, a \
         faction, army or organisation, or a concept of the game world, it must go ONLY into "characters" (field "journal") or \
@@ -434,7 +433,7 @@ final class GeminiBackend: TranslationBackend {
         let system = analysisSystemPrompt + """
 
         Reply with JSON only, no code fences and no other text, exactly in this shape:
-        {"summary": "…", "lines": [{"i": 1, "t": "…"}, {"i": 2, "t": "…"}]}
+        {"lines": [{"i": 1, "t": "…"}, {"i": 2, "t": "…"}]}
         "lines" must have exactly \(lines.count) entries: one per numbered input line, "i" = that line's number.
         Never merge, split, skip or reorder lines, even when a line looks like a fragment of another one.
         """

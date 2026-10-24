@@ -343,14 +343,15 @@ public sealed class RegionWorker
                 if (fresh.Count == 0) { Hold(0.6); return; }
             }
         }
-        // Câu quá đơn giản (1–2 từ, toàn từ cơ bản): người chơi tự hiểu → không dịch, không đọc, chỉ ghi vào nhật ký.
+        // Câu quá đơn giản (ngắn, toàn từ cơ bản / tên nhân vật): người chơi tự hiểu → không dịch, không đọc, chỉ ghi vào nhật ký.
         // Không có từ tiếng Anh thật nào (OCR đọc bậy: "imph", "impr") thì bỏ hẳn. Đều được ghi nhớ để không xét lại.
         if (skipSimple)
         {
-            var simple = fresh.Where(SubtitleSplitter.IsSimple).ToList();
+            var names = speakerNames();
+            var simple = fresh.Where(f => SubtitleSplitter.IsSimple(f, names)).ToList();
             if (simple.Count > 0)
             {
-                fresh.RemoveAll(SubtitleSplitter.IsSimple);
+                fresh.RemoveAll(f => SubtitleSplitter.IsSimple(f, names));
                 AddRecent(simple);
                 var real = simple.Where(SubtitleSplitter.HasEnglishWord).ToList();
                 var junk = simple.Where(s => !SubtitleSplitter.HasEnglishWord(s)).ToList();

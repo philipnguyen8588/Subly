@@ -71,6 +71,10 @@ final class VisionOCR {
         var lines: Int
         /// Chiều cao chữ trung bình của các dòng (không tính khoảng trống giữa dòng), để so cỡ chữ khi gộp đoạn.
         var textH: CGFloat = 0
+        /// Mép trái của dòng đầu / dòng cuối (y trên của dòng đầu, y dưới của dòng cuối). Với chữ thẳng trùng `box.minY` / `box.maxY`;
+        /// với chữ nghiêng (bảng chữ phối cảnh 3D) khung bao thẳng của một dòng cao gấp 2–3 lần chữ nên phải đo khoảng cách dòng ở mép trái.
+        var leftTop: CGFloat = 0
+        var leftBottom: CGFloat = 0
 
         /// Khối nội dung đáng dịch (cốt truyện, mô tả vật phẩm / kỹ năng): đoạn nhiều dòng hoặc một câu dài.
         /// Nhãn giao diện ngắn (tab "Map", "Journal", gợi ý nút "Recommended Abilities (Hold)") thì không.
@@ -95,18 +99,21 @@ final class VisionOCR {
             Log.error("OCR failed: \(error.localizedDescription)")
             return []
         }
+        let aspect = CGFloat(cg.width) / CGFloat(max(1, cg.height))
         var items: [Block] = (req.results ?? []).compactMap { o in
             guard let c = o.topCandidates(1).first, c.confidence >= minConfidence else { return nil }
             let text = TextUtils.normalize(TextUtils.stripJunkTokens(c.string))
             guard TextUtils.letterCount(text) >= 2 else { return nil }
             let b = o.boundingBox
-            return Block(text: text, box: CGRect(x: b.minX, y: 1 - b.maxY, width: b.width, height: b.height), lines: 1, textH: b.height)
+            // Chiều cao chữ thật = cạnh trái của tứ giác Vision trả về (không phải khung bao thẳng, vốn phình ra khi dòng nghiêng).
+            let h = hypot((o.topLeft.x - o.bottomLeft.x) * aspect, o.topLeft.y - o.bottomLeft.y)
+            return Block(text: text, box: CGRect(x: b.minX, y: 1 - b.maxY, width: b.width, height: b.height), lines: 1, textH: h,
+                         leftTop: 1 - o.topLeft.y, leftBottom: 1 - o.bottomLeft.y)
         }
-        items.sort { abs($0.box.minY - $1.box.minY) > 0.01 ? $0.box.minY < $1.box.minY : $0.box.minX < $1.box.minX }
+        items.sort { abs($0.leftTop - $1.leftTop) > 0.01 ? $0.leftTop < $1.leftTop : $0.box.minX < $1.box.minX }
         // Gộp mảnh cùng hàng: biểu tượng nút chen giữa câu ("Executing a dodge with [R1] at the moment of") làm Vision
         // tách một dòng thành hai mảnh; để riêng thì mảnh sau thành một khối nằm đè lên đoạn văn. Mục menu cùng hàng
         // cách nhau xa hơn nhiều (≥ 4 lần chiều cao chữ) nên không bị gộp.
-        let aspect = CGFloat(cg.width) / CGFloat(max(1, cg.height))
         var rows: [Block] = []
         for it in items {
             if let i = rows.lastIndex(where: { prev in
@@ -117,7 +124,12 @@ final class VisionOCR {
                 let gap = max(it.box.minX - prev.box.maxX, prev.box.minX - it.box.maxX) * aspect
                 return sameRow && sameSize && gap > -h * 0.5 && gap < h * 2.5
             }) {
-                rows[i].text = it.box.minX < rows[i].box.minX ? it.text + " " + rows[i].text : rows[i].text + " " + it.text
+                if it.box.minX < rows[i].box.minX {
+                    rows[i].text = it.text + " " + rows[i].text
+                    (rows[i].leftTop, rows[i].leftBottom) = (it.leftTop, it.leftBottom)
+                } else {
+                    rows[i].text += " " + it.text
+                }
                 rows[i].box = rows[i].box.union(it.box)
                 rows[i].textH = max(rows[i].textH, it.textH)
             } else {
@@ -129,11 +141,11 @@ final class VisionOCR {
         for it in rows {
             if let i = out.lastIndex(where: { prev in
                 let lineH = prev.textH
-                let gap = it.box.minY - prev.box.maxY
+                let gap = it.leftTop - prev.leftBottom
                 // Cùng lề trái, hoặc cùng tâm (đoạn chữ canh giữa như hướng dẫn, thông báo).
                 let sameLeft = abs(it.box.minX - prev.box.minX) < 0.012 || abs(it.box.midX - prev.box.midX) < 0.012
                 // Dòng không có chữ cao/thấp (dòng cuối ngắn "no amount of money can buy.") có khung thấp hơn ~30 %.
-                let sameSize = max(lineH, it.box.height) / max(0.0001, min(lineH, it.box.height)) < 1.5
+                let sameSize = max(lineH, it.textH) / max(0.0001, min(lineH, it.textH)) < 1.5
                 // Mục menu xếp dọc cũng cùng lề nhưng cách nhau xa hơn và thường chỉ 1–2 từ → không gộp.
                 let wordy = prev.text.split(separator: " ").count >= 3
                 // Khoảng cách dòng của đoạn văn trong game thường bằng 0,5–0,8 lần chiều cao chữ (ngưỡng cũ 0,45 tách nhầm
@@ -142,7 +154,8 @@ final class VisionOCR {
             }) {
                 out[i].text += " " + it.text
                 out[i].box = out[i].box.union(it.box)
-                out[i].textH = (out[i].textH * CGFloat(out[i].lines) + it.box.height) / CGFloat(out[i].lines + 1)
+                out[i].textH = (out[i].textH * CGFloat(out[i].lines) + it.textH) / CGFloat(out[i].lines + 1)
+                out[i].leftBottom = it.leftBottom
                 out[i].lines += 1
             } else {
                 out.append(it)

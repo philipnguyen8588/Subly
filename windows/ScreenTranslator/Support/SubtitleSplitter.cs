@@ -144,6 +144,10 @@ public static class SubtitleSplitter
         "go", "come", "on", "in", "out", "up", "down", "let's", "wait", "stop", "look", "run", "move", "help", "see", "know", "got",
         "get", "do", "did", "don't", "not", "can", "can't", "will", "too", "very", "again", "more", "one", "two", "three",
         "man", "boss", "sir", "ma'am", "damn", "shit", "fuck", "hell", "god", "wow", "huh", "hmm", "mm", "uh", "um", "ah",
+        "am", "are", "was", "be", "you're", "your", "for", "then", "just", "back", "way", "away", "ready", "never",
+        "always", "enough", "together", "behind", "wake", "alive", "safe", "wrong", "understood", "quick", "quickly",
+        "brother", "sister", "father", "mother", "course", "said", "say", "keep", "try", "goodbye", "hurry", "listen",
+        "almost", "thing", "something", "nothing", "everything", "everyone", "everybody", "happened", "happening",
     };
 
     /// Từ điển tiếng Anh (words.txt cạnh file exe, thay cho /usr/share/dict/words của macOS), nạp khi cần lần đầu,
@@ -177,15 +181,18 @@ public static class SubtitleSplitter
         return false;
     }
 
-    /// Câu quá đơn giản, không cần dịch hay đọc (mục tiêu là hiểu nội dung game, không phải đọc hết):
-    /// sau khi bỏ tên người nói còn tối đa 2 từ ("V: No.", "Mechanic: What?", "Kill him."), hoặc tối đa 5 từ mà toàn từ cơ bản
-    /// ("Okay, let's go.", "What? No, no, no.").
-    public static bool IsSimple(string text)
+    /// Câu quá đơn giản, không cần dịch hay đọc (mục tiêu là hiểu nội dung game, không phải đọc hết): sau khi bỏ tên
+    /// người nói còn tối đa 5 từ, toàn từ cơ bản hoặc tên nhân vật đã học ("V: No.", "Okay, let's go.", "Clive: Barnabas!").
+    /// Câu ngắn có từ khó hơn vẫn dịch ("More mutts?!", "Sic 'em!", "It's exhausting!"). Mẩu 1–2 từ không có từ
+    /// tiếng Anh thật nào (OCR đọc bậy: "imph") cũng tính là đơn giản để bị bỏ hẳn.
+    public static bool IsSimple(string text, IEnumerable<string>? names = null)
     {
         var t = TextUtils.StripSpeaker(text.Trim(' '));
         var words = SplitWords(t.ToLowerInvariant().Replace('’', '\''), c => char.IsLetter(c) || char.IsDigit(c) || c == '\'');
-        if (words.Count <= 2) return true;
-        return words.Count <= 5 && words.All(BasicWords.Contains);
+        if (words.Count <= 2 && !HasEnglishWord(text)) return true;
+        if (words.Count > 5) return false;
+        var known = new HashSet<string>((names ?? Array.Empty<string>()).SelectMany(n => SplitWords(n.ToLowerInvariant(), char.IsLetter)));
+        return words.All(w => BasicWords.Contains(w) || known.Contains(w) || (w.EndsWith("'s") && known.Contains(w[..^2])));
     }
 
     /// Mẩu chữ lạc đứng một mình, không phải lời thoại: tối đa 2 từ, không có tên người nói, không có dấu câu

@@ -40,6 +40,7 @@ struct MainScreen: View {
                 case .subtitles, .screens, .story: LogPane(section: nav.tab)
                 case .search: SearchTabView()
                 case .game: GameSetupView()
+                case .skipped: SkippedTabView()
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

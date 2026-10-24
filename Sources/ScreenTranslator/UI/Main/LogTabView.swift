@@ -10,6 +10,9 @@ final class LogUI: ObservableObject {
     @Published var legacy = false
     @Published var confirmClear = false
     @Published var confirmClearStory = false
+    /// Tab Dịch màn hình đang ở chế độ chọn nhiều (bấm ảnh để chọn thay vì mở) và các mục đã chọn.
+    @Published var picking = false
+    @Published var picked: Set<Int64> = []
 }
 
 /// Mục đang xem trong tab Cốt truyện (thanh mục con); dùng chung giữa GameStoryView và nút xoá của thanh công cụ.
@@ -45,7 +48,11 @@ struct LogPane: View {
     var body: some View {
         VStack(spacing: 0) {
             switch section {
-            case .screens: ScreenLogView(search: ui.search, analyses: analyses)
+            case .screens:
+                ScreenLogView(search: ui.search, analyses: analyses) { ids in
+                    store.deleteAnalyses(ids)
+                    if legacy { legacyAnalyses.removeAll { ids.contains($0.id) } }
+                }
             case .story: GameStoryView(search: ui.search)
             default: SubtitleLogView(search: ui.search, entries: entries)
             }
@@ -76,7 +83,9 @@ struct LogPane: View {
         }
         .onAppear { loadLegacy(ui.legacy) }
         .onChange(of: ui.legacy) { _, on in loadLegacy(on) }
-        .onChange(of: settings.activeProfileID) { _, _ in ui.legacy = false }
+        .onChange(of: settings.activeProfileID) { _, _ in ui.legacy = false; ui.picking = false }
+        .onChange(of: ui.legacy) { _, _ in ui.picked = [] }
+        .onDisappear { if section == .screens { ui.picking = false } }
     }
 
     private func loadLegacy(_ on: Bool) {
@@ -127,11 +136,18 @@ struct LogToolbar: View {
                 } label: { Image(systemName: "square.and.arrow.up") }
                 .menuStyle(.button).menuIndicator(.hidden).appIconButton().fixedSize().help("Xuất nhật ký (TXT / SRT / JSON)")
             }
-            Button(role: .destructive) {
-                if section == .story, !viewingSummaries { ui.confirmClearStory = true } else { ui.confirmClear = true }
-            } label: { Image(systemName: "trash") }
-            .appIconButton()
-            .help(clearTitle)
+            if section == .screens {
+                // Không có nút xoá tất cả (dễ bấm nhầm): chọn nhiều rồi xoá, hoặc chuột phải từng mục.
+                Toggle(isOn: $ui.picking) { Label("Chọn nhiều", systemImage: "checkmark.circle") }
+                    .toggleStyle(AppToggleButtonStyle())
+                    .help("Bấm vào các ảnh để chọn, rồi xoá nhiều mục một lần")
+            } else {
+                Button(role: .destructive) {
+                    if section == .story, !viewingSummaries { ui.confirmClearStory = true } else { ui.confirmClear = true }
+                } label: { Image(systemName: "trash") }
+                .appIconButton()
+                .help(clearTitle)
+            }
         }
     }
 }
@@ -536,12 +552,17 @@ enum Clipboard {
 
 extension View {
     /// Menu chuột phải: copy bản gốc / bản dịch / cả hai.
-    func copyMenu(source: String, translated: String) -> some View {
+    /// `onDelete`: thêm mục "Xoá mục này" ở cuối.
+    func copyMenu(source: String, translated: String, onDelete: (() -> Void)? = nil) -> some View {
         contextMenu {
             Button { Clipboard.copy(source) } label: { Label("Copy bản gốc", systemImage: "doc.on.doc") }
             Button { Clipboard.copy(translated) } label: { Label("Copy bản dịch", systemImage: "character.bubble") }
             Divider()
             Button { Clipboard.copy("\(source)\n\(translated)") } label: { Label("Copy cả hai", systemImage: "doc.on.clipboard") }
+            if let onDelete {
+                Divider()
+                Button(role: .destructive, action: onDelete) { Label("Xoá mục này", systemImage: "trash") }
+            }
         }
     }
 }
@@ -549,8 +570,12 @@ extension View {
 extension ScreenAnalysis {
     /// Toàn bộ chữ gốc của một lần dịch màn hình, mỗi khối một dòng.
     var sourceText: String { lines.map(\.source).joined(separator: "\n") }
-    /// Tóm tắt + bản dịch từng khối.
-    var translatedText: String { ([summary, ""] + lines.map(\.target)).joined(separator: "\n") }
+    /// Bản dịch từng khối (kèm tóm tắt ở đầu với các lần dịch cũ còn tóm tắt).
+    var translatedText: String { ((summary.isEmpty ? [] : [summary, ""]) + lines.map(\.target)).joined(separator: "\n") }
+    /// Dòng hiển thị đại diện: tóm tắt (lần dịch cũ) hoặc bản dịch các khối chữ.
+    var headline: String {
+        summary.isEmpty ? lines.map(\.target).filter { !$0.isEmpty }.joined(separator: " ") : summary
+    }
 }
 
 /// Khu vực cố định ở đáy tab Nhật ký: câu phụ đề đang được dịch lúc này.
@@ -610,7 +635,10 @@ struct NowTranslatingPanel: View {
 struct ScreenLogView: View {
     let search: String
     let analyses: [ScreenAnalysis]
+    let onDelete: (Set<Int64>) -> Void
     @ObservedObject var analyzer: ScreenAnalyzer = Pipeline.shared.analyzer
+    @ObservedObject var ui = LogUI.shared
+    @State private var confirmDelete = false
     @State private var expanded: Set<Int64> = []
     /// Ảnh đang chọn bằng phím mũi tên (Enter / Space mở ảnh); bề rộng lưới để biết ↑/↓ nhảy bao nhiêu ảnh.
     @State private var selected: Int64?
@@ -644,7 +672,10 @@ struct ScreenLogView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         if !shots.isEmpty {
                             LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 12, alignment: .top)], alignment: .leading, spacing: 12) {
-                                ForEach(shots) { a in ShotCard(analysis: a, selected: selected == a.id) }
+                                ForEach(shots) { a in
+                                    ShotCard(analysis: a, selected: selected == a.id, picking: ui.picking,
+                                             picked: ui.picked.contains(a.id), onPick: { pick(a.id) }, onDelete: { onDelete([a.id]) })
+                                }
                             }
                             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { gridWidth = $0 }
                         }
@@ -652,8 +683,10 @@ struct ScreenLogView: View {
                             Text(shots.isEmpty ? "CHỈ CÒN CHỮ" : "CŨ HƠN · CHỈ CÒN CHỮ (mỗi game giữ \(HistoryStore.maxShots) ảnh gần nhất)")
                                 .font(.system(size: 10.5, weight: .semibold)).tracking(1.2).foregroundStyle(.tertiary).padding(.top, 4)
                             ForEach(textOnly) { a in
-                                ScreenLogCard(analysis: a, expanded: expanded.contains(a.id)) {
-                                    if expanded.contains(a.id) { expanded.remove(a.id) } else { expanded.insert(a.id) }
+                                ScreenLogCard(analysis: a, expanded: expanded.contains(a.id), picking: ui.picking,
+                                              picked: ui.picked.contains(a.id), onDelete: { onDelete([a.id]) }) {
+                                    if ui.picking { pick(a.id) }
+                                    else if expanded.contains(a.id) { expanded.remove(a.id) } else { expanded.insert(a.id) }
                                 }
                             }
                         }
@@ -673,6 +706,7 @@ struct ScreenLogView: View {
                     case .up: step = -perRow
                     case .down: step = perRow
                     case .toggle:
+                        if let s = selected, ui.picking { pick(s); return true }
                         if let s = selected { ShotViewer.shared.show(s); return true }
                         return false
                     default: return scroller.scroll(key)
@@ -686,59 +720,123 @@ struct ScreenLogView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .textBackgroundColor))
+        .safeAreaInset(edge: .bottom, spacing: 0) { if ui.picking { pickBar(rows) } }
+        .onChange(of: ui.picking) { _, _ in ui.picked = [] }
+        .onChange(of: analyses.map(\.id)) { _, ids in ui.picked.formIntersection(ids) }
+        .confirmationDialog("Xoá \(ui.picked.count) mục dịch màn hình đã chọn (kèm ảnh chụp)?", isPresented: $confirmDelete) {
+            Button("Xoá \(ui.picked.count) mục", role: .destructive) {
+                onDelete(ui.picked)
+                ui.picked = []
+            }
+        }
+    }
+
+    private func pick(_ id: Int64) {
+        if ui.picked.contains(id) { ui.picked.remove(id) } else { ui.picked.insert(id) }
+    }
+
+    /// Thanh dưới đáy khi đang chọn nhiều: số mục đã chọn, chọn tất cả / bỏ chọn, xoá.
+    private func pickBar(_ rows: [ScreenAnalysis]) -> some View {
+        let all = Set(rows.map(\.id))
+        return HStack(spacing: 8) {
+            Text(ui.picked.isEmpty ? "Bấm vào các mục để chọn" : "Đã chọn \(ui.picked.count) mục")
+                .font(.callout.weight(.medium)).foregroundStyle(ui.picked.isEmpty ? .secondary : .primary)
+            Spacer()
+            if ui.picked.isSuperset(of: all) {
+                Button("Bỏ chọn tất cả") { ui.picked = [] }.buttonStyle(AppButtonStyle(kind: .secondary))
+            } else {
+                Button("Chọn tất cả (\(all.count))") { ui.picked.formUnion(all) }.buttonStyle(AppButtonStyle(kind: .secondary))
+            }
+            Button(role: .destructive) { confirmDelete = true } label: {
+                Label(ui.picked.isEmpty ? "Xoá" : "Xoá \(ui.picked.count) mục", systemImage: "trash")
+            }
+            .buttonStyle(AppButtonStyle(kind: .danger)).disabled(ui.picked.isEmpty)
+            Button("Xong") { ui.picking = false }.buttonStyle(AppButtonStyle(kind: .secondary))
+        }
+        .padding(.horizontal, 14).padding(.vertical, 8)
+        .background(.bar)
+        .overlay(alignment: .top) { Divider() }
     }
 }
 
-/// Một lần chụp còn ảnh: bấm để mở lại ảnh đã dịch.
+/// Dấu tick ở góc mục khi đang chọn nhiều.
+private struct PickMark: View {
+    let picked: Bool
+    var body: some View {
+        Image(systemName: picked ? "checkmark.circle.fill" : "circle")
+            .font(.system(size: 20, weight: .semibold))
+            .foregroundStyle(picked ? AnyShapeStyle(Theme.accentStart) : AnyShapeStyle(Color.white.opacity(0.9)))
+            .background(Circle().fill(picked ? Color.white : Color.black.opacity(0.35)).padding(2))
+            .shadow(radius: 1.5)
+    }
+}
+
+/// Một lần chụp còn ảnh: bấm để mở lại ảnh đã dịch (đang chọn nhiều thì bấm để chọn).
 private struct ShotCard: View {
     let analysis: ScreenAnalysis
     var selected = false
+    var picking = false
+    var picked = false
+    var onPick: () -> Void = {}
+    var onDelete: () -> Void = {}
     @State private var hovering = false
 
+    private var highlighted: Bool { picking ? picked : selected }
+
     var body: some View {
-        Button { ShotViewer.shared.show(analysis.id) } label: {
+        Button { if picking { onPick() } else { ShotViewer.shared.show(analysis.id) } } label: {
             VStack(alignment: .leading, spacing: 6) {
                 ShotThumb(id: analysis.id)
                     .aspectRatio(16 / 9, contentMode: .fit)
                     .clipShape(RoundedRectangle(cornerRadius: 7))
-                Text(analysis.summary).font(.system(size: 12.5)).lineLimit(2).multilineTextAlignment(.leading)
+                    .overlay(alignment: .topLeading) { if picking { PickMark(picked: picked).padding(6) } }
+                Text(analysis.headline).font(.system(size: 12.5)).lineLimit(2).multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Text("\(analysis.timestamp.formatted(date: .abbreviated, time: .shortened)) · \(analysis.items.count) khối chữ")
                     .font(.caption2).foregroundStyle(.tertiary).monospacedDigit()
             }
             .padding(8)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(hovering ? 0.07 : 0.03)))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(selected ? Theme.accentStart : hovering ? Theme.accentStart.opacity(0.5) : Color.primary.opacity(0.07),
-                                                               lineWidth: selected ? 2 : 1))
+            .background(RoundedRectangle(cornerRadius: 10).fill(picked && picking ? Theme.accentStart.opacity(0.12) : Color.primary.opacity(hovering ? 0.07 : 0.03)))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(highlighted ? Theme.accentStart : hovering ? Theme.accentStart.opacity(0.5) : Color.primary.opacity(0.07),
+                                                               lineWidth: highlighted ? 2 : 1))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .copyMenu(source: analysis.sourceText, translated: analysis.translatedText)
-        .help("Mở lại ảnh đã dịch · chuột phải để copy")
+        .copyMenu(source: analysis.sourceText, translated: analysis.translatedText, onDelete: onDelete)
+        .help(picking ? "Bấm để chọn / bỏ chọn" : "Mở lại ảnh đã dịch · chuột phải để copy hoặc xoá")
     }
 }
 
 private struct ScreenLogCard: View {
     let analysis: ScreenAnalysis
     let expanded: Bool
+    var picking = false
+    var picked = false
+    var onDelete: () -> Void = {}
     let onToggle: () -> Void
     @State private var hovering = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .top, spacing: 8) {
-                Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                    .font(.caption.weight(.bold)).foregroundStyle(.secondary).frame(width: 12).padding(.top, 3)
+                if picking {
+                    Image(systemName: picked ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(picked ? AnyShapeStyle(Theme.accentStart) : AnyShapeStyle(.secondary)).padding(.top, 1)
+                } else {
+                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                        .font(.caption.weight(.bold)).foregroundStyle(.secondary).frame(width: 12).padding(.top, 3)
+                }
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(analysis.summary).font(.system(size: 14.5)).lineSpacing(2).lineLimit(expanded ? nil : 2)
+                    Text(analysis.headline).font(.system(size: 14.5)).lineSpacing(2).lineLimit(expanded ? nil : 2)
                     Text("\(analysis.timestamp.hms) · \(analysis.lines.count) khối chữ · \(BackendKind.label(raw: analysis.backend)) · \(String(format: "%.1f", Double(analysis.latencyMs) / 1000)) s")
                         .font(.caption2).foregroundStyle(.tertiary).monospacedDigit()
                 }
                 Spacer(minLength: 4)
                 if hovering {
                     Button {
-                        let txt = "\(analysis.summary)\n\n" + analysis.lines.map { "\($0.source)\n→ \($0.target)" }.joined(separator: "\n\n")
+                        let txt = (analysis.summary.isEmpty ? "" : "\(analysis.summary)\n\n") + analysis.lines.map { "\($0.source)\n→ \($0.target)" }.joined(separator: "\n\n")
                         NSPasteboard.general.clearContents(); NSPasteboard.general.setString(txt, forType: .string)
                     } label: { Image(systemName: "doc.on.doc") }
                     .buttonStyle(.borderless).help("Copy toàn bộ")
@@ -762,9 +860,9 @@ private struct ScreenLogCard: View {
             }
         }
         .padding(.horizontal, 10).padding(.vertical, 8)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(hovering ? 0.05 : 0.03)))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.07)))
+        .background(RoundedRectangle(cornerRadius: 10).fill(picking && picked ? Theme.accentStart.opacity(0.12) : Color.primary.opacity(hovering ? 0.05 : 0.03)))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(picking && picked ? Theme.accentStart : Color.primary.opacity(0.07), lineWidth: picking && picked ? 2 : 1))
         .onHover { hovering = $0 }
-        .copyMenu(source: analysis.sourceText, translated: analysis.translatedText)
+        .copyMenu(source: analysis.sourceText, translated: analysis.translatedText, onDelete: onDelete)
     }
 }

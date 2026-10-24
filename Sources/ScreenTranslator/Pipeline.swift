@@ -27,6 +27,7 @@ final class RegionWorker {
     private let skipUI: Bool
     private let skipInterjections: Bool
     private let skipSimple: Bool
+    private let profileID: String                 // game lúc bắt đầu, để ghi nhật ký "Bị bỏ qua"
     private let stableDelay: TimeInterval
     private var pendingPB: CVPixelBuffer?
     private var stableTimer: DispatchWorkItem?
@@ -42,10 +43,11 @@ final class RegionWorker {
     /// Cỡ chữ phụ đề đã học trong phiên (chiều cao hàng, tỉ lệ theo vùng); hàng nhỏ hơn 60 % mức này bị bỏ. Chỉ dùng trên ocrQueue.
     private var subtitleHeight: Double?
     private var statsTimer: DispatchSourceTimer?
-    var onText: ((String, Region) -> Void)?
+    /// Các câu mới theo thứ tự trên màn hình; `skip` khác nil = câu bị bỏ qua (cảm thán, đơn giản, vô nghĩa):
+    /// không dịch, không đọc, không hiện.
+    var onText: (([SubLine], Region) -> Void)?
     var onEmpty: ((Region) -> Void)?
     var onUI: ((String, Region) -> Void)?       // chữ giao diện (menu/cài đặt) → bỏ qua
-    var onSkipped: ((String, Region) -> Void)?  // câu quá đơn giản → chỉ ghi nhật ký, không dịch, không đọc
     var onOCR: (() -> Void)?
     var onActiveChange: ((Bool) -> Void)?
     /// Luồng chụp chết và không khởi động lại được → thông báo lỗi; nil = đã chạy lại bình thường.
@@ -69,6 +71,7 @@ final class RegionWorker {
         skipUI = settings.skipUIText
         skipInterjections = settings.skipInterjections
         skipSimple = settings.skipSimpleLines
+        profileID = settings.activeProfile.id.uuidString
         adaptive = settings.adaptiveCapture
         stableDelay = max(0, settings.stableDelayMs) / 1000
         maxWait = max(stableDelay, 0.4)
@@ -200,6 +203,11 @@ final class RegionWorker {
     }
 
     /// Đặt khoảng nghỉ (gọi từ hàng đợi OCR) và bảo bộ so khung coi khung đầu tiên sau khi nghỉ là "mới".
+    /// Ghi vào tab "Bị bỏ qua" để người dùng xem lại bộ lọc có bỏ nhầm câu thoại không.
+    private func skipped(_ kind: SkipLog.Kind, _ text: String, reason: String = "") {
+        SkipLog.add(kind, text, reason: reason, region: region.name, profile: profileID)
+    }
+
     private func hold(_ seconds: TimeInterval) {
         guard adaptive, seconds > 0 else { return }
         gateQueue.async { [self] in
@@ -235,7 +243,10 @@ final class RegionWorker {
             let faintKey = r.faint.map { $0.replacingOccurrences(of: #" \(\d+\)$"#, with: "", options: .regularExpression) }.joined(separator: " ")
             if !TextUtils.sameLine(faintKey, lastFaint, threshold: dedup) {
                 lastFaint = faintKey
-                if !faintKey.isEmpty { Log.info("MỜ[\(region.name)] bỏ (độ tương phản < \(VisionOCR.minContrast)): \(r.faint.joined(separator: " ⏎ ").prefix(160))") }
+                if !faintKey.isEmpty {
+                    Log.info("MỜ[\(region.name)] bỏ (độ tương phản < \(VisionOCR.minContrast)): \(r.faint.joined(separator: " ⏎ ").prefix(160))")
+                    skipped(.faint, r.faint.joined(separator: "\n"), reason: "độ tương phản < \(VisionOCR.minContrast)")
+                }
             }
             // Game hiện tên ở dòng riêng phía trên: ghép "Tên" + câu bên dưới thành "Tên: câu".
             var rows = r.lines
@@ -260,6 +271,7 @@ final class RegionWorker {
                     RegionPreviewProvider.shared.reportOCR(regionID: region.id, ms: r.ms, text: "⏸ " + text)
                     if !TextUtils.sameLine(text, lastText, threshold: dedup) {
                         Log.info("UI[\(region.name)] bỏ qua (\(v.reasons.joined(separator: ", "))): \(text.prefix(80))")
+                        skipped(.ui, rows.joined(separator: "\n"), reason: v.reasons.joined(separator: ", "))
                     }
                     lastText = text
                     onUI?(text, region)
@@ -284,15 +296,18 @@ final class RegionWorker {
                                                recent: recent.map(\.text), threshold: dedup)
             let changed = text != lastText
             lastText = text
+            // Câu cảm thán / đơn giản / vô nghĩa: không dịch, không đọc, không hiện; câu đơn giản vẫn được ghi nhật ký phụ đề.
+            let ordered = fresh
+            var passthrough: [String: SkipLog.Kind] = [:]
             // Câu chỉ có từ cảm thán (hmm, haha, huh…): không dịch, không đọc; vẫn ghi nhớ để không xét lại.
             if skipInterjections {
                 let dropped = fresh.filter(SubtitleSplitter.isInterjectionOnly)
                 if !dropped.isEmpty {
                     fresh.removeAll(where: SubtitleSplitter.isInterjectionOnly)
-                    for d in dropped { recent.append((d, nil)) }
+                    for d in dropped { recent.append((d, nil)); passthrough[d] = .interjection }
                     if recent.count > 6 { recent.removeFirst(recent.count - 6) }
                     Log.info("CẢM THÁN[\(region.name)] bỏ qua: \(dropped.joined(separator: " ⏎ "))")
-                    if fresh.isEmpty { return }
+                    for d in dropped { skipped(.interjection, d) }
                 }
             }
             // Mẩu chữ lạc đứng một mình (chữ trong cảnh game, nút bấm): không dịch, không đọc; ghi nhớ để không xét lại.
@@ -303,26 +318,35 @@ final class RegionWorker {
                     for d in stray { recent.append((d, nil)) }
                     if recent.count > 6 { recent.removeFirst(recent.count - 6) }
                     Log.info("LẠC[\(region.name)] bỏ qua: \(stray.joined(separator: " ⏎ "))")
-                    if fresh.isEmpty { hold(0.6); return }
+                    for d in stray { skipped(.stray, d) }
+                    if fresh.isEmpty, passthrough.isEmpty { hold(0.6); return }
                 }
             }
-            // Câu quá đơn giản (1–2 từ, toàn từ cơ bản): người chơi tự hiểu → không dịch, không đọc, chỉ ghi vào nhật ký.
-            // Không có từ tiếng Anh thật nào (OCR đọc bậy: "imph", "impr") thì bỏ hẳn. Đều được ghi nhớ để không xét lại.
+            // Câu quá đơn giản (ngắn, toàn từ cơ bản / tên nhân vật): người chơi tự hiểu → không dịch, không đọc, ghi nhật ký.
+            // Không có từ tiếng Anh thật nào (OCR đọc bậy: "imph", "impr") thì không ghi nhật ký. Đều được ghi nhớ để không xét lại.
             if skipSimple {
-                let simple = fresh.filter(SubtitleSplitter.isSimple)
+                let names = speakerNames()
+                let simple = fresh.filter { SubtitleSplitter.isSimple($0, names: names) }
                 if !simple.isEmpty {
-                    fresh.removeAll(where: SubtitleSplitter.isSimple)
+                    fresh.removeAll { SubtitleSplitter.isSimple($0, names: names) }
                     for d in simple { recent.append((d, nil)) }
                     if recent.count > 6 { recent.removeFirst(recent.count - 6) }
                     let real = simple.filter(SubtitleSplitter.hasEnglishWord)
                     let junk = simple.filter { !SubtitleSplitter.hasEnglishWord($0) }
                     if !real.isEmpty {
                         Log.info("ĐƠN GIẢN[\(region.name)] không dịch, chỉ ghi nhật ký: \(real.joined(separator: " ⏎ "))")
-                        onSkipped?(real.joined(separator: "\n"), region)
+                        for d in real { skipped(.simple, d); passthrough[d] = .simple }
                     }
-                    if !junk.isEmpty { Log.info("VÔ NGHĨA[\(region.name)] bỏ hẳn: \(junk.joined(separator: " ⏎ "))") }
-                    if fresh.isEmpty { hold(0.4); return }
+                    if !junk.isEmpty {
+                        Log.info("VÔ NGHĨA[\(region.name)] bỏ hẳn: \(junk.joined(separator: " ⏎ "))")
+                        for d in junk { skipped(.junk, d); passthrough[d] = .junk }
+                    }
                 }
+            }
+            if fresh.isEmpty, !passthrough.isEmpty {
+                onText?(ordered.compactMap { t in passthrough[t].map { SubLine(text: t, skip: $0) } }, region)
+                hold(0.4)
+                return
             }
             guard !fresh.isEmpty else {
                 if changed { Log.info("DUP[\(region.name)] đã đọc rồi: \(text.prefix(60))") }
@@ -341,10 +365,18 @@ final class RegionWorker {
             // Học cỡ chữ phụ đề từ những hàng chắc chắn là lời thoại (từ 4 từ trở lên).
             let sure = zip(r.lines, r.lineHeights).filter { $0.0.split(separator: " ").count >= 4 }.map(\.1)
             if let h = sure.max() { subtitleHeight = subtitleHeight.map { $0 * 0.7 + h * 0.3 } ?? h }
-            onText?(fresh.joined(separator: "\n"), region)
+            onText?(ordered.compactMap { t in
+                passthrough[t].map { SubLine(text: t, skip: $0) } ?? (fresh.contains(t) ? SubLine(text: t, skip: nil) : nil)
+            }, region)
             hold(Self.holdAfterSubtitle(fresh.joined(separator: " "), lag: lag))
         }
     }
+}
+
+/// Một câu phụ đề mới OCR được. `skip` khác nil: câu bị bỏ qua (không dịch, không đọc, không hiện).
+struct SubLine {
+    let text: String
+    let skip: SkipLog.Kind?
 }
 
 /// Bản dịch mới nhất của một khu vực dịch thêm, hiện ngay tại khung đó trên hình PS5.
@@ -420,17 +452,11 @@ final class Pipeline: ObservableObject {
         let gen = queueGeneration      // Dừng / chạy lại làm số này tăng → câu OCR xong muộn của lần chạy cũ bị bỏ
         for r in regions {
             let w = RegionWorker(region: r, settings: settings)
-            w.onText = { [weak self] text, region in
+            w.onText = { [weak self] lines, region in
                 Task { @MainActor in
                     guard let self, self.queueGeneration == gen else { return }
                     self.skippedUI.removeValue(forKey: region.id)
-                    self.submit(text, region: region)
-                }
-            }
-            w.onSkipped = { [weak self] text, region in
-                Task { @MainActor in
-                    guard let self, self.queueGeneration == gen else { return }
-                    self.logSkipped(text, region: region)
+                    self.submit(lines, region: region)
                 }
             }
             w.onCaptureError = { [weak self] msg in
@@ -538,7 +564,7 @@ final class Pipeline: ObservableObject {
             if settings.overlayOn { overlay.hud("Đang phân tích màn hình…", seconds: 3) }
             if let a = await analyzer.analyze(regions: regions) {
                 if settings.overlayOn {
-                    overlay.hud("Xong: \(a.summary.prefix(120))", seconds: 8)
+                    overlay.hud("Xong: \(a.headline.prefix(120))", seconds: 8)
                 }
             } else if let e = analyzer.lastError, settings.overlayOn {
                 overlay.hud("Không phân tích được: \(e)", seconds: 4)
@@ -572,6 +598,7 @@ final class Pipeline: ObservableObject {
         let lastOfUtterance: Bool
         let firstOfBatch: Bool
         let fullSource: String      // cả câu thoại (ghi nhật ký)
+        let skip: SkipLog.Kind?     // câu bị bỏ qua: không dịch, không đọc, không hiện
     }
     private var jobSeq = 0, utteranceSeq = 0
     private var nextToEmit = 0
@@ -587,7 +614,7 @@ final class Pipeline: ObservableObject {
     private var lastSubmitAt = Date()
 
     /// `batch` có thể gồm nhiều câu thoại (ngăn bởi xuống dòng) khi hai người nói hiện cùng lúc.
-    private func submit(_ batch: String, region: Region) {
+    private func submit(_ batch: [SubLine], region: Region) {
         lastSubmitAt = Date()
         if settings.queueMode == .latestWins {
             // Chế độ "chỉ giữ câu mới nhất": bỏ các việc chưa bắt đầu dịch.
@@ -595,7 +622,8 @@ final class Pipeline: ObservableObject {
             pendingJobs.removeAll()
         }
         var first = true
-        for rawText in batch.split(separator: "\n").map(String.init) {
+        for line in batch {
+            let rawText = line.text
             var text = rawText
             var speakerName: String? = nil
             if settings.showsSpeakerNames && !region.extra {
@@ -610,9 +638,9 @@ final class Pipeline: ObservableObject {
             for (i, c) in chunks.enumerated() {
                 pendingJobs.append(Job(seq: jobSeq, text: c, speakerName: i == 0 ? speakerName : nil, region: region,
                                        utterance: utteranceSeq, lastOfUtterance: i == chunks.count - 1,
-                                       firstOfBatch: first, fullSource: text))
+                                       firstOfBatch: first && line.skip == nil, fullSource: text, skip: line.skip))
                 jobSeq += 1
-                first = false
+                if line.skip == nil { first = false }
             }
         }
         if settings.voiceOn { applyVoiceSettings(); speaker.prewarm() }
@@ -623,6 +651,11 @@ final class Pipeline: ObservableObject {
         let limit = max(1, router.parallelism)
         while inFlight < limit, !pendingJobs.isEmpty {
             let job = pendingJobs.removeFirst()
+            if job.skip != nil {
+                finished[job.seq] = (job, TranslationRouter.Output(text: job.text, backend: .skipped, ms: 0))
+                drain()
+                continue
+            }
             inFlight += 1
             let gen = queueGeneration
             Task { @MainActor in
@@ -648,6 +681,12 @@ final class Pipeline: ObservableObject {
     }
 
     private func emit(_ job: Job, _ out: TranslationRouter.Output) {
+        // Câu bị bỏ qua (cảm thán, đơn giản, vô nghĩa): không hiện, không đọc; chỉ giữ lại để ghi nhật ký.
+        if job.skip != nil {
+            utteranceParts[job.utterance, default: []].append(out.text)
+            utteranceBackend[job.utterance] = out.backend
+            return
+        }
         if job.firstOfBatch { batchSource = ""; batchOutput = "" }
         // Các đoạn của cùng một câu nối liền bằng khoảng trắng; câu thoại khác thì xuống dòng.
         let sep = batchOutput.isEmpty ? "" : (job.utterance == lastEmittedUtterance ? " " : "\n")
@@ -687,28 +726,16 @@ final class Pipeline: ObservableObject {
         guard let parts = utteranceParts.removeValue(forKey: job.utterance), !parts.isEmpty else { return }
         let ms = utteranceMs.removeValue(forKey: job.utterance) ?? 0
         let backend = utteranceBackend.removeValue(forKey: job.utterance) ?? .apple
+        if job.skip == .junk || job.skip == .interjection { return }   // chỉ câu đơn giản được ghi vào nhật ký phụ đề
         HistoryStore.shared.add(region: job.region.name, source: job.fullSource, translated: parts.joined(separator: " "),
                                 backend: backend, ms: ms, kind: .subtitle, target: settings.targetLanguage,
                                 profile: settings.activeProfile.id.uuidString)
     }
 
-    /// Câu quá đơn giản: ghi nguyên câu gốc vào nhật ký (không dịch, không đọc, không hiện overlay).
-    private func logSkipped(_ batch: String, region: Region) {
-        for raw in batch.split(separator: "\n").map(String.init) {
-            var text = raw
-            if settings.showsSpeakerNames {
-                if let name = SpeakerNames.learn(from: raw) { settings.learnSpeaker(name) }
-                text = SpeakerNames.normalize(raw, speakers: settings.speakers).text
-            }
-            HistoryStore.shared.add(region: region.name, source: text, translated: text, backend: .skipped, ms: 0,
-                                    kind: .subtitle, target: settings.targetLanguage, profile: settings.activeProfile.id.uuidString)
-        }
-    }
-
     /// Dùng cho cờ kiểm thử --feed: đưa thẳng văn bản vào hàng đợi dịch như thể OCR vừa đọc được.
     func testFeed(_ batch: String) {
         let r = settings.subtitleRegions.first ?? Region(name: "Test", displayID: 0, x: 0, y: 0, width: 1, height: 1)
-        submit(batch, region: r)
+        submit(batch.split(separator: "\n").map { SubLine(text: String($0), skip: nil) }, region: r)
     }
 
     private func resetQueue() {

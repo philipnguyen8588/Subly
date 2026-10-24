@@ -34,6 +34,9 @@ public class OcrBlock
     public int lines = 1;
     /// Chiều cao chữ trung bình của các dòng (không tính khoảng trống giữa dòng), để so cỡ chữ khi gộp đoạn.
     public double textH;
+    /// Mép trái của dòng đầu / dòng cuối (y trên của dòng đầu, y dưới của dòng cuối). Với chữ thẳng trùng `box.MinY` / `box.MaxY`;
+    /// với chữ nghiêng (bảng chữ phối cảnh 3D) khung bao thẳng của một dòng cao gấp 2–3 lần chữ nên phải đo khoảng cách dòng ở mép trái.
+    public double leftTop, leftBottom;
 }
 
 /// OCR bằng Windows.Media.Ocr (có sẵn trên Windows 10/11, cần gói ngôn ngữ English).
@@ -104,7 +107,9 @@ public sealed class WinOcr
 
     public static bool Available => Engine != null;
 
-    record Frag(string text, RectD box); // box chuẩn hoá 0..1, gốc trên-trái
+    // box chuẩn hoá 0..1, gốc trên-trái. leftTop/leftBottom: khung của từ đầu tiên; textH: chiều cao từ trung vị
+    // (khung bao cả dòng phình ra khi dòng nghiêng nên không dùng làm cỡ chữ được).
+    record Frag(string text, RectD box, double leftTop = 0, double leftBottom = 0, double textH = 0);
 
     /// Chạy OCR và trả về các mảnh chữ (chuẩn hoá).
     static async Task<List<Frag>?> RunRaw(Frame f)
@@ -153,7 +158,10 @@ public sealed class WinOcr
                 double x0 = cur.Min(w => w.BoundingRect.X), y0 = cur.Min(w => w.BoundingRect.Y);
                 double x1 = cur.Max(w => w.BoundingRect.X + w.BoundingRect.Width), y1 = cur.Max(w => w.BoundingRect.Y + w.BoundingRect.Height);
                 var text = string.Join(" ", cur.Select(w => w.Text));
-                frags.Add(new Frag(text, new RectD(x0 / W, y0 / H, (x1 - x0) / W, (y1 - y0) / H)));
+                var first = cur[0].BoundingRect;
+                var hs = cur.Select(w => w.BoundingRect.Height).OrderBy(h => h).ToList();
+                frags.Add(new Frag(text, new RectD(x0 / W, y0 / H, (x1 - x0) / W, (y1 - y0) / H),
+                                   first.Y / H, (first.Y + first.Height) / H, hs[hs.Count / 2] / H));
             }
             for (int i = 1; i < words.Count; i++)
             {
@@ -209,9 +217,9 @@ public sealed class WinOcr
         {
             var text = TextUtils.Normalize(TextUtils.StripJunkTokens(o.text));
             if (TextUtils.LetterCount(text) < 2) continue;
-            items.Add(new OcrBlock { text = text, box = o.box, lines = 1, textH = o.box.Height });
+            items.Add(new OcrBlock { text = text, box = o.box, lines = 1, textH = o.textH, leftTop = o.leftTop, leftBottom = o.leftBottom });
         }
-        items.Sort((a, b) => Math.Abs(a.box.MinY - b.box.MinY) > 0.01 ? a.box.MinY.CompareTo(b.box.MinY) : a.box.MinX.CompareTo(b.box.MinX));
+        items.Sort((a, b) => Math.Abs(a.leftTop - b.leftTop) > 0.01 ? a.leftTop.CompareTo(b.leftTop) : a.box.MinX.CompareTo(b.box.MinX));
         // Gộp đoạn văn: dòng dưới nằm sát dòng trên, cùng lề trái, cỡ chữ tương đương.
         var outp = new List<OcrBlock>();
         foreach (var it in items)
@@ -221,11 +229,11 @@ public sealed class WinOcr
             {
                 var prev = outp[i];
                 double lineH = prev.textH;
-                double gap = it.box.MinY - prev.box.MaxY;
+                double gap = it.leftTop - prev.leftBottom;
                 // Cùng lề trái, hoặc cùng tâm (đoạn chữ canh giữa như hướng dẫn, thông báo).
                 bool sameLeft = Math.Abs(it.box.MinX - prev.box.MinX) < 0.012 || Math.Abs(it.box.MidX - prev.box.MidX) < 0.012;
                 // Dòng không có chữ cao/thấp (dòng cuối ngắn "no amount of money can buy.") có khung thấp hơn ~30 %.
-                bool sameSize = Math.Max(lineH, it.box.Height) / Math.Max(0.0001, Math.Min(lineH, it.box.Height)) < 1.5;
+                bool sameSize = Math.Max(lineH, it.textH) / Math.Max(0.0001, Math.Min(lineH, it.textH)) < 1.5;
                 // Mục menu xếp dọc cũng cùng lề nhưng cách nhau xa hơn và thường chỉ 1–2 từ → không gộp.
                 bool wordy = prev.text.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length >= 3;
                 // Khoảng cách dòng của đoạn văn trong game thường bằng 0,5–0,8 lần chiều cao chữ (ngưỡng cũ 0,45 tách nhầm
@@ -239,7 +247,8 @@ public sealed class WinOcr
                 double x0 = Math.Min(b.box.MinX, it.box.MinX), y0 = Math.Min(b.box.MinY, it.box.MinY);
                 double x1 = Math.Max(b.box.MaxX, it.box.MaxX), y1 = Math.Max(b.box.MaxY, it.box.MaxY);
                 b.box = new RectD(x0, y0, x1 - x0, y1 - y0);
-                b.textH = (b.textH * b.lines + it.box.Height) / (b.lines + 1);
+                b.textH = (b.textH * b.lines + it.textH) / (b.lines + 1);
+                b.leftBottom = it.leftBottom;
                 b.lines += 1;
             }
             else outp.Add(it);

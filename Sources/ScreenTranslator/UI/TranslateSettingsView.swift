@@ -121,7 +121,6 @@ struct TranslateSettings: View {
                         Slider(value: $settings.analyzeTimeout, in: 5...60, step: 5).frame(maxWidth: 220)
                         Text("\(Int(settings.analyzeTimeout)) s").monospacedDigit().foregroundStyle(.secondary)
                     }
-                    Toggle("Đọc tóm tắt bằng giọng nói", isOn: $settings.analyzeSpeakSummary)
                 }
 
                 TaskAIBlock(task: .summary, settings: settings, openAI: openAI) {

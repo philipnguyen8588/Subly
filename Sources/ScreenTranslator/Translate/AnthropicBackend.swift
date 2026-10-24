@@ -68,7 +68,7 @@ final class AnthropicBackend: CloudChatBackend {
         let system = analysisPrompt() + """
 
         Reply with JSON only, no code fences and no other text, exactly in this shape:
-        {"summary": "…", "lines": [{"i": 1, "t": "…"}, {"i": 2, "t": "…"}]}
+        {"lines": [{"i": 1, "t": "…"}, {"i": 2, "t": "…"}]}
         "lines" must have exactly \(lines.count) entries: one per numbered input line, "i" = that line's number.
         Never merge, split, skip or reorder lines, even when a line looks like a fragment of another one.
         """

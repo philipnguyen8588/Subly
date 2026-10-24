@@ -151,7 +151,7 @@ struct CaptureSettings: View {
                 }
                 Toggle("Soi thông minh: nghỉ sau mỗi câu phụ đề (câu dài nghỉ tối đa 1,2 s, câu ngắn ~0,3 s) để giảm OCR", isOn: $settings.adaptiveCapture)
                 Toggle("Bỏ qua câu chỉ có từ cảm thán (hmm, haha, huh, ugh…) và mô tả âm thanh như [grunts]", isOn: $settings.skipInterjections)
-                Toggle("Không dịch, không đọc câu quá đơn giản (1–2 từ, hoặc tối đa 5 từ toàn từ cơ bản như yes, no, okay, let's go); vẫn ghi câu gốc vào nhật ký", isOn: $settings.skipSimpleLines)
+                Toggle("Không dịch, không đọc câu quá đơn giản (tối đa 5 từ, toàn từ cơ bản như yes, no, okay, let's go hoặc tên nhân vật); vẫn ghi câu gốc vào nhật ký", isOn: $settings.skipSimpleLines)
                 Toggle("Chỉ nhận chữ nằm giữa khung phụ đề – bỏ chữ ở mép như nút Quick Save, Back (tắt nếu game canh phụ đề sang trái)", isOn: $settings.centerOnlySubtitles)
                 Toggle("Bỏ qua chữ giao diện (menu, cài đặt, danh sách) – chỉ dịch khi trông giống phụ đề", isOn: $settings.skipUIText)
                 Text("Nhận biết qua nhiều từ Viết Hoa, nhiều cột/hàng, cỡ chữ lẫn, nhiều số. Tắt nếu game có phụ đề kiểu lạ bị bỏ qua nhầm (xem log “UI[...] bỏ qua”). Có hiệu lực khi Bắt đầu lại.")
