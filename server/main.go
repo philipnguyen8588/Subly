@@ -196,6 +196,8 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("GET /v1/backups/{machine}", a.handleBackupGet)
 	mux.HandleFunc("DELETE /v1/backups/{machine}", a.handleBackupDelete)
 	mux.HandleFunc("/admin/accounts", a.handleAccountAction)
+	mux.HandleFunc("/admin/tv", a.handleTvAction)
+	mux.HandleFunc("/admin/tv/download", a.handleTvDownload)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 	return securityHeaders(mux)
 }

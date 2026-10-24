@@ -34,6 +34,9 @@ shasum -a 256 build/SubtitleTV.zip
 
 ## 3. Nạp lên server
 
+Người dùng cũng tự nạp được trên web: `https://translate.helioapple.com/admin?tab=tv` (tab **App TV**: xem bản đang
+phát, tải zip, nạp bản mới, khôi phục bản trước). Khi tự làm thì dùng DeployTool như dưới.
+
 Server: DeployTool project **`Translate-screen-server`** (local `server/` → `/app/translate-screen` trên VPS EbayServer).
 
 1. `mkdir -p server/import-tv && cp build/SubtitleTV.zip server/import-tv/` (thư mục đã nằm trong `server/.gitignore`).

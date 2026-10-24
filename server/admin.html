@@ -87,6 +87,7 @@
     <a href="/admin?tab=ai" class="{{if eq .Tab "ai"}}on{{end}}">AI share</a>
     <a href="/admin?tab=games" class="{{if eq .Tab "games"}}on{{end}}">Game mẫu</a>
     <a href="/admin?tab=accounts" class="{{if eq .Tab "accounts"}}on{{end}}">Tài khoản</a>
+    <a href="/admin?tab=tv" class="{{if eq .Tab "tv"}}on{{end}}">App TV</a>
   </nav>
 {{if eq .Tab "ai"}}
   <header>
@@ -208,6 +209,52 @@
   </div>
   {{else}}
   <div class="empty">Chưa có tài khoản nào.</div>
+  {{end}}
+{{else if eq .Tab "tv"}}
+  <header>
+    <h1>App Subtitle TV</h1>
+    <span class="sp"></span>
+    <form method="post" action="/admin/logout" class="inline"><button type="submit">Đăng xuất</button></form>
+  </header>
+  <p class="muted">App Mac / Windows tải bản này khi bấm “Cài app lên TV”, ký bằng chứng chỉ của TV đó rồi cài. Nạp bản mới ở đây là xong, không cần build lại app máy tính. TV không tự cập nhật: mỗi TV bấm “Cài app lên TV” một lần để nhận bản mới.</p>
+  {{if .Notice}}<p class="{{if hasPrefix .Notice "Lỗi"}}err{{else}}info{{end}}">{{.Notice}}</p>{{end}}
+  {{with .TvCur}}
+  <div class="card">
+    <div class="row game">
+      <div>
+        <div class="name">Bản đang phát<span class="badge b-approved">version {{.Version}}</span></div>
+        <div class="muted">{{.AppID}} · {{.Files}} file · {{size .Size}} · nạp {{date .Updated}} ({{ago .Updated}})</div>
+        <div class="hash">SHA-256 {{.SHA}}</div>
+      </div>
+      <div class="muted">{{join .Names ", "}}</div>
+      <div class="actions"><a class="btn" href="/admin/tv/download">Tải zip</a></div>
+    </div>
+  </div>
+  {{else}}
+  <div class="empty">Server chưa có app TV: app máy tính đang dùng bản đóng kèm. Tải file zip lên bên dưới.</div>
+  {{end}}
+  <div class="card">
+    <form method="post" action="/admin/tv" enctype="multipart/form-data" class="importf">
+      <strong>Nạp bản mới</strong>
+      <input type="file" name="file" accept=".zip,application/zip" required>
+      <button class="ok" type="submit" name="action" value="upload">Nạp</button>
+      <span class="muted">Zip các file bên trong thư mục SubtitleTV (config.xml, index.html, main.js… nằm ở gốc zip, không nén cả thư mục), chưa ký. Trên Mac: <code>make tv-zip</code> → build/SubtitleTV.zip.</span>
+    </form>
+  </div>
+  {{with .TvPrev}}
+  <div class="card">
+    <div class="row game">
+      <div>
+        <div class="name">Bản trước<span class="badge b-pending">version {{.Version}}</span></div>
+        <div class="muted">{{.Files}} file · {{size .Size}} · nạp {{date .Updated}}</div>
+      </div>
+      <div></div>
+      <div class="actions">
+        <a class="btn" href="/admin/tv/download?f=prev">Tải zip</a>
+        <form method="post" action="/admin/tv" class="inline"><button name="action" value="restore" data-confirm="Quay lại bản trước (version {{.Version}})? Các máy cài lên TV sau đó sẽ nhận bản này.">Khôi phục</button></form>
+      </div>
+    </div>
+  </div>
   {{end}}
 {{else if eq .Tab "games"}}
   <header>

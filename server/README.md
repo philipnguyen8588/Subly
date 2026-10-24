@@ -69,6 +69,8 @@ docker compose run --rm -v /app/translate-screen/import-tv:/seed:ro subly import
 ```
 
 File nằm ở `data/tv/SubtitleTV.zip` (bản trước ở `SubtitleTV.prev.zip`). Server chưa có file → 404, app dùng bản đóng kèm.
+Cũng nạp được trên trang quản trị, tab **App TV** (`/admin?tab=tv`): xem bản đang phát, tải zip về, nạp bản mới,
+khôi phục bản trước. nginx mặc định chỉ nhận body 1 MB (app TV hiện ~60 KB).
 
 ## Sao lưu
 

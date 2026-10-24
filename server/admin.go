@@ -84,7 +84,7 @@ type adminPage struct {
 	Status      string
 	Q           string
 	TTLDays     int
-	Tab         string // "" = máy, "ai" = AI share, "games" = game mẫu, "accounts" = tài khoản sao lưu
+	Tab         string // "" = máy, "ai" = AI share, "games" = game mẫu, "accounts" = tài khoản sao lưu, "tv" = app TV
 	Shares      []shareView
 	Draft       *shareDraft
 	Games       []gameView
@@ -92,6 +92,8 @@ type adminPage struct {
 	Notice      string
 	Accounts    []accountView
 	BackupMaxMB int
+	TvCur       *tvView // tab App TV: bản đang phát / bản trước
+	TvPrev      *tvView
 }
 
 func (a *App) render(w http.ResponseWriter, p adminPage) {
@@ -122,6 +124,10 @@ func (a *App) handleAdmin(w http.ResponseWriter, r *http.Request) {
 			draft = &gameDraft{Style: "modern", ShowsSpeakerNames: true}
 		}
 		a.renderGames(w, draft, "")
+		return
+	}
+	if r.URL.Query().Get("tab") == "tv" {
+		a.renderTv(w, "")
 		return
 	}
 	if r.URL.Query().Get("tab") == "accounts" {
