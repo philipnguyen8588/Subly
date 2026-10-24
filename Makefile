@@ -12,8 +12,18 @@ endif
 # Nơi cài app (make install): mở từ Launchpad / Spotlight / thư mục Applications như app bình thường.
 INSTALL_DIR ?= /Applications
 INSTALLED = $(INSTALL_DIR)/Subly.app
+# Các file của app Subtitle TV (windows/tizen/SubtitleTV): đóng kèm app và đóng gói lên server.
+TV_FILES  = config.xml index.html main.js style.css icon.png
 
-.PHONY: build app install run clean debug icon
+.PHONY: build app install run clean debug icon tv-zip
+
+# Zip mã nguồn app Subtitle TV (chưa ký) để nạp lên server: subly-server import-tv build/SubtitleTV.zip.
+# App Mac / Windows tải bản này khi bấm "Cài app lên TV" → cập nhật app TV không cần build lại app máy tính.
+tv-zip:
+	mkdir -p build
+	rm -f build/SubtitleTV.zip
+	cd windows/tizen/SubtitleTV && zip -q -X -9 ../../../build/SubtitleTV.zip $(TV_FILES)
+	@unzip -l build/SubtitleTV.zip
 
 # Sinh icon app (chỉ cần chạy lại khi đổi thiết kế icon)
 icon:
@@ -39,10 +49,10 @@ app: build
 	# Hướng dẫn sử dụng (mở bằng nút Hướng dẫn trong app).
 	mkdir -p $(APP)/Contents/Resources/guide
 	cp Resources/guide/*.html $(APP)/Contents/Resources/guide/
-	# Cài app Subtitle TV lên TV Samsung (nút "Cài app lên TV"): mã nguồn app TV + CA của Samsung để ghép chứng chỉ.
+	# Cài app Subtitle TV lên TV Samsung (nút "Cài app lên TV"): CA của Samsung để ghép chứng chỉ + mã nguồn app TV
+	# (bản dự phòng; app tải bản mới nhất từ server, xem `make tv-zip`).
 	mkdir -p $(APP)/Contents/Resources/tv/SubtitleTV $(APP)/Contents/Resources/tv/ca
-	cp windows/tizen/SubtitleTV/config.xml windows/tizen/SubtitleTV/index.html windows/tizen/SubtitleTV/main.js \
-		windows/tizen/SubtitleTV/style.css windows/tizen/SubtitleTV/icon.png $(APP)/Contents/Resources/tv/SubtitleTV/
+	cp $(addprefix windows/tizen/SubtitleTV/,$(TV_FILES)) $(APP)/Contents/Resources/tv/SubtitleTV/
 	cp windows/tizen/ca/*.cer windows/tizen/ca/*.crt $(APP)/Contents/Resources/tv/ca/
 	mkdir -p $(APP)/Contents/Frameworks
 	cp Vendor/sherpa-onnx/lib/libsherpa-onnx-c-api.dylib Vendor/sherpa-onnx/lib/libonnxruntime.dylib $(APP)/Contents/Frameworks/

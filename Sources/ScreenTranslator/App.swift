@@ -268,6 +268,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     //   --data-dir <thư mục>      dùng thư mục dữ liệu + UserDefaults riêng (test, không đụng dữ liệu thật)
     //   --account-login user:pass  đăng nhập tài khoản sao lưu   --backup-now  sao lưu lên server
     //   --restore-from <mã máy>   tải bản của máy đó về và khôi phục (không hỏi lại)   --machine-id <hex>  giả làm máy khác
+    //   --tv-fetch-app            lấy mã nguồn app TV như lúc bấm Cài app lên TV (tải từ server), ghi kết quả vào log
     @MainActor private func handleCommandLine() {
         let args = CommandLine.arguments
         let settings = AppSettings.shared
@@ -434,6 +435,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     if let b = model.backups.first(where: { $0.machine == args[i + 1] }) { await model.restore(b) }
                     else { Log.warn("TEST-RESTORE: không có bản của máy \(args[i + 1])") }
                 }
+            }
+        }
+        if args.contains("--tv-fetch-app") {
+            Task { @MainActor in
+                let src = await TvAppSource.resolve(bundled: TvInstaller.bundledApp) { Log.info("TEST-TV-APP " + $0) }
+                Log.info("TEST-TV-APP nguồn: \(src?.path ?? "không có")")
             }
         }
         if let i = args.firstIndex(of: "--quit-after"), i + 1 < args.count, let sec = Double(args[i + 1]) {

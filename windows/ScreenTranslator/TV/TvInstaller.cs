@@ -17,28 +17,32 @@ namespace ScreenTranslator;
 ///   1. Kết nối TV bằng sdb.exe (TV bật Developer Mode, Host PC IP = máy này), lấy DUID.
 ///   2. Tìm các bộ chứng chỉ có DUID này (%APPDATA%\ScreenTranslator\tv-certs, %USERPROFILE%\SamsungCertificate).
 ///      Không có → đăng nhập Samsung, xin chứng chỉ vào tv-certs\Subly-Auto (SamsungCert).
-///   3. Ký app (WgtSigner) rồi cài. TV báo "Author certificate not match" (app đã cài bằng chứng chỉ tác giả khác) →
+///   3. Lấy mã nguồn app TV mới nhất trên server (TvAppSource; mất mạng thì bản đã tải / bản đóng kèm),
+///      ký (WgtSigner) rồi cài. TV báo "Author certificate not match" (app đã cài bằng chứng chỉ tác giả khác) →
 ///      thử bộ kế; hết bộ → hỏi gỡ app cũ rồi cài lại.
 public static class TvInstaller
 {
     static string TvDir => Path.Combine(AppPaths.AppDir, "tv");
     static string Sdb => Path.Combine(TvDir, "sdb.exe");
-    static string AppSrc => Path.Combine(TvDir, "SubtitleTV");
+    /// Bản app TV đóng kèm, chỉ để dự phòng: bản dùng để cài lấy từ server (TvAppSource).
+    static string BundledApp => Path.Combine(TvDir, "SubtitleTV");
     static string CaDir => Path.Combine(TvDir, "ca");
     public static string CertRoot => Path.Combine(AppPaths.Root, "tv-certs");
     static string SharedCertRoot => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "SamsungCertificate");
     const string Remote = "/home/owner/share/tmp/sdk_tools/tmp/SubtitleTV.wgt";
 
-    /// null = đủ file để cài; khác null = lý do không cài được (bản build thiếu file).
+    /// null = đủ file để cài; khác null = lý do không cài được (bản build thiếu file). Mã nguồn app TV kiểm tra lúc cài
+    /// (có thể tải từ server).
     public static string? MissingFiles() =>
-        !File.Exists(Sdb) ? "Bản Subly này thiếu sdb.exe (công cụ kết nối TV) nên không cài được app lên TV." :
-        !File.Exists(Path.Combine(AppSrc, "config.xml")) ? "Bản Subly này thiếu mã nguồn app TV." : null;
+        !File.Exists(Sdb) ? "Bản Subly này thiếu sdb.exe (công cụ kết nối TV) nên không cài được app lên TV." : null;
 
     /// Cài + mở app trên TV. `confirmUninstall`: hỏi người dùng có gỡ app cũ không (chạy trên UI thread).
     public static async Task Install(string ip, Action<string> log, Func<bool> confirmUninstall, CancellationToken ct)
     {
         if (MissingFiles() is string miss) throw new InvalidOperationException(miss);
-        var cfg = XDocument.Load(Path.Combine(AppSrc, "config.xml"));
+        var appSrc = await TvAppSource.Resolve(BundledApp, log, ct)
+            ?? throw new InvalidOperationException("Không tải được app TV từ server và bản Subly này không kèm sẵn app TV. Kiểm tra mạng rồi thử lại.");
+        var cfg = XDocument.Load(Path.Combine(appSrc, "config.xml"));
         var appEl = cfg.Descendants().First(e => e.Name.LocalName == "application");
         string appId = (string)appEl.Attribute("id")!, pkgId = (string)appEl.Attribute("package")!;
         var serial = $"{ip}:26101";
@@ -67,7 +71,7 @@ public static class TvInstaller
         async Task<string> InstallWith(CertSet s)
         {
             log($"Ký app bằng chứng chỉ '{s.name}' và cài lên TV…");
-            WgtSigner.Sign(AppSrc, wgt, Path.Combine(s.dir, "author.p12"), s.authorPassword, Path.Combine(s.dir, "distributor.p12"), s.distributorPassword);
+            WgtSigner.Sign(appSrc, wgt, Path.Combine(s.dir, "author.p12"), s.authorPassword, Path.Combine(s.dir, "distributor.p12"), s.distributorPassword);
             await Run(ct, "-s", serial, "push", wgt, Remote);
             var res = await Run(ct, "-s", serial, "shell", "0", "vd_appinstall", pkgId, Remote);
             var line = res.Split('\n').Select(l => l.Trim()).LastOrDefault(l => Regex.IsMatch(l, "install (failed|completed)")) ?? res.Trim();

@@ -5,18 +5,20 @@ import Foundation
 ///   1. Kết nối TV (SdbClient, TV bật Developer Mode, Host PC IP = máy này), lấy DUID.
 ///   2. Tìm các bộ chứng chỉ có DUID này (~/Library/Application Support/ScreenTranslator/tv-certs, ~/SamsungCertificate).
 ///      Không có → đăng nhập Samsung, xin chứng chỉ vào tv-certs/Subly-Auto (SamsungCert).
-///   3. Ký app (WgtSigner) rồi cài. TV báo "Author certificate not match" (app đã cài bằng chứng chỉ tác giả khác) →
+///   3. Lấy mã nguồn app TV mới nhất trên server (TvAppSource; mất mạng thì bản đã tải / bản đóng kèm),
+///      ký (WgtSigner) rồi cài. TV báo "Author certificate not match" (app đã cài bằng chứng chỉ tác giả khác) →
 ///      thử bộ kế; hết bộ → hỏi gỡ app cũ rồi cài lại.
 /// Bộ chứng chỉ chép từ máy Windows sang dùng được nếu mật khẩu nằm trong password.txt (file *.pwd là DPAPI của
 /// Windows, Mac không giải được).
 enum TvInstaller {
     /// Thư mục tv/ trong bundle (Makefile chép app TV + CA vào); chạy từ mã nguồn thì dùng windows/tizen của repo.
+    /// App TV trong đó chỉ là bản dự phòng: bản dùng để cài lấy từ server (TvAppSource).
     static var tvDir: URL {
         if let r = Bundle.main.resourceURL?.appendingPathComponent("tv", isDirectory: true),
            FileManager.default.fileExists(atPath: r.appendingPathComponent("SubtitleTV/config.xml").path) { return r }
         return URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("windows/tizen", isDirectory: true)
     }
-    static var appSrc: URL { tvDir.appendingPathComponent("SubtitleTV", isDirectory: true) }
+    static var bundledApp: URL { tvDir.appendingPathComponent("SubtitleTV", isDirectory: true) }
     static var caDir: URL { tvDir.appendingPathComponent("ca", isDirectory: true) }
     static var certRoot: URL { AppPaths.root.appendingPathComponent("tv-certs", isDirectory: true) }
     static var sharedCertRoot: URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("SamsungCertificate", isDirectory: true) }
@@ -27,18 +29,19 @@ enum TvInstaller {
         var errorDescription: String? { message }
     }
 
-    /// nil = đủ file để cài; khác nil = lý do không cài được (bản build thiếu file).
+    /// nil = đủ file để cài; khác nil = lý do không cài được (bản build thiếu file). Mã nguồn app TV kiểm tra lúc cài
+    /// (có thể tải từ server).
     static func missingFiles() -> String? {
-        let fm = FileManager.default
-        if !fm.fileExists(atPath: appSrc.appendingPathComponent("config.xml").path) { return "Bản Subly này thiếu mã nguồn app TV." }
-        if !fm.fileExists(atPath: caDir.appendingPathComponent("vd_tizen_dev_author_ca.cer").path) { return "Bản Subly này thiếu CA của Samsung." }
-        return nil
+        FileManager.default.fileExists(atPath: caDir.appendingPathComponent("vd_tizen_dev_author_ca.cer").path) ? nil : "Bản Subly này thiếu CA của Samsung."
     }
 
     /// Cài + mở app trên TV. `confirmUninstall`: hỏi người dùng có gỡ app cũ không (gọi trên main).
     static func install(ip: String, log: @escaping (String) -> Void, confirmUninstall: @escaping @MainActor () -> Bool) async throws {
         if let miss = missingFiles() { throw InstallError(message: miss) }
-        let (appId, pkgId) = try appIds()
+        guard let appSrc = await TvAppSource.resolve(bundled: bundledApp, log: log) else {
+            throw InstallError(message: "Không tải được app TV từ server và bản Subly này không kèm sẵn app TV. Kiểm tra mạng rồi thử lại.")
+        }
+        let (appId, pkgId) = try appIds(appSrc)
 
         log("Kết nối TV \(ip)…")
         let sdb: SdbClient
@@ -107,7 +110,7 @@ enum TvInstaller {
     }
 
     /// id app / gói từ config.xml (<tizen:application id="…" package="…">).
-    static func appIds() throws -> (String, String) {
+    static func appIds(_ appSrc: URL) throws -> (String, String) {
         let xml = try String(contentsOf: appSrc.appendingPathComponent("config.xml"), encoding: .utf8)
         func attr(_ name: String) -> String? {
             guard let tag = xml.range(of: #"<[A-Za-z]*:?application\b[^>]*>"#, options: .regularExpression),

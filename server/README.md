@@ -57,10 +57,23 @@ location /v1/backups {
 Cloudflare gói miễn phí nhận request tối đa 100 MB, nên server mặc định chặn bản sao lưu lớn hơn 90 MB (đổi bằng
 `BACKUP_MAX_MB` trong `.env`).
 
+## App Subtitle TV
+
+App Mac / Windows tải mã nguồn app TV từ `GET /v1/tv/app` (zip chưa ký, ETag = SHA-256) khi bấm "Cài app lên TV",
+rồi ký bằng chứng chỉ của TV đó và cài. Cập nhật app TV chỉ cần nạp zip mới, không build lại server hay app máy tính:
+
+```sh
+make tv-zip                                  # ở máy: tạo build/SubtitleTV.zip từ windows/tizen/SubtitleTV
+# chép zip lên VPS vào /app/translate-screen/import-tv/, rồi:
+docker compose run --rm -v /app/translate-screen/import-tv:/seed:ro subly import-tv /seed/SubtitleTV.zip
+```
+
+File nằm ở `data/tv/SubtitleTV.zip` (bản trước ở `SubtitleTV.prev.zip`). Server chưa có file → 404, app dùng bản đóng kèm.
+
 ## Sao lưu
 
 Toàn bộ dữ liệu nằm trong `data/`: `devices.db` là danh sách máy (kèm tài khoản, AI share, game mẫu), `server.key` là
-khoá ký, `backups/<id tài khoản>/<mã máy>.zip` là bản sao lưu dữ liệu app của người dùng. Chỉ cần sao lưu thư mục này. Mất `server.key` thì mọi vé cũ vô hiệu: phải tạo khoá mới, build lại app với public key mới, và các máy phải tải
+khoá ký, `tv/SubtitleTV.zip` là app TV, `backups/<id tài khoản>/<mã máy>.zip` là bản sao lưu dữ liệu app của người dùng. Chỉ cần sao lưu thư mục này. Mất `server.key` thì mọi vé cũ vô hiệu: phải tạo khoá mới, build lại app với public key mới, và các máy phải tải
 bản app mới.
 
 ## Báo qua Telegram (tuỳ chọn)

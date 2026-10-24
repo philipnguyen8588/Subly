@@ -4,6 +4,7 @@
 //	subly-server keygen   tạo khoá ký (nếu chưa có) và in public key để nhúng vào app
 //	subly-server pubkey   in public key
 //	subly-server import-games <thư mục>   nạp các file game mẫu *.json (game cùng id thì được thay)
+//	subly-server import-tv <file.zip>     thay app Subtitle TV (zip mã nguồn app TV, xem tvapp.go)
 //	subly-server          chạy server
 package main
 
@@ -45,6 +46,7 @@ type App struct {
 	accountLimit *RateLimiter      // đăng nhập tài khoản sao lưu, theo IP
 	backupDir    string            // $DATA_DIR/backups/<user id>/<máy>.zip
 	backupMax    int64             // dung lượng tối đa một bản sao lưu (byte)
+	tvDir        string            // $DATA_DIR/tv: app Subtitle TV (SubtitleTV.zip)
 	now          func() time.Time
 }
 
@@ -111,8 +113,18 @@ func main() {
 			}
 			fmt.Printf("đã nạp %d game\n", n)
 			return
+		case "import-tv":
+			if len(os.Args) < 3 {
+				log.Fatal("dùng: subly-server import-tv <SubtitleTV.zip>")
+			}
+			app, err := importTvZip(filepath.Join(dataDir, "tv"), os.Args[2])
+			if err != nil {
+				log.Fatalf("không nạp được app TV: %v", err)
+			}
+			fmt.Printf("đã nạp app TV %s (version %s, %d file)\n", app.AppID, app.Version, app.Files)
+			return
 		default:
-			log.Fatalf("lệnh không rõ: %s (dùng: keygen | pubkey | import-games)", os.Args[1])
+			log.Fatalf("lệnh không rõ: %s (dùng: keygen | pubkey | import-games | import-tv)", os.Args[1])
 		}
 	}
 
@@ -150,6 +162,7 @@ func main() {
 		accountLimit: NewRateLimiter(20, 15*time.Minute),
 		backupDir:    filepath.Join(dataDir, "backups"),
 		backupMax:    int64(maxMB) << 20,
+		tvDir:        filepath.Join(dataDir, "tv"),
 	}
 	addr := env("LISTEN", ":8080")
 	srv := &http.Server{
@@ -173,6 +186,7 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("/admin/games", a.handleGameAction)
 	mux.HandleFunc("/admin/games/export", a.handleGameExport)
 	mux.HandleFunc("/v1/games", a.handleGames)
+	mux.HandleFunc("/v1/tv/app", a.handleTvApp)
 	mux.HandleFunc("/v1/share/info", a.handleShareInfo)
 	mux.HandleFunc("/v1/ai/", a.handleAIProxy)
 	mux.HandleFunc("POST /v1/account/login", a.handleAccountLogin)

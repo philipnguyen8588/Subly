@@ -32,7 +32,8 @@ func newTestApp(t *testing.T) *App {
 		apiLimit: NewRateLimiter(1000, time.Minute), loginLimit: NewRateLimiter(3, time.Minute),
 		sessions: st.Sessions(time.Hour), shares: st.Shares(shareCipher(key)), shareLimit: NewRateLimiter(1000, time.Minute),
 		aiClient: newAIClient(), now: time.Now,
-		accountLimit: NewRateLimiter(1000, time.Minute), backupDir: filepath.Join(dir, "backups"), backupMax: 1 << 20}
+		accountLimit: NewRateLimiter(1000, time.Minute), backupDir: filepath.Join(dir, "backups"), backupMax: 1 << 20,
+		tvDir: filepath.Join(dir, "tv")}
 }
 
 type testDevice struct {
