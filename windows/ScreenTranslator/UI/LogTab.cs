@@ -30,6 +30,14 @@ public sealed class LogTab : DockPanel
     readonly StoryView storyView = new();
     readonly Button exportBtn, clearBtn;
     readonly ToggleButton legacyBtn = new() { Content = "Dòng cũ" };
+    /// Mục Dịch màn hình: không có nút xoá tất cả (dễ bấm nhầm) mà chọn nhiều rồi xoá, hoặc chuột phải từng mục.
+    readonly ToggleButton pickBtn = new() { Content = Ui.IconLabel("", "Chọn nhiều"), ToolTip = "Bấm vào các ảnh để chọn, rồi xoá nhiều mục một lần" };
+    bool picking;
+    readonly HashSet<long> picked = new();
+    readonly Border pickBar = new()
+    {
+        Padding = new Thickness(14, 8, 14, 8), BorderBrush = Ui.Res("CardStroke"), BorderThickness = new Thickness(0, 1, 0, 0), Background = Ui.Res("WindowBg"),
+    };
     readonly TextBox searchBox = new() { MinWidth = 120, MaxWidth = 220, Width = 200, BorderThickness = new Thickness(0), Background = Brushes.Transparent, VerticalContentAlignment = VerticalAlignment.Center };
     /// Ô tìm + "Dòng cũ" + xuất + xoá, đặt bên phải thanh tab chính khi đang ở tab nhật ký.
     public readonly StackPanel Toolbar;
@@ -92,8 +100,13 @@ public sealed class LogTab : DockPanel
     {
         storyView.summariesContent = SummaryLog;
         storyView.SectionChanged += Rebuild;
-        legacyBtn.Checked += (_, _) => { legacy = true; legacyEntries = store.LegacyEntries(); legacyAnalyses = store.LegacyAnalyses(); Rebuild(); };
-        legacyBtn.Unchecked += (_, _) => { legacy = false; legacyEntries = new(); legacyAnalyses = new(); Rebuild(); };
+        legacyBtn.Checked += (_, _) => { legacy = true; picked.Clear(); legacyEntries = store.LegacyEntries(); legacyAnalyses = store.LegacyAnalyses(); Rebuild(); };
+        legacyBtn.Unchecked += (_, _) => { legacy = false; picked.Clear(); legacyEntries = new(); legacyAnalyses = new(); Rebuild(); };
+        pickBtn.Checked += (_, _) => SetPicking(true);
+        pickBtn.Unchecked += (_, _) => SetPicking(false);
+        SetDock(pickBar, Dock.Bottom);
+        // Rời tab (sang tab chính khác) → thôi chọn nhiều.
+        IsVisibleChanged += (_, _) => { if (!IsVisible) SetPicking(false); };
         Ui.OnSearch(searchBox, () => { if (search == searchBox.Text) return; search = searchBox.Text; ClearSelection(); Rebuild(); });
         exportBtn = Ui.IconBtn("", () => { }, "Xuất nhật ký (TXT / SRT / JSON)");
         var menu = new ContextMenu();
@@ -111,7 +124,7 @@ public sealed class LogTab : DockPanel
             BorderBrush = Ui.Hex("#1F000000"), BorderThickness = new Thickness(1),
             Child = Ui.H(6, Ui.Icon("\uE721", 13, Ui.Tertiary), searchBox),
         };
-        Toolbar = Ui.H(8, searchRow, legacyBtn, exportBtn, clearBtn);
+        Toolbar = Ui.H(8, searchRow, legacyBtn, exportBtn, clearBtn, pickBtn);
         // Câu đang dịch luôn nằm ở đáy tab, xem mục nào cũng thấy.
         SetDock(now, Dock.Bottom);
         Children.Add(now);
@@ -126,7 +139,7 @@ public sealed class LogTab : DockPanel
         store.Changed += () => Dispatcher.BeginInvoke(Rebuild);
         Pipeline.shared.analyzer.PropertyChanged += (_, _) => Dispatcher.BeginInvoke(() => { if (section == Section.screens) Rebuild(); });
         summarizer.PropertyChanged += (_, e) => Dispatcher.BeginInvoke(() => SummarizerChanged(e.PropertyName));
-        AppSettings.shared.Changed += k => { if (k is "activeProfileID" or "activeProfile") Dispatcher.BeginInvoke(() => legacyBtn.IsChecked = false); };
+        AppSettings.shared.Changed += k => { if (k is "activeProfileID" or "activeProfile") Dispatcher.BeginInvoke(() => { legacyBtn.IsChecked = false; SetPicking(false); }); };
         // Esc = bỏ chọn.
         Loaded += (_, _) =>
         {
@@ -179,6 +192,7 @@ public sealed class LogTab : DockPanel
     {
         var next = t switch { AppNav.Tab.subtitles => Section.subtitles, AppNav.Tab.screens => Section.screens, _ => Section.story };
         if (next == section && content.Content != null) return;
+        if (next != Section.screens) SetPicking(false);
         section = next;
         Rebuild();
     }
@@ -189,6 +203,8 @@ public sealed class LogTab : DockPanel
         legacyBtn.ToolTip = $"Nhật ký có từ trước khi tách theo game ({store.legacyCount} dòng, không gắn với game nào)";
         exportBtn.Visibility = section == Section.story ? Visibility.Collapsed : Visibility.Visible;
         clearBtn.ToolTip = ClearTitle;
+        clearBtn.Visibility = section == Section.screens ? Visibility.Collapsed : Visibility.Visible;
+        pickBtn.Visibility = section == Section.screens ? Visibility.Visible : Visibility.Collapsed;
         // Mục Hỏi đáp có ô hỏi và nút xoá hội thoại riêng ở đáy.
         Toolbar.Visibility = section == Section.story && storyView.ShowingAsk ? Visibility.Collapsed : Visibility.Visible;
         if (section == Section.story)
@@ -536,14 +552,68 @@ public sealed class LogTab : DockPanel
 
     // MARK: Dịch màn hình
 
-    /// Toàn bộ chữ gốc của một lần dịch màn hình, mỗi khối một dòng.
-    static string SourceText(ScreenAnalysis a) => string.Join("\n", a.lines.Select(l => l.source));
-    /// Tóm tắt + bản dịch từng khối.
-    static string TranslatedText(ScreenAnalysis a) => string.Join("\n", new[] { a.summary, "" }.Concat(a.lines.Select(l => l.target)));
+    /// Các thẻ đang hiện: id → vẽ lại trạng thái chọn (khỏi dựng lại cả danh sách khi bấm chọn).
+    readonly Dictionary<long, Action> pickPainters = new();
+    /// Id các mục đang hiện (theo ô tìm), cho "Chọn tất cả".
+    List<long> screenIds = new();
+    ScrollViewer? screenScroll;
+
+    void SetPicking(bool on)
+    {
+        if (picking == on) return;
+        picking = on;
+        picked.Clear();
+        if (pickBtn.IsChecked != on) pickBtn.IsChecked = on;
+        if (section == Section.screens) Rebuild();
+    }
+
+    void Pick(long id)
+    {
+        if (!picked.Remove(id)) picked.Add(id);
+        if (pickPainters.TryGetValue(id, out var paint)) paint();
+        RefreshPickBar();
+    }
+
+    void DeleteScreens(ICollection<long> ids)
+    {
+        if (ids.Count == 0) return;
+        var set = new HashSet<long>(ids);
+        picked.ExceptWith(set);
+        if (legacy) legacyAnalyses.RemoveAll(a => set.Contains(a.id));
+        store.DeleteAnalyses(set);
+    }
+
+    void RefreshPickBar()
+    {
+        pickBar.Visibility = picking && section == Section.screens ? Visibility.Visible : Visibility.Collapsed;
+        if (!picking) { pickBar.Child = null; return; }
+        var all = screenIds;
+        bool allPicked = all.Count > 0 && all.All(picked.Contains);
+        var left = Ui.Text(picked.Count == 0 ? "Bấm vào các mục để chọn" : $"Đã chọn {picked.Count} mục", 13, color: picked.Count == 0 ? Ui.Secondary : null, wrap: false, weight: FontWeights.Medium);
+        var selectAll = allPicked
+            ? Ui.Btn("Bỏ chọn tất cả", () => { picked.Clear(); RepaintPicks(); })
+            : Ui.Btn($"Chọn tất cả ({all.Count})", () => { picked.UnionWith(all); RepaintPicks(); });
+        var del = Ui.Btn(Ui.IconLabel("", picked.Count == 0 ? "Xoá" : $"Xoá {picked.Count} mục"), () =>
+        {
+            if (picked.Count == 0 || !Ui.Confirm($"Xoá {picked.Count} mục dịch màn hình đã chọn (kèm ảnh chụp)?")) return;
+            DeleteScreens(picked.ToList());
+        }, kind: Ui.Kind.danger);
+        del.IsEnabled = picked.Count > 0;
+        var done = Ui.Btn("Xong", () => SetPicking(false));
+        pickBar.Child = Ui.Row(left, selectAll, del, done);
+    }
+
+    void RepaintPicks()
+    {
+        foreach (var paint in pickPainters.Values) paint();
+        RefreshPickBar();
+    }
 
     UIElement ScreenLog()
     {
         var all = Analyses;
+        // Danh sách đổi (xoá, mục mới, đổi game) → bỏ chọn các mục không còn.
+        picked.IntersectWith(all.Select(a => a.id));
         var rows = all.AsEnumerable();
         if (search.Length > 0)
         {
@@ -551,60 +621,118 @@ public sealed class LogTab : DockPanel
             rows = rows.Where(a => a.summary.ToLowerInvariant().Contains(q) || a.lines.Any(l => l.source.ToLowerInvariant().Contains(q) || l.target.ToLowerInvariant().Contains(q)));
         }
         var list = rows.ToList();
+        screenIds = list.Select(a => a.id).ToList();
+        pickPainters.Clear();
         var shots = list.Where(a => a.hasImage).ToList();
         var textOnly = list.Where(a => !a.hasImage).ToList();
-        var v = Ui.V(12);
-        if (Pipeline.shared.analyzer.lastError is string err) v.Children.Add(Ui.H(6, Ui.Icon("", 12, Ui.Danger), Ui.Text(err, 11.5, color: Ui.Danger)));
+        var items = new List<UIElement>();
+        if (Pipeline.shared.analyzer.lastError is string err) items.Add(Ui.H(6, Ui.Icon("", 12, Ui.Danger), Ui.Text(err, 11.5, color: Ui.Danger)));
+        var dock = new DockPanel { Background = Brushes.White };
+        dock.Children.Add(Ui.Detach(pickBar));
+        RefreshPickBar();
         if (list.Count == 0)
         {
-            v.Children.Add(Ui.Text(all.Count == 0 ? "Mỗi lần bấm “Dịch màn hình” trong game này sẽ được lưu lại ở đây kèm ảnh chụp." : "Không có mục nào khớp.", color: Ui.Tertiary)
+            items.Add(Ui.Text(all.Count == 0 ? "Mỗi lần bấm “Dịch màn hình” trong game này sẽ được lưu lại ở đây kèm ảnh chụp." : "Không có mục nào khớp.", color: Ui.Tertiary)
                 .Also(t => { t.HorizontalAlignment = HorizontalAlignment.Center; t.Margin = new Thickness(0, 60, 0, 0); }));
-            return new Border { Background = Brushes.White, Child = v, Padding = new Thickness(14) };
+            dock.Children.Add(new Border { Background = Brushes.White, Child = Ui.V(12, items.ToArray()), Padding = new Thickness(14) });
+            screenScroll = null;
+            return dock;
         }
         if (shots.Count > 0)
         {
             var wrap = new WrapPanel();
             foreach (var a in shots) wrap.Children.Add(ShotCard(a));
-            v.Children.Add(wrap);
+            items.Add(wrap);
         }
         if (textOnly.Count > 0)
         {
-            v.Children.Add(Ui.Text(shots.Count == 0 ? "CHỈ CÒN CHỮ" : $"CŨ HƠN · CHỈ CÒN CHỮ (mỗi game giữ {HistoryStore.maxShots} ảnh gần nhất)", 10.5, true, Ui.Tertiary));
-            foreach (var a in textOnly) v.Children.Add(ScreenLogCard(a));
+            items.Add(Ui.Text(shots.Count == 0 ? "CHỈ CÒN CHỮ" : $"CŨ HƠN · CHỈ CÒN CHỮ (mỗi game giữ {HistoryStore.maxShots} ảnh gần nhất)", 10.5, true, Ui.Tertiary));
+            foreach (var a in textOnly) items.Add(ScreenLogCard(a));
         }
+        var v = Ui.V(12, items.ToArray());
         v.Margin = new Thickness(14);
-        return new Border { Background = Brushes.White, Child = Ui.Scroll(v) };
+        // Dựng lại (mục mới, bật/tắt chọn nhiều) thì giữ chỗ đang cuộn.
+        double offset = screenScroll?.VerticalOffset ?? 0;
+        var scroll = Ui.Scroll(v);
+        screenScroll = scroll;
+        if (offset > 0) Dispatcher.BeginInvoke(() => scroll.ScrollToVerticalOffset(offset), DispatcherPriority.Loaded);
+        dock.Children.Add(new Border { Background = Brushes.White, Child = scroll });
+        return dock;
     }
 
-    /// Một lần chụp còn ảnh: bấm để mở lại ảnh đã dịch.
-    static UIElement ShotCard(ScreenAnalysis a)
+    static readonly Brush pickFill = new SolidColorBrush(Color.FromArgb(31, 97, 111, 250));
+
+    /// Dấu chọn ở góc mục khi đang chọn nhiều: vòng tròn trống / tròn đặc có dấu tick.
+    static Border PickMark(double size, bool onImage) => new()
+    {
+        Width = size, Height = size, CornerRadius = new CornerRadius(size / 2), BorderThickness = new Thickness(1.5),
+        Child = Ui.Icon("", size * 0.55, Brushes.White).Also(i => { i.HorizontalAlignment = HorizontalAlignment.Center; i.FontWeight = FontWeights.Bold; }),
+        HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, IsHitTestVisible = false,
+        Tag = onImage,
+    };
+
+    static void PaintMark(Border mark, bool on)
+    {
+        bool onImage = mark.Tag is true;
+        mark.Background = on ? Ui.AccentStart : onImage ? new SolidColorBrush(Color.FromArgb(90, 0, 0, 0)) : Brushes.Transparent;
+        mark.BorderBrush = on ? Brushes.White : onImage ? new SolidColorBrush(Color.FromArgb(230, 255, 255, 255)) : Ui.Secondary;
+        if (mark.Child is UIElement c) c.Visibility = on ? Visibility.Visible : Visibility.Hidden;
+    }
+
+    ContextMenu CardMenu(ScreenAnalysis a)
+    {
+        var cm = CopyMenu(() => a.sourceText, () => a.translatedText);
+        cm.Items.Add(new Separator());
+        cm.Items.Add(Mi("Xoá mục này", () => DeleteScreens(new[] { a.id }), ""));
+        return cm;
+    }
+
+    /// Một lần chụp còn ảnh: bấm để mở lại ảnh đã dịch (đang chọn nhiều thì bấm để chọn).
+    UIElement ShotCard(ScreenAnalysis a)
     {
         var img = new Image { Stretch = Stretch.Uniform, Height = 135 };
         var thumb = new Border { Background = Brushes.Black, CornerRadius = new CornerRadius(7), Height = 135, Child = img, ClipToBounds = true };
         Task.Run(() => ShotImages.Load(a.id, 480)).ContinueWith(t => img.Source = t.Result, TaskScheduler.FromCurrentSynchronizationContext());
-        var v = Ui.V(6, thumb,
-            Ui.Text(a.summary, 12.5).Also(t => { t.MaxHeight = 36; t.TextTrimming = TextTrimming.WordEllipsis; }),
+        var mark = PickMark(22, true).Also(m => m.Margin = new Thickness(6));
+        var thumbBox = new Grid();
+        thumbBox.Children.Add(thumb);
+        if (picking) thumbBox.Children.Add(mark);
+        var v = Ui.V(6, thumbBox,
+            Ui.Text(a.headline, 12.5).Also(t => { t.MaxHeight = 36; t.TextTrimming = TextTrimming.WordEllipsis; }),
             Ui.Text($"{a.timestamp:dd/MM/yyyy HH:mm} · {a.items.Count} khối chữ", 10.5, color: Ui.Tertiary));
         var card = new Border
         {
-            Child = v, Width = 240, Padding = new Thickness(8), Margin = new Thickness(0, 0, 12, 12), CornerRadius = new CornerRadius(10),
-            Background = Ui.Res("CardFill"), BorderBrush = Ui.Res("CardStroke"), BorderThickness = new Thickness(1), Cursor = Cursors.Hand,
-            ToolTip = "Mở lại ảnh đã dịch · chuột phải để copy", ContextMenu = CopyMenu(() => SourceText(a), () => TranslatedText(a)),
+            Child = v, Width = 240, Margin = new Thickness(0, 0, 12, 12), CornerRadius = new CornerRadius(10), Cursor = Cursors.Hand,
+            ToolTip = picking ? "Bấm để chọn / bỏ chọn" : "Mở lại ảnh đã dịch · chuột phải để copy hoặc xoá", ContextMenu = CardMenu(a),
         };
-        card.MouseEnter += (_, _) => card.BorderBrush = new SolidColorBrush(Color.FromArgb(128, 97, 111, 250));
-        card.MouseLeave += (_, _) => card.BorderBrush = Ui.Res("CardStroke");
-        card.MouseLeftButtonUp += (_, _) => ShotViewer.Show(a.id);
+        bool hover = false;
+        void Paint()
+        {
+            bool on = picking && picked.Contains(a.id);
+            card.Background = on ? pickFill : hover ? new SolidColorBrush(Color.FromArgb(18, 0, 0, 0)) : Ui.Res("CardFill");
+            card.BorderBrush = on ? Ui.AccentStart : hover ? new SolidColorBrush(Color.FromArgb(128, 97, 111, 250)) : Ui.Res("CardStroke");
+            card.BorderThickness = new Thickness(on ? 2 : 1);
+            card.Padding = new Thickness(on ? 7 : 8);
+            PaintMark(mark, on);
+        }
+        card.MouseEnter += (_, _) => { hover = true; Paint(); };
+        card.MouseLeave += (_, _) => { hover = false; Paint(); };
+        card.MouseLeftButtonUp += (_, _) => { if (picking) Pick(a.id); else ShotViewer.Show(a.id); };
+        pickPainters[a.id] = Paint;
+        Paint();
         return card;
     }
 
-    static UIElement ScreenLogCard(ScreenAnalysis a)
+    UIElement ScreenLogCard(ScreenAnalysis a)
     {
         bool expanded = false;
         var chevron = Ui.Icon("", 10, Ui.Secondary);
-        var summary = Ui.Text(a.summary, 14.5).Also(t => { t.MaxHeight = 42; t.TextTrimming = TextTrimming.WordEllipsis; });
+        var mark = PickMark(16, false).Also(m => m.Margin = new Thickness(0, 1, 0, 0));
+        var headline = Ui.Text(a.headline, 14.5).Also(t => { t.MaxHeight = 42; t.TextTrimming = TextTrimming.WordEllipsis; });
         var meta = Ui.Text($"{a.timestamp:HH:mm:ss} · {a.lines.Count} khối chữ · {BackendLabels.Label(a.backend)} · {a.latencyMs / 1000.0:0.0} s", 10.5, color: Ui.Tertiary);
-        var copy = Ui.InlineIconBtn("", () => Ui.CopyText($"{a.summary}\n\n" + string.Join("\n\n", a.lines.Select(l => $"{l.source}\n→ {l.target}"))), "Copy toàn bộ");
-        var head = Ui.Row(Ui.H(8, chevron, Ui.V(3, summary, meta)), copy);
+        var copy = Ui.InlineIconBtn("", () => Ui.CopyText((a.summary.Length == 0 ? "" : $"{a.summary}\n\n")
+            + string.Join("\n\n", a.lines.Select(l => $"{l.source}\n→ {l.target}"))), "Copy toàn bộ");
+        var head = Ui.Row(Ui.H(8, picking ? mark : chevron, Ui.V(3, headline, meta)), copy);
         var detail = Ui.V(0);
         detail.Visibility = Visibility.Collapsed;
         detail.Margin = new Thickness(20, 6, 0, 0);
@@ -616,20 +744,32 @@ public sealed class LogTab : DockPanel
             Grid.SetColumn(t2, 2); g.Children.Add(t1); g.Children.Add(t2);
             detail.Children.Add(g);
         }
+        var card = new Border
+        {
+            Child = Ui.V(6, head, detail), CornerRadius = new CornerRadius(10), ContextMenu = CardMenu(a),
+        };
+        void Paint()
+        {
+            bool on = picking && picked.Contains(a.id);
+            card.Background = on ? pickFill : Ui.Res("CardFill");
+            card.BorderBrush = on ? Ui.AccentStart : Ui.Res("CardStroke");
+            card.BorderThickness = new Thickness(on ? 2 : 1);
+            card.Padding = on ? new Thickness(9, 7, 9, 7) : new Thickness(10, 8, 10, 8);
+            PaintMark(mark, on);
+        }
         head.Cursor = Cursors.Hand;
+        head.Background = Brushes.Transparent;
         head.MouseLeftButtonUp += (_, _) =>
         {
+            if (picking) { Pick(a.id); return; }
             expanded = !expanded;
             detail.Visibility = expanded && a.lines.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
             chevron.Text = expanded ? "" : "";
-            summary.MaxHeight = expanded ? double.PositiveInfinity : 42;
+            headline.MaxHeight = expanded ? double.PositiveInfinity : 42;
         };
-        return new Border
-        {
-            Child = Ui.V(6, head, detail), Padding = new Thickness(10, 8, 10, 8), CornerRadius = new CornerRadius(10),
-            Background = Ui.Res("CardFill"), BorderBrush = Ui.Res("CardStroke"), BorderThickness = new Thickness(1),
-            ContextMenu = CopyMenu(() => SourceText(a), () => TranslatedText(a)),
-        };
+        pickPainters[a.id] = Paint;
+        Paint();
+        return card;
     }
 
     // MARK: Tóm tắt

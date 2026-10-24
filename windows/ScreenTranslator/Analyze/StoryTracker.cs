@@ -293,13 +293,14 @@ public sealed class StoryTracker : INotifyPropertyChanged
 
     /// Ba khối gửi model: cốt truyện đã có, nhân vật đã biết (chi tiết chỉ với người có mặt trong câu mới), câu mới.
     public static (string input, string focus) BuildInput(GameStory? story, List<TranslationEntry> entries,
-                                                          List<(long id, DateTime timestamp, string summary)> screens)
+                                                          List<(long id, DateTime timestamp, string text)> screens)
     {
         var items = entries.Select(e => (t: e.timestamp, text: e.source)).ToList();
+        // Chữ gốc trên màn hình (nhật ký, codex, nhiệm vụ…), giống câu phụ đề cũng dùng bản gốc.
         items.AddRange(screens.Select(s =>
         {
-            var sum = TextUtils.Normalize(s.summary);
-            return (t: s.timestamp, text: "[Screen] " + (sum.Length > 600 ? sum[..600] : sum));
+            var src = TextUtils.Normalize(s.text);
+            return (t: s.timestamp, text: "[Screen] " + (src.Length > 1500 ? src[..1500] : src));
         }));
         items = items.OrderBy(i => i.t).ToList();
         var lines = new List<string>();

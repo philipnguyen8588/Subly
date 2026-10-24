@@ -239,13 +239,15 @@
   <!-- ============ DỊCH MÀN HÌNH ============ -->
   <h2 id="screen">Dịch màn hình</h2>
   <p>Khi game hiện bảng thông tin dài (nhật ký nhiệm vụ, tiểu sử nhân vật, menu…), bấm <b>🔍 Dịch màn hình</b>
-  (hoặc <kbd>Ctrl+Alt+T</kbd>). App chụp lại, dịch toàn bộ chữ, đặt bản dịch đè đúng chỗ và kèm một đoạn <b>tóm tắt</b> nội dung.</p>
+  (hoặc <kbd>Ctrl+Alt+T</kbd>). App chụp lại, dịch từng khối chữ và đặt bản dịch đè đúng chỗ.</p>
   <ul>
     <li>Ảnh và bản dịch được lưu ở tab <b>Nhật ký → Dịch màn hình</b> (mỗi game giữ 50 ảnh gần nhất).</li>
-    <li>Khi xem lại: bấm để đổi giữa bản dịch / bản gốc / tóm tắt.</li>
+    <li>Khi xem lại: bấm để đổi giữa bản dịch / bản gốc.</li>
+    <li><b>Xoá:</b> chuột phải một mục → <b>Xoá mục này</b>, hoặc bấm <b>Chọn nhiều</b>, chọn các mục rồi <b>Xoá</b>.</li>
+    <li>Chữ gốc của các màn hình nhật ký / codex / nhiệm vụ được đưa vào mục <b>Cốt truyện</b> và làm bối cảnh khi dịch phụ đề.</li>
   </ul>
-  <p class="muted" style="font-size:13.5px">Tóm tắt cần engine Gemini hoặc OpenAI (có API key). Không có key thì
-  “Dịch màn hình” chỉ dịch từng dòng bằng Google Dịch, không có tóm tắt.</p>
+  <p class="muted" style="font-size:13.5px">Gemini / OpenAI dịch có ngữ cảnh tốt hơn. Không có key thì
+  “Dịch màn hình” dịch từng dòng bằng Google Dịch.</p>
 
   <!-- ============ NHẬT KÝ / TÓM TẮT ============ -->
   <h2 id="log">Nhật ký &amp; Tóm tắt cốt truyện</h2>
@@ -262,6 +264,11 @@
     <li><b>Thêm tên nhân vật:</b> chuột phải vào một câu → <b>Thêm tên nhân vật…</b> (hữu ích với tên dài/lạ app chưa tự nhận).</li>
     <li><b>Copy:</b> chuột phải để copy bản gốc / bản dịch.</li>
   </ul>
+  <h3>Tab Bị bỏ qua</h3>
+  <p>Chữ OCR đọc được nhưng app <b>không dịch, không đọc</b> của game đang chơi: <b>Menu</b> (chữ giao diện, thanh nút bấm),
+  <b>Mẩu lạc</b>, <b>Cảm thán</b>, <b>Đơn giản</b> (tối đa 5 từ cơ bản hoặc tên nhân vật), <b>Vô nghĩa</b> (OCR đọc nhầm),
+  <b>Chữ mờ</b>. Lọc theo loại hoặc tìm chữ để xem bộ lọc có bỏ nhầm câu thoại không; nếu có, tắt bộ lọc tương ứng ở
+  mục <b>OCR</b> trong Cài đặt.</p>
   <h3>Cốt truyện game (tự động)</h3>
   <ul>
     <li><b>Bật / tắt:</b> nút hình cuốn sách trên thanh đầu cửa sổ chính, cạnh nút giọng đọc và phụ đề nổi.</li>
@@ -300,7 +307,7 @@
     <li>TV mới lần đầu: trình duyệt mở trang đăng nhập <b>Samsung Account</b> — đăng nhập để Samsung cấp chứng chỉ cho TV đó (chỉ cần một lần).</li>
     <li>Cài xong, trên TV: Back → Máy tính → “Dò máy trong mạng”.</li>
   </ol>
-  <p class="muted" style="font-size:13.5px">TV đã có app cài bằng chứng chỉ khác: Subly hỏi gỡ app cũ rồi cài lại (mất cài đặt đã lưu trong app trên TV). TV LG (webOS) cài theo hướng dẫn riêng trong thư mục <code>webos</code>.</p>
+  <p class="muted" style="font-size:13.5px">App TV luôn được tải bản mới nhất từ máy chủ Subly lúc bấm cài (mất mạng thì dùng bản tải lần trước hoặc bản đi kèm), nên chỉ cần bấm cài lại để cập nhật TV. TV đã có app cài bằng chứng chỉ khác: Subly hỏi gỡ app cũ rồi cài lại (mất cài đặt đã lưu trong app trên TV). TV LG (webOS) cài theo hướng dẫn riêng trong thư mục <code>webos</code>.</p>
 
   <!-- ============ ENGINE ============ -->
   <h2 id="engines">Chọn engine dịch</h2>
@@ -308,11 +315,11 @@
   <table>
     <tr><th>Engine</th><th>Tốc độ</th><th>Ghi chú</th></tr>
     <tr><td><b>Google Dịch</b></td><td>Nhanh</td><td>Miễn phí, không cần key; dịch từng dòng (không tóm tắt). Mặc định khi chưa có key</td></tr>
-    <tr><td><b>Gemini</b></td><td>~4–6 s</td><td>Có bản miễn phí (giới hạn/ngày); hợp dịch màn hình, có tóm tắt</td></tr>
+    <tr><td><b>Gemini</b></td><td>~4–6 s</td><td>Có bản miễn phí (giới hạn/ngày); hợp dịch màn hình, dịch có ngữ cảnh</td></tr>
     <tr><td><b>OpenAI</b></td><td>~1 s</td><td>Trả phí; chất lượng cao, hợp phụ đề thời gian thực</td></tr>
   </table>
   <p class="muted" style="font-size:13.5px">Gợi ý: phụ đề dùng OpenAI (nhanh) hoặc Google Dịch (miễn phí);
-  dịch màn hình dùng Gemini hoặc OpenAI để có tóm tắt. Engine trả phí/Gemini lỗi hay hết quota thì tự lùi về Google Dịch.</p>
+  dịch màn hình dùng Gemini hoặc OpenAI để dịch sát ngữ cảnh. Engine trả phí/Gemini lỗi hay hết quota thì tự lùi về Google Dịch.</p>
 
   <h2 id="keys">Gemini / OpenAI key</h2>
   <p>Muốn dùng Gemini hoặc OpenAI, vào Cài đặt → Dịch dán API key của bạn và bấm <b>Test key</b>.

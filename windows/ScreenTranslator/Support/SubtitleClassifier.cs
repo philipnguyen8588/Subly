@@ -66,6 +66,20 @@ public static class SubtitleClassifier
         // Không có dấu câu nào.
         if (text.IndexOfAny(".,!?…;'\"".ToCharArray()) < 0) { score += 1; reasons.Add("không dấu câu"); }
 
+        // Thanh nút bấm ("HOLD TO RESET TO DEFAULT ⓧ RESET ALL TO DEFAULT ⓞ BACK"): toàn từ lệnh menu, không dấu câu.
+        // Chữ in hoa nên tín hiệu Hoa Đầu Chữ ở trên không bắt được.
+        if (text.IndexOfAny(".,!?…".ToCharArray()) < 0)
+        {
+            int cmdWords = tokens.Count(t => MenuWords.Contains(TrimPunct(t.ToLowerInvariant())));
+            // Biểu tượng nút PS (✕ ○ □ △) bị OCR thành ký hiệu đứng riêng: "©", "®", "×", "•", "&", "@"…
+            int glyphs = tokens.Count(t => t.Length <= 2 && !t.Any(char.IsLetterOrDigit));
+            int commands = cmdWords >= 2 ? cmdWords + glyphs : cmdWords;
+            if (commands >= 3 && (double)commands / tokens.Length >= 0.4)
+            {
+                score += 2; reasons.Add($"nút bấm ({commands}/{tokens.Length} từ lệnh)");
+            }
+        }
+
         // Bố cục.
         if (maxPerRow >= 3) { score += 2; reasons.Add($"cột ({maxPerRow} mảnh/hàng)"); }
         if (rows >= 4) { score += 1; reasons.Add($"{rows} hàng"); }
@@ -101,6 +115,17 @@ public static class SubtitleClassifier
         if (tokens.Length > 45) { score += 1; reasons.Add($"{tokens.Length} từ"); }
         return new Verdict(score, reasons);
     }
+
+    /// Từ lệnh hay gặp trên thanh nút bấm / menu cài đặt của game.
+    static readonly HashSet<string> MenuWords = new()
+    {
+        "back", "confirm", "cancel", "select", "reset", "default", "defaults", "hold", "press", "skip", "exit",
+        "close", "options", "menu", "settings", "quit", "toggle", "adjust", "apply", "save", "load", "delete",
+        "zoom", "inventory", "equip", "unequip", "details", "sort", "filter", "navigate", "scroll", "accept",
+        "retry", "resume", "restart", "controls", "previous", "prev", "tab", "rotate", "customize", "upgrade",
+        "buy", "sell", "preview", "purchase", "craft", "compare", "inspect", "discard", "claim", "redeem",
+        "dismantle", "untrack", "unmark", "waypoint", "legend",
+    };
 
     /// 0.3, 20K, 1.2K, MB, GB, 50%, +, -, 10:30, v1.2
     static bool IsNumericToken(string raw)

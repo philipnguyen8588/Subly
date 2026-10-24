@@ -289,8 +289,8 @@ public sealed class TranslationRouter : INotifyPropertyChanged
 
     // MARK: subtitle
 
-    /// Bối cảnh cốt truyện = tóm tắt "Dịch màn hình" gần nhất có nội dung của game đang chơi (bỏ tóm tắt menu, vốn chỉ
-    /// một câu ngắn), hoặc đoạn diễn biến mới nhất của mục Cốt truyện nếu đang bật và mới hơn.
+    /// Bối cảnh cốt truyện = chữ gốc của lần "Dịch màn hình" gần nhất có nội dung của game đang chơi (bỏ màn hình menu,
+    /// chữ quá ngắn), hoặc đoạn diễn biến mới nhất của mục Cốt truyện nếu đang bật và mới hơn.
     /// Gọi trước mỗi câu vì lần dịch màn hình mới không làm đổi cài đặt.
     void RefreshStory()
     {
@@ -298,8 +298,8 @@ public sealed class TranslationRouter : INotifyPropertyChanged
         try
         {
             var store = HistoryStore.shared;
-            var screen = store.analyses.FirstOrDefault(a => a.summary.Length >= 80 && !a.summary.StartsWith("("));
-            story = screen?.summary ?? "";
+            var screen = store.analyses.FirstOrDefault(a => a.sourceText.Length >= HistoryStore.storyScreenMinChars);
+            story = screen?.sourceText ?? "";
             var part = settings.storyOn ? store.storyParts.FirstOrDefault() : null;
             if (part != null && part.timestamp > (screen?.timestamp ?? DateTime.MinValue)) story = part.summary;
         }

@@ -22,7 +22,7 @@ public sealed class MainWindow : Window
     readonly StackPanel tabBar = new() { Orientation = Orientation.Horizontal };
     readonly ContentControl tabTrailing = new();
     readonly HeaderBar header = new();
-    SourceTab? sourceTab; LogTab? logTab; GameSetupView? gameTab; SearchTab? searchTab;
+    SourceTab? sourceTab; LogTab? logTab; GameSetupView? gameTab; SearchTab? searchTab; SkippedTab? skippedTab;
     public bool reallyClose;
 
     public MainWindow()
@@ -107,6 +107,7 @@ public sealed class MainWindow : Window
     {
         (AppNav.Tab.source, "", "Màn hình"), (AppNav.Tab.story, "", "Cốt truyện"), (AppNav.Tab.subtitles, "", "Phụ đề"),
         (AppNav.Tab.screens, "", "Dịch màn hình"), (AppNav.Tab.search, "\uE721", "Tìm kiếm"), (AppNav.Tab.game, "", "Thiết lập game"),
+        (AppNav.Tab.skipped, "", "Bị bỏ qua"),
     };
 
     void BuildTabBar()
@@ -149,6 +150,7 @@ public sealed class MainWindow : Window
             {
                 AppNav.Tab.game => gameTab ??= new GameSetupView(),
                 AppNav.Tab.search => searchTab ??= new SearchTab(),
+                AppNav.Tab.skipped => skippedTab ??= new SkippedTab(),
                 _ => sourceTab ??= new SourceTab(),
             };
         }

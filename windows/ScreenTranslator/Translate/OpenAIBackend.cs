@@ -72,7 +72,7 @@ public sealed class OpenAIBackend : ICloudChatBackend
         if (!isReady) throw OpenAIException.NoKey();
         var numbered = string.Join("\n", lines.Select((l, i) => $"{i + 1}. {l}"));
         var system = analysisPrompt() + "\nReply with JSON only, exactly in this shape:\n" +
-                     "{\"summary\": \"…\", \"lines\": [{\"i\": 1, \"t\": \"…\"}, {\"i\": 2, \"t\": \"…\"}]}";
+                     "{\"lines\": [{\"i\": 1, \"t\": \"…\"}, {\"i\": 2, \"t\": \"…\"}]}";
         var raw = await Complete(system, numbered, true, 4096, timeout, ct, modelOverride);
         var obj = GeminiBackend.ParseObject(raw) ?? throw OpenAIException.BadJSON();
         var map = new Dictionary<int, string>();

@@ -135,8 +135,7 @@ public sealed class SettingsWindow : Window
                 Ui.Stepper(() => $"Ngữ cảnh: {S.contextPairs} câu trước", 0, 10, 1, () => S.contextPairs, v => S.contextPairs = v),
                 Ui.BlockRow("Hàng đợi", Ui.Picker("", Enum.GetValues<QueueMode>().Select(q => (q, Labels.Of(q))), () => S.queueMode, v => S.queueMode = v, 260))),
             TaskBlock(AITask.screen, scrEngine,
-                Ui.Slider("Thời gian chờ", 5, 60, 5, () => S.analyzeTimeout, v => S.analyzeTimeout = v, v => $"{(int)v} s"),
-                Ui.Toggle("Đọc tóm tắt bằng giọng nói", () => S.analyzeSpeakSummary, v => S.analyzeSpeakSummary = v)),
+                Ui.Slider("Thời gian chờ", 5, 60, 5, () => S.analyzeTimeout, v => S.analyzeTimeout = v, v => $"{(int)v} s")),
             TaskBlock(AITask.summary, sumEngine, storyRows.ToArray()));
     }
 

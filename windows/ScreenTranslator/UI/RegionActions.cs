@@ -145,7 +145,7 @@ public sealed class AppNav : INotifyPropertyChanged
     public static readonly AppNav shared = new();
     public event PropertyChangedEventHandler? PropertyChanged;
     void Raise(string n) => App.RunOnUI(() => PropertyChanged?.Invoke(this, new(n)));
-    public enum Tab { source, story, subtitles, screens, search, game }
+    public enum Tab { source, story, subtitles, screens, search, game, skipped }
     /// Hai màn hình của cửa sổ chính: Bắt đầu (chọn game + nguồn hình) và màn hình chơi.
     public enum Screen { start, main }
     Tab _tab = Tab.source;

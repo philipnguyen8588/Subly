@@ -259,21 +259,10 @@ public sealed class GeminiBackend : ITranslationBackend, ICloudChatBackend
         };
     }
 
-    /// Cách viết phần tóm tắt của "Dịch màn hình".
-    public const string summaryGuide =
-        "How long the summary is depends on the screen. " +
-        "If the screen only has menus, buttons, settings or stats, write one short sentence saying what the screen is. " +
-        "If it contains story, quest, journal, codex or character text, retell ALL of that text's content in your own words, " +
-        "not just the gist: keep every person, relationship, trait, past event, motive, goal, place, faction, item and number it mentions, " +
-        "in the original order, in as many sentences as needed (usually 4–10). Do not add facts that are not on screen. " +
-        "Write natural flowing prose. Never list categories, never comment on what the text contains, and never give advice; " +
-        "mention the player's next step only when the screen states an objective.";
-
     public string analysisSystemPrompt =>
         "You are helping a player understand a video game screen. The user gives you numbered lines of English text " +
         "extracted by OCR from one screenshot (UI labels, dialog, quest text, stats). OCR may contain small errors; infer the intent.\n" +
         "Return JSON with:\n" +
-        $"- \"summary\": in {targetName}. {summaryGuide}\n" +
         $"- \"lines\": an array of {{\"i\": line number, \"t\": {targetName} translation}}. Translate every line; keep names, numbers, keys and game terms as-is unless the glossary says otherwise.\n" +
         glossaryBlock;
 
@@ -335,7 +324,7 @@ public sealed class GeminiBackend : ITranslationBackend, ICloudChatBackend
         return $"You keep a running story record for a player of {source}. The user sends four blocks: STORY SO FAR (the record you wrote " +
                "earlier; may be empty), KNOWN CHARACTERS (may be empty), KNOWN LORE (names of codex entries already recorded; may be empty) " +
                "and NEW LINES: subtitle lines in the order they appeared since the last update. A line may start with the speaker's name " +
-               "and a colon. Lines starting with \"[Screen]\" are summaries of journal, quest or codex screens the player opened. " +
+               "and a colon. Lines starting with \"[Screen]\" are the original text of journal, quest or codex screens the player opened. " +
                "\"[…later…]\" marks a break in play time. OCR may contain small errors; infer the intent.\n" +
                "A \"[Screen]\" line is reference material, not an event. When it describes who a character is, or explains a place, a " +
                "faction, army or organisation, or a concept of the game world, it must go ONLY into \"characters\" (field \"journal\") or " +
@@ -422,7 +411,7 @@ public sealed class GeminiBackend : ITranslationBackend, ICloudChatBackend
         var numbered = string.Join("\n", lines.Select((l, i) => $"{i + 1}. {l}"));
         var gen = new JsonObject { ["temperature"] = 0.3, ["max_output_tokens"] = 4096 };
         var system = analysisSystemPrompt + "\nReply with JSON only, no code fences and no other text, exactly in this shape:\n" +
-                     "{\"summary\": \"…\", \"lines\": [{\"i\": 1, \"t\": \"…\"}, {\"i\": 2, \"t\": \"…\"}]}";
+                     "{\"lines\": [{\"i\": 1, \"t\": \"…\"}, {\"i\": 2, \"t\": \"…\"}]}";
         var raw = await SendWithFallback(system, numbered, gen, timeout, 3, ct, modelOverride);
         // Lấy phần {...} (model đôi khi bọc trong ```json … ```).
         var obj = ParseObject(raw) ?? throw GeminiException.BadJSON();

@@ -242,6 +242,7 @@ public partial class App : Application
                 ["subtitles"] = AppNav.Tab.subtitles, ["log"] = AppNav.Tab.subtitles, ["live"] = AppNav.Tab.subtitles,
                 ["screens"] = AppNav.Tab.screens, ["analysis"] = AppNav.Tab.screens, ["story"] = AppNav.Tab.story, ["search"] = AppNav.Tab.search,
                 ["game"] = AppNav.Tab.game, ["speakers"] = AppNav.Tab.game, ["glossary"] = AppNav.Tab.game,
+                ["skipped"] = AppNav.Tab.skipped,
             };
             if (map.TryGetValue(tab, out var t)) { AppNav.shared.tab = t; AppNav.shared.screen = AppNav.Screen.main; }
         }

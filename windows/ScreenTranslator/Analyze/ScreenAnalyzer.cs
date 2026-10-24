@@ -85,12 +85,12 @@ public sealed class ScreenAnalyzer : INotifyPropertyChanged
             if (lines.Count == 0) { lastError ??= "Không thấy đoạn nội dung nào để dịch (chỉ có chữ giao diện ngắn)"; return null; }
             if (lines.Count > 80) lines = lines.Take(80).ToList();
 
-            // 2. Dịch + tóm tắt
+            // 2. Dịch
             progress = $"Đang dịch {lines.Count} dòng…";
             var outp = await router.Analyze(lines);
             if (outp == null) { lastError = $"Không dịch được ({router.state.label})"; return null; }
             var pairs = lines.Zip(outp.translations).Select((p, i) => new AnalysisLine { id = i + 1, source = p.First, target = p.Second }).ToList();
-            var summary = outp.summary.Length == 0 ? "(Google Translate không tóm tắt; xem bản dịch từng dòng)" : outp.summary;
+            var summary = outp.summary;
             int ms = (int)(DateTime.UtcNow - t0).TotalMilliseconds;
             // Vị trí từng khối chữ trên ảnh của vùng đầu tiên, để vẽ bản dịch đè đúng chỗ.
             var items = new List<ShotItem>();
@@ -109,9 +109,8 @@ public sealed class ScreenAnalyzer : INotifyPropertyChanged
                                                     outp.backend, ms, HistoryStore.ProfileKey(settings.activeProfile.id));
                 if (present && a.hasImage) ShotViewer.Show(a.id);
             });
-            Log.Info($"Analyze done [{outp.backend}] {ms}ms: {(summary.Length > 80 ? summary[..80] : summary)}");
-            if (settings.analyzeSpeakSummary && settings.voiceOn && outp.summary.Length > 0)
-                App.RunOnUI(() => speaker.Speak(outp.summary));
+            var head = a.headline;
+            Log.Info($"Analyze done [{outp.backend}] {ms}ms: {(head.Length > 80 ? head[..80] : head)}");
             return a;
         }
         finally

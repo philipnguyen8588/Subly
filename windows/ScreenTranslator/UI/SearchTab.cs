@@ -384,8 +384,8 @@ public sealed class SearchTab : DockPanel
     {
         var q = results.query;
         var matched = a.lines.Where(l => HistorySearch.Matches(l.source, q) || HistorySearch.Matches(l.target, q)).ToList();
-        var source = string.Join("\n", a.lines.Select(l => l.source));
-        var translated = string.Join("\n", new[] { a.summary, "" }.Concat(a.lines.Select(l => l.target)));
+        var source = a.sourceText;
+        var translated = a.translatedText;
         return HitFrame(isOpen =>
         {
             var head = Ui.H(6, Ui.Icon(a.hasImage ? "" : "", 13, Ui.AccentStart),

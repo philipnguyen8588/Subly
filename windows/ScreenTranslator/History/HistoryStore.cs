@@ -45,6 +45,13 @@ public class ScreenAnalysis
     public int imageWidth, imageHeight;
     /// Còn file ảnh hay không: chỉ `HistoryStore.maxShots` ảnh mới nhất được giữ, mục cũ hơn chỉ còn chữ.
     public bool hasImage;
+
+    /// Toàn bộ chữ gốc, mỗi khối một dòng.
+    public string sourceText => string.Join("\n", lines.Select(l => l.source));
+    /// Bản dịch từng khối (kèm tóm tắt ở đầu với các lần dịch cũ còn tóm tắt).
+    public string translatedText => string.Join("\n", (summary.Length == 0 ? Array.Empty<string>() : new[] { summary, "" }).Concat(lines.Select(l => l.target)));
+    /// Dòng hiển thị đại diện: tóm tắt (lần dịch cũ) hoặc bản dịch các khối chữ.
+    public string headline => summary.Length == 0 ? string.Join(" ", lines.Select(l => l.target).Where(t => t.Length > 0)) : summary;
 }
 
 /// Một lần người dùng chọn nhiều câu phụ đề trong nhật ký và bấm "Tóm tắt". Giữ kèm các câu đã chọn để đọc lại được
@@ -455,6 +462,16 @@ public sealed class HistoryStore
         Changed?.Invoke();
     }
 
+    /// Xoá một số lần dịch màn hình (kèm ảnh chụp).
+    public void DeleteAnalyses(ICollection<long> ids)
+    {
+        if (ids.Count == 0) return;
+        foreach (var id in ids) { try { File.Delete(ShotPath(id)); } catch { } }
+        Exec($"DELETE FROM analyses WHERE id IN ({string.Join(",", ids)});");
+        analyses.RemoveAll(a => ids.Contains(a.id));
+        Changed?.Invoke();
+    }
+
     // MARK: summaries
     List<StorySummary> LoadSummaries(string profile)
     {
@@ -661,14 +678,19 @@ public sealed class HistoryStore
         return before;
     }
 
-    /// Tóm tắt của các lần "Dịch màn hình" có nội dung (bỏ tóm tắt menu) sau con trỏ, cũ trước.
-    public List<(long id, DateTime timestamp, string summary)> StoryAnalyses(string profile, long after)
+    /// Màn hình có ít hơn ngần này ký tự chữ gốc (menu, nhãn ngắn) không được đưa vào cốt truyện.
+    public const int storyScreenMinChars = 80;
+    /// Biểu thức SQL ghép chữ gốc (tiếng Anh) các khối của một lần dịch màn hình, mỗi khối một dòng.
+    const string SourceSQL = "(SELECT group_concat(json_extract(value, '$.source'), char(10)) FROM json_each(analyses.lines))";
+
+    /// Chữ gốc của các lần "Dịch màn hình" có nội dung (bỏ màn hình menu) sau con trỏ, cũ trước.
+    public List<(long id, DateTime timestamp, string text)> StoryAnalyses(string profile, long after)
     {
         var outp = new List<(long, DateTime, string)>();
         lock (lk)
         {
             using var cmd = db.CreateCommand();
-            cmd.CommandText = "SELECT id, ts, summary FROM analyses WHERE profile = $p AND id > $a AND length(summary) >= 80 AND summary NOT LIKE '(%' ORDER BY id ASC LIMIT 20";
+            cmd.CommandText = $"SELECT id, ts, src FROM (SELECT id, ts, {SourceSQL} AS src FROM analyses WHERE profile = $p AND id > $a) WHERE length(src) >= {storyScreenMinChars} ORDER BY id ASC LIMIT 20";
             cmd.Parameters.AddWithValue("$p", profile);
             cmd.Parameters.AddWithValue("$a", after);
             using var r = cmd.ExecuteReader();
@@ -684,9 +706,9 @@ public sealed class HistoryStore
         lock (lk)
         {
             using var cmd = db.CreateCommand();
-            cmd.CommandText = """
+            cmd.CommandText = $"""
                 SELECT (SELECT COUNT(*) FROM history WHERE profile = $p AND id > $e AND kind = 'subtitle' AND backend != 'skipped'),
-                       (SELECT COUNT(*) FROM analyses WHERE profile = $p AND id > $a AND length(summary) >= 80 AND summary NOT LIKE '(%')
+                       (SELECT COUNT(*) FROM analyses WHERE profile = $p AND id > $a AND length({SourceSQL}) >= {storyScreenMinChars})
                 """;
             cmd.Parameters.AddWithValue("$p", profile);
             cmd.Parameters.AddWithValue("$e", s?.lastEntryID ?? 0);

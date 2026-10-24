@@ -31,6 +31,7 @@ public sealed class RegionWorker
     readonly List<(string text, DateTime? missingSince)> recent = new();
     readonly double dedup;
     readonly bool skipUI, skipInterjections, skipSimple;
+    readonly string profileID;                  // game lúc bắt đầu, để ghi nhật ký "Bị bỏ qua"
     readonly double stableDelay;
     Frame? pendingPB;
     CancellationTokenSource? stableTimer;
@@ -46,10 +47,11 @@ public sealed class RegionWorker
     /// Cỡ chữ phụ đề đã học trong phiên (chiều cao hàng, tỉ lệ theo vùng); hàng nhỏ hơn 60 % mức này bị bỏ. Chỉ dùng trên ocrQueue.
     double? subtitleHeight;
     Timer? statsTimer;
-    public Action<string, Region>? onText;
+    /// Các câu mới theo thứ tự trên màn hình; `skip` khác null = câu bị bỏ qua (cảm thán, đơn giản, vô nghĩa):
+    /// không dịch, không đọc, không hiện.
+    public Action<List<SubLine>, Region>? onText;
     public Action<Region>? onEmpty;
     public Action<string, Region>? onUI;       // chữ giao diện (menu/cài đặt) → bỏ qua
-    public Action<string, Region>? onSkipped;  // câu quá đơn giản → chỉ ghi nhật ký, không dịch, không đọc
     public Action? onOCR;
     public Action<bool>? onActiveChange;
     /// Luồng chụp chết và không khởi động lại được → thông báo lỗi; null = đã chạy lại bình thường.
@@ -75,6 +77,7 @@ public sealed class RegionWorker
         skipUI = settings.skipUIText;
         skipInterjections = settings.skipInterjections;
         skipSimple = settings.skipSimpleLines;
+        profileID = HistoryStore.ProfileKey(settings.activeProfile.id);
         adaptive = settings.adaptiveCapture;
         stableDelay = Math.Max(0, settings.stableDelayMs) / 1000;
         maxWait = Math.Max(stableDelay, 0.4);
@@ -269,7 +272,12 @@ public sealed class RegionWorker
         if (!TextUtils.SameLine(faintKey, lastFaint, dedup))
         {
             lastFaint = faintKey;
-            if (faintKey.Length > 0) { var fl = string.Join(" ⏎ ", r.faint); Log.Info($"MỜ[{region.name}] bỏ (độ tương phản < {WinOcr.MinContrast}): {fl[..Math.Min(160, fl.Length)]}"); }
+            if (faintKey.Length > 0)
+            {
+                var fl = string.Join(" ⏎ ", r.faint);
+                Log.Info($"MỜ[{region.name}] bỏ (độ tương phản < {WinOcr.MinContrast}): {fl[..Math.Min(160, fl.Length)]}");
+                Skipped(SkipKind.faint, string.Join("\n", r.faint), $"độ tương phản < {WinOcr.MinContrast}");
+            }
         }
         // Game hiện tên ở dòng riêng phía trên: ghép "Tên" + câu bên dưới thành "Tên: câu".
         IList<string> rows = r.lines;
@@ -296,7 +304,10 @@ public sealed class RegionWorker
             {
                 RegionPreviewProvider.shared.ReportOCR(region.id, r.ms, "⏸ " + text);
                 if (!TextUtils.SameLine(text, lastText, dedup))
+                {
                     Log.Info($"UI[{region.name}] bỏ qua ({string.Join(", ", v.reasons)}): {Head(text, 80)}");
+                    Skipped(SkipKind.ui, string.Join("\n", rows), string.Join(", ", v.reasons));
+                }
                 lastText = text;
                 onUI?.Invoke(text, region);
                 Hold(0.8);      // menu / màn hình cài đặt đứng yên lâu, không cần soi liên tục
@@ -319,6 +330,9 @@ public sealed class RegionWorker
         var fresh = SubtitleSplitter.Fresh(rows, speakerNames(), usesNames(), recent.Select(x => x.text).ToList(), dedup);
         bool changed = text != lastText;
         lastText = text;
+        // Câu cảm thán / đơn giản / vô nghĩa: không dịch, không đọc, không hiện; câu đơn giản vẫn được ghi nhật ký phụ đề.
+        var ordered = fresh.ToList();
+        var passthrough = new Dictionary<string, SkipKind>();
         // Câu chỉ có từ cảm thán (hmm, haha, huh…): không dịch, không đọc; vẫn ghi nhớ để không xét lại.
         if (skipInterjections)
         {
@@ -328,7 +342,7 @@ public sealed class RegionWorker
                 fresh.RemoveAll(SubtitleSplitter.IsInterjectionOnly);
                 AddRecent(dropped);
                 Log.Info($"CẢM THÁN[{region.name}] bỏ qua: {string.Join(" ⏎ ", dropped)}");
-                if (fresh.Count == 0) return;
+                foreach (var d in dropped) { Skipped(SkipKind.interjection, d); passthrough[d] = SkipKind.interjection; }
             }
         }
         // Mẩu chữ lạc đứng một mình (chữ trong cảnh game, nút bấm): không dịch, không đọc; ghi nhớ để không xét lại.
@@ -340,11 +354,12 @@ public sealed class RegionWorker
                 fresh.RemoveAll(SubtitleSplitter.IsStrayFragment);
                 AddRecent(stray);
                 Log.Info($"LẠC[{region.name}] bỏ qua: {string.Join(" ⏎ ", stray)}");
-                if (fresh.Count == 0) { Hold(0.6); return; }
+                foreach (var d in stray) Skipped(SkipKind.stray, d);
+                if (fresh.Count == 0 && passthrough.Count == 0) { Hold(0.6); return; }
             }
         }
         // Câu quá đơn giản (ngắn, toàn từ cơ bản / tên nhân vật): người chơi tự hiểu → không dịch, không đọc, chỉ ghi vào nhật ký.
-        // Không có từ tiếng Anh thật nào (OCR đọc bậy: "imph", "impr") thì bỏ hẳn. Đều được ghi nhớ để không xét lại.
+        // Không có từ tiếng Anh thật nào (OCR đọc bậy: "imph", "impr") thì không ghi nhật ký. Đều được ghi nhớ để không xét lại.
         if (skipSimple)
         {
             var names = speakerNames();
@@ -358,11 +373,20 @@ public sealed class RegionWorker
                 if (real.Count > 0)
                 {
                     Log.Info($"ĐƠN GIẢN[{region.name}] không dịch, chỉ ghi nhật ký: {string.Join(" ⏎ ", real)}");
-                    onSkipped?.Invoke(string.Join("\n", real), region);
+                    foreach (var d in real) { Skipped(SkipKind.simple, d); passthrough[d] = SkipKind.simple; }
                 }
-                if (junk.Count > 0) Log.Info($"VÔ NGHĨA[{region.name}] bỏ hẳn: {string.Join(" ⏎ ", junk)}");
-                if (fresh.Count == 0) { Hold(0.4); return; }
+                if (junk.Count > 0)
+                {
+                    Log.Info($"VÔ NGHĨA[{region.name}] bỏ hẳn: {string.Join(" ⏎ ", junk)}");
+                    foreach (var d in junk) { Skipped(SkipKind.junk, d); passthrough[d] = SkipKind.junk; }
+                }
             }
+        }
+        if (fresh.Count == 0 && passthrough.Count > 0)
+        {
+            onText?.Invoke(ordered.Where(passthrough.ContainsKey).Select(t => new SubLine(t, passthrough[t])).ToList(), region);
+            Hold(0.4);
+            return;
         }
         if (fresh.Count == 0)
         {
@@ -381,12 +405,19 @@ public sealed class RegionWorker
         // Học cỡ chữ phụ đề từ những hàng chắc chắn là lời thoại (từ 4 từ trở lên).
         var sure = r.lines.Zip(r.lineHeights).Where(p => TextUtils.WordCount(p.First) >= 4).Select(p => p.Second).ToList();
         if (sure.Count > 0) { var h = sure.Max(); subtitleHeight = subtitleHeight is double s ? s * 0.7 + h * 0.3 : h; }
-        onText?.Invoke(string.Join("\n", fresh), region);
+        onText?.Invoke(ordered.Where(t => passthrough.ContainsKey(t) || fresh.Contains(t))
+                              .Select(t => new SubLine(t, passthrough.TryGetValue(t, out var k) ? k : null)).ToList(), region);
         Hold(HoldAfterSubtitle(string.Join(" ", fresh), lag));
     }
 
+    /// Ghi vào tab "Bị bỏ qua" để người dùng xem lại bộ lọc có bỏ nhầm câu thoại không.
+    void Skipped(SkipKind kind, string text, string reason = "") => SkipLog.Add(kind, text, region.name, profileID, reason);
+
     static string Head(string s, int n) => s.Length > n ? s[..n] : s;
 }
+
+/// Một câu phụ đề mới OCR được. `skip` khác null: câu bị bỏ qua (không dịch, không đọc, không hiện).
+public sealed record SubLine(string text, SkipKind? skip);
 
 /// Bản dịch mới nhất của một khu vực dịch thêm, hiện ngay tại khung đó trên hình PS5.
 public sealed record RegionCaption(string source, string translated, DateTime at);
@@ -455,16 +486,11 @@ public sealed class Pipeline : INotifyPropertyChanged
         foreach (var r in regions)
         {
             var w = new RegionWorker(r, settings);
-            w.onText = (text, region) => App.RunOnUI(() =>
+            w.onText = (lines, region) => App.RunOnUI(() =>
             {
                 if (queueGeneration != gen) return;
                 skippedUI.Remove(region.id);
-                Submit(text, region);
-            });
-            w.onSkipped = (text, region) => App.RunOnUI(() =>
-            {
-                if (queueGeneration != gen) return;
-                LogSkipped(text, region);
+                Submit(lines, region);
             });
             w.onCaptureError = msg => App.RunOnUI(() =>
             {
@@ -591,7 +617,7 @@ public sealed class Pipeline : INotifyPropertyChanged
             var a = await analyzer.Analyze(regions);
             App.RunOnUI(() =>
             {
-                if (a != null) { if (settings.overlayOn) overlay.Hud($"Xong: {(a.summary.Length > 120 ? a.summary[..120] : a.summary)}", 8); }
+                if (a != null) { if (settings.overlayOn) overlay.Hud($"Xong: {Head(a.headline, 120)}", 8); }
                 else if (analyzer.lastError is string e && settings.overlayOn) overlay.Hud($"Không phân tích được: {e}", 4);
             });
         });
@@ -608,7 +634,7 @@ public sealed class Pipeline : INotifyPropertyChanged
     // Mỗi câu thoại là một việc có số thứ tự. Việc được dịch lần lượt hoặc song song tuỳ engine,
     // nhưng luôn được ĐỌC đúng thứ tự: việc nào tới lượt mà đã dịch xong thì đọc ngay, không chờ cả khối.
 
-    record Job(int seq, string text, string? speakerName, Region region, int utterance, bool lastOfUtterance, bool firstOfBatch, string fullSource);
+    record Job(int seq, string text, string? speakerName, Region region, int utterance, bool lastOfUtterance, bool firstOfBatch, string fullSource, SkipKind? skip);
 
     int jobSeq, utteranceSeq, nextToEmit, inFlight;
     readonly List<Job> pendingJobs = new();
@@ -622,7 +648,7 @@ public sealed class Pipeline : INotifyPropertyChanged
     DateTime lastSubmitAt = DateTime.UtcNow;
 
     /// `batch` có thể gồm nhiều câu thoại (ngăn bởi xuống dòng) khi hai người nói hiện cùng lúc.
-    void Submit(string batch, Region region)
+    void Submit(List<SubLine> batch, Region region)
     {
         lastSubmitAt = DateTime.UtcNow;
         if (settings.queueMode == QueueMode.latestWins)
@@ -632,8 +658,9 @@ public sealed class Pipeline : INotifyPropertyChanged
             pendingJobs.Clear();
         }
         bool first = true;
-        foreach (var rawText in batch.Split('\n'))
+        foreach (var line in batch)
         {
+            var rawText = line.text;
             var text = rawText;
             string? speakerName = null;
             if (settings.showsSpeakerNames && !region.extra)
@@ -645,9 +672,9 @@ public sealed class Pipeline : INotifyPropertyChanged
                 if (text != rawText) Log.Info($"Chuẩn hoá tên người nói: {Head(rawText, 40)} → {Head(text, 40)}");
             }
             utteranceSeq++;
-            pendingJobs.Add(new Job(jobSeq, text, speakerName, region, utteranceSeq, true, first, text));
+            pendingJobs.Add(new Job(jobSeq, text, speakerName, region, utteranceSeq, true, first && line.skip == null, text, line.skip));
             jobSeq++;
-            first = false;
+            if (line.skip == null) first = false;
         }
         if (settings.voiceOn) { ApplyVoiceSettings(); speaker.Prewarm(); }
         Pump();
@@ -662,6 +689,12 @@ public sealed class Pipeline : INotifyPropertyChanged
         {
             var job = pendingJobs[0];
             pendingJobs.RemoveAt(0);
+            if (job.skip != null)
+            {
+                finished[job.seq] = (job, new TranslationRouter.Output(job.text, BackendKind.skipped, 0));
+                Drain();
+                continue;
+            }
             inFlight++;
             int gen = queueGeneration;
             _ = Task.Run(async () =>
@@ -694,6 +727,14 @@ public sealed class Pipeline : INotifyPropertyChanged
 
     void Emit(Job job, TranslationRouter.Output outp)
     {
+        // Câu bị bỏ qua (cảm thán, đơn giản, vô nghĩa): không hiện, không đọc; chỉ giữ lại để ghi nhật ký.
+        if (job.skip != null)
+        {
+            if (!utteranceParts.TryGetValue(job.utterance, out var sp)) utteranceParts[job.utterance] = sp = new();
+            sp.Add(outp.text);
+            utteranceBackend[job.utterance] = outp.backend;
+            return;
+        }
         if (job.region.extra)
         {
             // Khu vực dịch thêm: chỉ hiện bản dịch ngay tại khung (không vào dải phụ đề chung, không đọc, không gửi web / TV).
@@ -747,31 +788,16 @@ public sealed class Pipeline : INotifyPropertyChanged
         if (!utteranceParts.Remove(job.utterance, out var parts) || parts.Count == 0) return;
         utteranceMs.Remove(job.utterance, out var ms);
         var backend = utteranceBackend.Remove(job.utterance, out var b) ? b : BackendKind.google;
+        if (job.skip is SkipKind.junk or SkipKind.interjection) return;   // chỉ câu đơn giản được ghi vào nhật ký phụ đề
         HistoryStore.shared.Add(job.region.name, job.fullSource, string.Join(" ", parts), backend, ms,
                                 RegionKind.subtitle, settings.targetLanguage, HistoryStore.ProfileKey(settings.activeProfile.id));
-    }
-
-    /// Câu quá đơn giản: ghi nguyên câu gốc vào nhật ký (không dịch, không đọc, không hiện overlay).
-    void LogSkipped(string batch, Region region)
-    {
-        foreach (var raw in batch.Split('\n'))
-        {
-            var text = raw;
-            if (settings.showsSpeakerNames && !region.extra)
-            {
-                if (SpeakerNames.Learn(raw) is string name) settings.LearnSpeaker(name);
-                text = SpeakerNames.Normalize(raw, settings.speakers).text;
-            }
-            HistoryStore.shared.Add(region.name, text, text, BackendKind.skipped, 0, RegionKind.subtitle,
-                                    settings.targetLanguage, HistoryStore.ProfileKey(settings.activeProfile.id));
-        }
     }
 
     /// Dùng cho cờ kiểm thử --feed: đưa thẳng văn bản vào hàng đợi dịch như thể OCR vừa đọc được.
     public void TestFeed(string batch)
     {
         var r = settings.subtitleRegions.FirstOrDefault() ?? new Region { name = "Test", width = 1, height = 1 };
-        Submit(batch, r);
+        Submit(batch.Split('\n').Select(s => new SubLine(s, null)).ToList(), r);
     }
 
     void ResetQueue()
